@@ -11,14 +11,19 @@ Human Router plans pedestrian access/egress and public-transport journeys. Perso
 - MCC — Moscow Central Circle.
 - MCD — Moscow Central Diameters; must only be enabled when timetable/headway data is backed by a real source.
 - TRAIN — suburban/commuter rail outside the MCD abstraction; must use real timetable data.
-- RIVER — regular urban river transport; leisure/cruise services are not part of normal commuter routing.
 
 ## Explicitly excluded
 
 - bicycles and bike sharing;
 - scooters/e-scooters and kick-scooter sharing;
 - private cars, taxis and car sharing;
-- leisure river cruises and sightseeing routes.
+- river transport.
+
+## Metro operating constraints
+
+- Station access and interchange availability is treated as approximately 05:30–01:00 Moscow time.
+- Published first-train departures vary by station (roughly 05:28–06:05), so early-morning exact routing must not pretend that every station has a train immediately at 05:30.
+- A published 90-second interval is a peak-period value, not a universal all-day headway. Until a structured line/time-of-day feed is available, metro waits remain modeled with explicit uncertainty rather than treated as exact timetable departures.
 
 ## Data-quality rule
 
