@@ -1,6 +1,9 @@
 package app.humanrouter
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
@@ -9,6 +12,14 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
@@ -66,7 +77,7 @@ class MainActivity : AppCompatActivity() {
             status.text = "Выберите точки «Откуда» и «Куда»"
             loadingPanel.visibility = View.VISIBLE
         }
-        retryButton.setOnClickListener { startRuntimeInstall() }
+        retryButton.setOnClickListener { enqueueRuntimeDownload(replace = true) }
         settingsButton.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
@@ -75,7 +86,88 @@ class MainActivity : AppCompatActivity() {
         navHandle.setOnClickListener { toggleNavDrawer() }
         attachLeftEdgeSwipe()
 
-        startRuntimeInstall()
+        requestNotificationPermissionIfNeeded()
+        observeRuntimeDownload()
+        enqueueRuntimeDownload(replace = false)
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                4107
+            )
+        }
+    }
+
+    private fun enqueueRuntimeDownload(replace: Boolean) {
+        runtimeReady = false
+        retryButton.visibility = View.GONE
+        loadingPanel.visibility = View.VISIBLE
+        navHandle.visibility = View.GONE
+        closeDrawer(bottomNav)
+        progress.progress = 0
+        status.text = "Проверяем данные…"
+        progressText.text = "0%"
+
+        val request = OneTimeWorkRequestBuilder<RuntimeDownloadWorker>()
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
+            .build()
+
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            RuntimeDownloadWorker.UNIQUE_WORK,
+            if (replace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
+            request
+        )
+    }
+
+    private fun observeRuntimeDownload() {
+        WorkManager.getInstance(this)
+            .getWorkInfosForUniqueWorkLiveData(RuntimeDownloadWorker.UNIQUE_WORK)
+            .observe(this) { infos ->
+                val info = infos.lastOrNull() ?: return@observe
+                when (info.state) {
+                    WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> {
+                        loadingPanel.visibility = View.VISIBLE
+                        status.text = "Ожидаем сеть…"
+                    }
+                    WorkInfo.State.RUNNING -> {
+                        loadingPanel.visibility = View.VISIBLE
+                        retryButton.visibility = View.GONE
+                        val p = info.progress
+                        val percent = p.getInt(RuntimeDownloadWorker.KEY_PERCENT, 0)
+                        progress.progress = percent
+                        progressText.text = "$percent%"
+                        status.text = p.getString(RuntimeDownloadWorker.KEY_MESSAGE) ?: "Загружаем данные…"
+                    }
+                    WorkInfo.State.SUCCEEDED -> {
+                        runtimeReady = true
+                        progress.progress = 100
+                        progressText.text = "100%"
+                        loadingPanel.visibility = View.GONE
+                        navHandle.visibility = View.VISIBLE
+                    }
+                    WorkInfo.State.FAILED -> {
+                        runtimeReady = false
+                        loadingPanel.visibility = View.VISIBLE
+                        status.text = "Ошибка данных: ${info.outputData.getString(RuntimeDownloadWorker.KEY_ERROR) ?: "неизвестно"}"
+                        retryButton.visibility = View.VISIBLE
+                    }
+                    WorkInfo.State.CANCELLED -> {
+                        runtimeReady = false
+                        loadingPanel.visibility = View.VISIBLE
+                        status.text = "Загрузка остановлена"
+                        retryButton.visibility = View.VISIBLE
+                    }
+                }
+            }
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
@@ -173,39 +265,6 @@ class MainActivity : AppCompatActivity() {
                 else -> true
             }
         }
-    }
-
-    private fun startRuntimeInstall() {
-        runtimeReady = false
-        retryButton.visibility = View.GONE
-        loadingPanel.visibility = View.VISIBLE
-        navHandle.visibility = View.GONE
-        closeDrawer(bottomNav)
-        progress.progress = 0
-        status.text = "Проверяем данные…"
-        progressText.text = "0%"
-
-        Thread {
-            runCatching {
-                RuntimeInstaller.install(this) { p ->
-                    runOnUiThread {
-                        progress.progress = p.percent
-                        status.text = p.message
-                        progressText.text = "${p.percent}%"
-                        if (p.done) {
-                            runtimeReady = true
-                            loadingPanel.visibility = View.GONE
-                            navHandle.visibility = View.VISIBLE
-                        }
-                    }
-                }
-            }.onFailure { error ->
-                runOnUiThread {
-                    status.text = "Ошибка данных: ${error.message ?: "неизвестно"}"
-                    retryButton.visibility = View.VISIBLE
-                }
-            }
-        }.start()
     }
 
     override fun onStart() { super.onStart(); mapView.onStart() }
