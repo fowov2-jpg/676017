@@ -18,9 +18,15 @@ object RuntimeInstaller {
         val done: Boolean = false
     )
 
-    fun install(context: Context, onProgress: (Progress) -> Unit) {
+    fun install(
+        context: Context,
+        shouldStop: () -> Boolean = { false },
+        onProgress: (Progress) -> Unit
+    ) {
+        if (shouldStop()) return
         val base = BuildConfig.RUNTIME_BASE_URL
         val manifestText = readText(base + "manifest.json")
+        if (shouldStop()) return
         val manifest = JSONObject(manifestText)
         val packs = manifest.getJSONArray("packs")
         val totalBytes = manifest.getLong("total_download_bytes")
@@ -28,6 +34,7 @@ object RuntimeInstaller {
         var completedBytes = 0L
 
         for (i in 0 until packs.length()) {
+            if (shouldStop()) return
             val pack = packs.getJSONObject(i)
             val name = pack.getString("file")
             val installAs = pack.getString("install_as")
@@ -48,6 +55,7 @@ object RuntimeInstaller {
                         tmp.outputStream().buffered().use { output ->
                             val buffer = ByteArray(256 * 1024)
                             while (true) {
+                                if (shouldStop()) return
                                 val n = input.read(buffer)
                                 if (n <= 0) break
                                 output.write(buffer, 0, n)
@@ -67,6 +75,7 @@ object RuntimeInstaller {
                 check(tmp.renameTo(cached)) { "Cannot save $name" }
             }
 
+            if (shouldStop()) return
             completedBytes += expectedBytes
             val installed = File(root, installAs)
             installed.parentFile?.mkdirs()
@@ -92,6 +101,7 @@ object RuntimeInstaller {
             onProgress(Progress(percent, completedBytes, totalBytes, "Готово ${i + 1} из ${packs.length()}"))
         }
 
+        if (shouldStop()) return
         File(root, "manifest.json").writeText(manifestText)
         onProgress(Progress(100, totalBytes, totalBytes, "Данные Москвы готовы", done = true))
     }
