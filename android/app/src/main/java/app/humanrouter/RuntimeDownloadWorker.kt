@@ -1,0 +1,111 @@
+package app.humanrouter
+
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.work.Data
+import androidx.work.ForegroundInfo
+import androidx.work.Worker
+import androidx.work.WorkerParameters
+
+class RuntimeDownloadWorker(
+    appContext: Context,
+    params: WorkerParameters
+) : Worker(appContext, params) {
+
+    override fun doWork(): Result {
+        createNotificationChannel()
+        setForegroundAsync(createForegroundInfo(0, "Подготавливаем данные…")).get()
+
+        return runCatching {
+            RuntimeInstaller.install(applicationContext) { p ->
+                val progress = Data.Builder()
+                    .putInt(KEY_PERCENT, p.percent)
+                    .putLong(KEY_DOWNLOADED, p.downloadedBytes)
+                    .putLong(KEY_TOTAL, p.totalBytes)
+                    .putString(KEY_MESSAGE, p.message)
+                    .putBoolean(KEY_DONE, p.done)
+                    .build()
+                setProgressAsync(progress)
+                setForegroundAsync(createForegroundInfo(p.percent, p.message))
+            }
+            Result.success(
+                Data.Builder()
+                    .putBoolean(KEY_DONE, true)
+                    .putInt(KEY_PERCENT, 100)
+                    .putString(KEY_MESSAGE, "Данные готовы")
+                    .build()
+            )
+        }.getOrElse { error ->
+            Result.failure(
+                Data.Builder()
+                    .putString(KEY_ERROR, error.message ?: "Неизвестная ошибка")
+                    .build()
+            )
+        }
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID,
+                    "Загрузка данных Human Router",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "Фоновая загрузка и обновление транспортных данных"
+                    setShowBadge(false)
+                }
+            )
+        }
+    }
+
+    private fun createForegroundInfo(percent: Int, message: String): ForegroundInfo {
+        val intent = Intent(applicationContext, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            applicationContext,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle("Human Router · данные Москвы")
+            .setContentText(message)
+            .setContentIntent(pendingIntent)
+            .setOnlyAlertOnce(true)
+            .setOngoing(percent < 100)
+            .setProgress(100, percent.coerceIn(0, 100), false)
+            .build()
+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            ForegroundInfo(NOTIFICATION_ID, notification)
+        }
+    }
+
+    companion object {
+        const val UNIQUE_WORK = "runtime-download"
+        const val KEY_PERCENT = "percent"
+        const val KEY_DOWNLOADED = "downloaded"
+        const val KEY_TOTAL = "total"
+        const val KEY_MESSAGE = "message"
+        const val KEY_DONE = "done"
+        const val KEY_ERROR = "error"
+
+        private const val CHANNEL_ID = "runtime_download"
+        private const val NOTIFICATION_ID = 4107
+    }
+}
