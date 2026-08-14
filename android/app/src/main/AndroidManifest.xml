@@ -13,8 +13,8 @@
         android:name=".HumanRouterApp"
         android:theme="@style/Theme.HumanRouter"
         android:label="@string/app_name"
-        android:icon="@mipmap/ic_vremyahodom"
-        android:roundIcon="@mipmap/ic_vremyahodom"
+        android:icon="@mipmap/ic_vremyahodom_logo"
+        android:roundIcon="@mipmap/ic_vremyahodom_logo"
         android:allowBackup="false"
         android:supportsRtl="true">
         <service
