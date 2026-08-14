@@ -65,4 +65,5 @@ jobs:
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --title "Human Router runtime $TAG" --notes "Verified Human Router runtime. Version: $VERSION"
           fi
-          gh release upload "$TAG" runtime/* manifest.json --clobber
+          mapfile -t ASSETS < <(find runtime -maxdepth 1 -type f ! -name manifest.json -print | sort)
+          gh release upload "$TAG" "${ASSETS[@]}" manifest.json --clobber
