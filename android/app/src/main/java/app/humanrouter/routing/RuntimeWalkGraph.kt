@@ -3,7 +3,9 @@ package app.humanrouter.routing
 import java.io.File
 import java.util.PriorityQueue
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -26,6 +28,14 @@ internal class RuntimeWalkGraph private constructor(
     private val revTargets = NpyArrays.uint32(File(root, "rev_targets.npy"))
     private val revSeconds = NpyArrays.uint16(File(root, "rev_seconds.npy"))
     private val revMeters = NpyArrays.uint16(File(root, "rev_meters.npy"))
+
+    // Spatial lookup already shipped in the runtime. We derive our own stable cell keys from
+    // representative nodes instead of depending on the producer's private key packing.
+    private val gridOffsets = NpyArrays.uint64(File(root, "grid_offsets.npy"))
+    private val gridNodes = NpyArrays.uint32(File(root, "grid_nodes.npy"))
+    private val gridCellKeys: LongArray
+    private val gridCellIndices: IntArray
+
     private val stopIndex = StopWalkIndex.load(File(root.parentFile, "surface/stop_walk_nodes.npz"))
 
     private val distSeconds = IntArray(latE7.size)
@@ -40,27 +50,87 @@ internal class RuntimeWalkGraph private constructor(
         require(revOffsets.size == latE7.size + 1)
         require(targets.size == edgeSeconds.size && targets.size == edgeMeters.size)
         require(revTargets.size == revSeconds.size && revTargets.size == revMeters.size)
+        require(gridOffsets.size >= 2)
+        require(gridNodes.size == latE7.size)
+
+        val cellCount = gridOffsets.size - 1
+        gridCellKeys = LongArray(cellCount)
+        gridCellIndices = IntArray(cellCount)
+        var usable = 0
+        for (cell in 0 until cellCount) {
+            val from = gridOffsets[cell].toInt()
+            val until = gridOffsets[cell + 1].toInt()
+            if (from >= until) continue
+            val node = gridNodes[from]
+            gridCellKeys[usable] = packCell(
+                Math.floorDiv(latE7[node], GRID_CELL_E7),
+                Math.floorDiv(lonE7[node], GRID_CELL_E7)
+            )
+            gridCellIndices[usable] = cell
+            usable++
+        }
+        if (usable != cellCount) {
+            error("Walk grid contains empty cells")
+        }
+        sortGridLookup(0, gridCellKeys.lastIndex)
     }
 
     @Synchronized
-    fun stopCostsFrom(point: GeoPoint, maxSeconds: Int, maxMeters: Int): Map<Int, WalkCost> {
+    fun stopCostsFrom(
+        point: GeoPoint,
+        maxSeconds: Int,
+        maxMeters: Int,
+        limit: Int = Int.MAX_VALUE
+    ): Map<Int, WalkCost> {
         val snap = snap(point)
         return dijkstraStops(
             start = snap,
             maxSeconds = maxSeconds,
             maxMeters = maxMeters,
-            reverse = false
+            reverse = false,
+            limit = limit,
+            excludedStopId = null
         )
     }
 
     @Synchronized
-    fun stopCostsTo(point: GeoPoint, maxSeconds: Int, maxMeters: Int): Map<Int, WalkCost> {
+    fun stopCostsTo(
+        point: GeoPoint,
+        maxSeconds: Int,
+        maxMeters: Int,
+        limit: Int = Int.MAX_VALUE
+    ): Map<Int, WalkCost> {
         val snap = snap(point)
         return dijkstraStops(
             start = snap,
             maxSeconds = maxSeconds,
             maxMeters = maxMeters,
-            reverse = true
+            reverse = true,
+            limit = limit,
+            excludedStopId = null
+        )
+    }
+
+    @Synchronized
+    fun stopCostsFromStop(
+        stopId: Int,
+        maxSeconds: Int,
+        maxMeters: Int,
+        limit: Int
+    ): Map<Int, WalkCost> {
+        if (limit <= 0) return emptyMap()
+        val stop = stopIndex.byStopId[stopId] ?: return emptyMap()
+        return dijkstraStops(
+            start = Snap(
+                node = stop.walkNode,
+                meters = stop.snapMeters,
+                seconds = walkingSeconds(stop.snapMeters)
+            ),
+            maxSeconds = maxSeconds,
+            maxMeters = maxMeters,
+            reverse = false,
+            limit = limit,
+            excludedStopId = stopId
         )
     }
 
@@ -85,7 +155,11 @@ internal class RuntimeWalkGraph private constructor(
             if (current.node == target.node) {
                 val seconds = current.seconds + target.seconds
                 val meters = current.meters + target.meters
-                return if (seconds <= maxSeconds && meters <= maxMeters) WalkCost(seconds, meters) else null
+                return if (seconds <= maxSeconds && meters <= maxMeters) {
+                    WalkCost(seconds, meters)
+                } else {
+                    null
+                }
             }
             relax(current, queue, reverse = false, maxSeconds = maxSeconds, maxMeters = maxMeters)
         }
@@ -96,35 +170,80 @@ internal class RuntimeWalkGraph private constructor(
         start: Snap,
         maxSeconds: Int,
         maxMeters: Int,
-        reverse: Boolean
+        reverse: Boolean,
+        limit: Int,
+        excludedStopId: Int?
     ): Map<Int, WalkCost> {
+        if (limit <= 0) return emptyMap()
+
         beginSearch()
-        val result = HashMap<Int, WalkCost>(128)
+        val initialCapacity = if (limit == Int.MAX_VALUE) 128 else (limit * 2).coerceAtLeast(16)
+        val result = HashMap<Int, WalkCost>(initialCapacity)
         val queue = PriorityQueue(compareBy<QueueNode> { it.seconds }.thenBy { it.meters })
         setDistance(start.node, start.seconds, start.meters)
         queue += QueueNode(start.node, start.seconds, start.meters)
+        var cutoffSeconds = maxSeconds
 
         while (queue.isNotEmpty()) {
             val current = queue.remove()
             if (!isCurrent(current)) continue
             if (current.seconds > maxSeconds || current.meters > maxMeters) continue
+            if (result.size >= limit && current.seconds > cutoffSeconds) break
 
             stopIndex.byWalkNode[current.node]?.forEach { stop ->
-                val snapMeters = stop.snapMeters
-                val totalMeters = current.meters + snapMeters
-                val totalSeconds = current.seconds + walkingSeconds(snapMeters)
-                if (totalMeters <= maxMeters && totalSeconds <= maxSeconds) {
-                    val existing = result[stop.stopId]
-                    if (existing == null || totalSeconds < existing.seconds ||
-                        (totalSeconds == existing.seconds && totalMeters < existing.meters)
-                    ) {
-                        result[stop.stopId] = WalkCost(totalSeconds, totalMeters)
+                if (stop.stopId == excludedStopId) return@forEach
+
+                val totalMeters = current.meters + stop.snapMeters
+                val totalSeconds = current.seconds + walkingSeconds(stop.snapMeters)
+                if (totalMeters > maxMeters || totalSeconds > maxSeconds) return@forEach
+
+                val candidate = WalkCost(totalSeconds, totalMeters)
+                val existing = result[stop.stopId]
+                if (existing == null || isBetter(candidate, existing)) {
+                    result[stop.stopId] = candidate
+                    if (limit != Int.MAX_VALUE && result.size > limit) {
+                        removeWorst(result)
+                    }
+                    if (result.size >= limit && limit != Int.MAX_VALUE) {
+                        cutoffSeconds = result.values.maxOf { it.seconds }
                     }
                 }
             }
-            relax(current, queue, reverse, maxSeconds, maxMeters)
+
+            val effectiveMaxSeconds = if (result.size >= limit && limit != Int.MAX_VALUE) {
+                min(maxSeconds, cutoffSeconds)
+            } else {
+                maxSeconds
+            }
+            relax(
+                current,
+                queue,
+                reverse = reverse,
+                maxSeconds = effectiveMaxSeconds,
+                maxMeters = maxMeters
+            )
         }
         return result
+    }
+
+    private fun isBetter(candidate: WalkCost, existing: WalkCost): Boolean =
+        candidate.seconds < existing.seconds ||
+            (candidate.seconds == existing.seconds && candidate.meters < existing.meters)
+
+    private fun removeWorst(result: MutableMap<Int, WalkCost>) {
+        var worstId: Int? = null
+        var worst: WalkCost? = null
+        for ((id, cost) in result) {
+            val currentWorst = worst
+            if (currentWorst == null ||
+                cost.seconds > currentWorst.seconds ||
+                (cost.seconds == currentWorst.seconds && cost.meters > currentWorst.meters)
+            ) {
+                worstId = id
+                worst = cost
+            }
+        }
+        worstId?.let(result::remove)
     }
 
     private fun relax(
@@ -140,11 +259,13 @@ internal class RuntimeWalkGraph private constructor(
         val graphMeters = if (reverse) revMeters else edgeMeters
         val from = graphOffsets[current.node].toInt()
         val until = graphOffsets[current.node + 1].toInt()
+
         for (edge in from until until) {
             val target = graphTargets[edge]
             val seconds = current.seconds + graphSeconds[edge]
             val meters = current.meters + graphMeters[edge]
             if (seconds > maxSeconds || meters > maxMeters) continue
+
             val oldSeconds = distanceSeconds(target)
             val oldMeters = distanceMeters(target)
             if (seconds < oldSeconds || (seconds == oldSeconds && meters < oldMeters)) {
@@ -180,11 +301,100 @@ internal class RuntimeWalkGraph private constructor(
             distMeters[item.node] == item.meters
 
     private fun snap(point: GeoPoint): Snap {
-        val key = snapKey(point)
-        snapCache[key]?.let { return it }
+        val cacheKey = snapKey(point)
+        snapCache[cacheKey]?.let { return it }
+
         val targetLat = (point.lat * 10_000_000.0).roundToInt()
         val targetLon = (point.lon * 10_000_000.0).roundToInt()
-        val lonScale = cos(point.lat * PI / 180.0)
+        val lonScale = cos(point.lat * PI / 180.0).coerceAtLeast(0.01)
+
+        val node = nearestNodeFromGrid(targetLat, targetLon, lonScale)
+        val dLat = (latE7[node] - targetLat).toDouble()
+        val dLon = (lonE7[node] - targetLon).toDouble() * lonScale
+        val meters = (sqrt(dLat * dLat + dLon * dLon) * METERS_PER_E7)
+            .roundToInt()
+            .coerceAtLeast(0)
+
+        val snap = Snap(node, meters, walkingSeconds(meters))
+        snapCache[cacheKey] = snap
+        if (snapCache.size > SNAP_CACHE_SIZE) {
+            snapCache.remove(snapCache.entries.first().key)
+        }
+        return snap
+    }
+
+    private fun nearestNodeFromGrid(targetLat: Int, targetLon: Int, lonScale: Double): Int {
+        val baseLatCell = Math.floorDiv(targetLat, GRID_CELL_E7)
+        val baseLonCell = Math.floorDiv(targetLon, GRID_CELL_E7)
+        var bestNode = -1
+        var bestSquared = Double.POSITIVE_INFINITY
+
+        for (ring in 0..MAX_GRID_RING) {
+            for (dx in -ring..ring) {
+                for (dy in -ring..ring) {
+                    if (ring > 0 && abs(dx) != ring && abs(dy) != ring) continue
+                    val cell = findGridCell(baseLatCell + dx, baseLonCell + dy)
+                    if (cell < 0) continue
+
+                    val from = gridOffsets[cell].toInt()
+                    val until = gridOffsets[cell + 1].toInt()
+                    for (position in from until until) {
+                        val node = gridNodes[position]
+                        val dLat = (latE7[node] - targetLat).toDouble()
+                        val dLon = (lonE7[node] - targetLon).toDouble() * lonScale
+                        val squared = dLat * dLat + dLon * dLon
+                        if (squared < bestSquared) {
+                            bestSquared = squared
+                            bestNode = node
+                        }
+                    }
+                }
+            }
+
+            if (bestNode >= 0) {
+                val minOutside = minimumDistanceOutsideRingE7(
+                    targetLat = targetLat,
+                    targetLon = targetLon,
+                    baseLatCell = baseLatCell,
+                    baseLonCell = baseLonCell,
+                    ring = ring,
+                    lonScale = lonScale
+                )
+                if (sqrt(bestSquared) <= minOutside) {
+                    return bestNode
+                }
+            }
+        }
+
+        // Correctness fallback for a point well outside the indexed runtime boundary.
+        return bruteForceNearestNode(targetLat, targetLon, lonScale)
+    }
+
+    private fun minimumDistanceOutsideRingE7(
+        targetLat: Int,
+        targetLon: Int,
+        baseLatCell: Int,
+        baseLonCell: Int,
+        ring: Int,
+        lonScale: Double
+    ): Double {
+        val lowLat = (baseLatCell - ring).toLong() * GRID_CELL_E7
+        val highLat = (baseLatCell + ring + 1L) * GRID_CELL_E7
+        val lowLon = (baseLonCell - ring).toLong() * GRID_CELL_E7
+        val highLon = (baseLonCell + ring + 1L) * GRID_CELL_E7
+
+        val latGap = min(
+            abs(targetLat.toLong() - lowLat).toDouble(),
+            abs(highLat - targetLat.toLong()).toDouble()
+        )
+        val lonGap = min(
+            abs(targetLon.toLong() - lowLon).toDouble(),
+            abs(highLon - targetLon.toLong()).toDouble()
+        ) * lonScale
+        return min(latGap, lonGap)
+    }
+
+    private fun bruteForceNearestNode(targetLat: Int, targetLon: Int, lonScale: Double): Int {
         var bestNode = 0
         var bestSquared = Double.POSITIVE_INFINITY
         for (node in 0 until latE7.size) {
@@ -196,12 +406,52 @@ internal class RuntimeWalkGraph private constructor(
                 bestNode = node
             }
         }
-        val meters = (sqrt(bestSquared) * METERS_PER_E7).roundToInt().coerceAtLeast(0)
-        val snap = Snap(bestNode, meters, walkingSeconds(meters))
-        snapCache[key] = snap
-        if (snapCache.size > 64) snapCache.remove(snapCache.entries.first().key)
-        return snap
+        return bestNode
     }
+
+    private fun findGridCell(latCell: Int, lonCell: Int): Int {
+        val key = packCell(latCell, lonCell)
+        var low = 0
+        var high = gridCellKeys.lastIndex
+        while (low <= high) {
+            val mid = (low + high) ushr 1
+            val value = gridCellKeys[mid]
+            when {
+                value < key -> low = mid + 1
+                value > key -> high = mid - 1
+                else -> return gridCellIndices[mid]
+            }
+        }
+        return -1
+    }
+
+    private fun sortGridLookup(left: Int, right: Int) {
+        if (left >= right) return
+        var i = left
+        var j = right
+        val pivot = gridCellKeys[(left + right) ushr 1]
+
+        while (i <= j) {
+            while (gridCellKeys[i] < pivot) i++
+            while (gridCellKeys[j] > pivot) j--
+            if (i <= j) {
+                val key = gridCellKeys[i]
+                gridCellKeys[i] = gridCellKeys[j]
+                gridCellKeys[j] = key
+
+                val index = gridCellIndices[i]
+                gridCellIndices[i] = gridCellIndices[j]
+                gridCellIndices[j] = index
+                i++
+                j--
+            }
+        }
+        if (left < j) sortGridLookup(left, j)
+        if (i < right) sortGridLookup(i, right)
+    }
+
+    private fun packCell(latCell: Int, lonCell: Int): Long =
+        (latCell.toLong() shl 32) xor (lonCell.toLong() and 0xffffffffL)
 
     private fun snapKey(point: GeoPoint): Long {
         val lat = (point.lat * 100_000.0).roundToInt()
@@ -210,19 +460,30 @@ internal class RuntimeWalkGraph private constructor(
     }
 
     private fun walkingSeconds(meters: Int): Int =
-        if (meters <= 0) 0 else (meters / preferences.walkingSpeedMetersPerSecond).roundToInt().coerceAtLeast(1)
+        if (meters <= 0) {
+            0
+        } else {
+            (meters / preferences.walkingSpeedMetersPerSecond).roundToInt().coerceAtLeast(1)
+        }
 
     companion object {
         private const val INF = Int.MAX_VALUE / 4
         private const val METERS_PER_E7 = 0.011132
+        private const val GRID_CELL_E7 = 20_000
+        private const val MAX_GRID_RING = 8
+        private const val SNAP_CACHE_SIZE = 64
 
         fun openOrNull(runtimeRoot: File, preferences: RoutePreferences): RuntimeWalkGraph? {
             val root = File(runtimeRoot, "walk_graph")
             val required = listOf(
-                "lat_e7.npy", "lon_e7.npy", "offsets.npy", "targets.npy", "seconds.npy", "meters.npy",
-                "rev_offsets.npy", "rev_targets.npy", "rev_seconds.npy", "rev_meters.npy"
+                "lat_e7.npy", "lon_e7.npy",
+                "offsets.npy", "targets.npy", "seconds.npy", "meters.npy",
+                "rev_offsets.npy", "rev_targets.npy", "rev_seconds.npy", "rev_meters.npy",
+                "grid_offsets.npy", "grid_nodes.npy"
             )
-            if (required.any { !File(root, it).exists() } || !File(runtimeRoot, "surface/stop_walk_nodes.npz").exists()) {
+            if (required.any { !File(root, it).exists() } ||
+                !File(runtimeRoot, "surface/stop_walk_nodes.npz").exists()
+            ) {
                 return null
             }
             return runCatching { RuntimeWalkGraph(root, preferences) }.getOrNull()

@@ -89,9 +89,12 @@ internal class SurfaceScheduleRepository(
     }
 
     /**
-     * Streams timetable connections in departure-time order. Returning false from [visitor]
-     * stops the scan early, which lets the router stop as soon as no later connection can beat
-     * the best known arrival.
+     * Streams timetable connections in departure-time order. The SQLite primary key already gives
+     * us an efficient dep-first scan, but equal-departure rows are not guaranteed to be in trip
+     * sequence order. We buffer only one departure second and sort that tiny group by trip/sequence.
+     * This preserves index streaming while making zero-duration consecutive segments safe.
+     *
+     * Returning false from [visitor] stops the scan early.
      */
     fun scanConnections(
         fromDepartureSec: Int,
@@ -107,6 +110,28 @@ internal class SurfaceScheduleRepository(
             """.trimIndent(),
             arrayOf(fromDepartureSec.toString(), toDepartureSec.toString())
         ).use { cursor ->
+            val group = ArrayList<SurfaceConnection>(128)
+            var currentDeparture: Int? = null
+            var keepGoing = true
+
+            fun flushGroup(): Boolean {
+                if (group.size > 1) {
+                    group.sortWith(
+                        compareBy<SurfaceConnection> { it.tripId }
+                            .thenBy { it.sequence }
+                            .thenBy { it.fromStopId }
+                    )
+                }
+                for (connection in group) {
+                    if (!visitor(connection)) {
+                        group.clear()
+                        return false
+                    }
+                }
+                group.clear()
+                return true
+            }
+
             while (cursor.moveToNext()) {
                 val connection = SurfaceConnection(
                     departureSec = cursor.getInt(0),
@@ -117,7 +142,22 @@ internal class SurfaceScheduleRepository(
                     arrivalSec = cursor.getInt(5),
                     routeId = cursor.getString(6)
                 )
-                if (!visitor(connection)) break
+
+                val departure = currentDeparture
+                if (departure != null && connection.departureSec != departure) {
+                    if (!flushGroup()) {
+                        keepGoing = false
+                        break
+                    }
+                    currentDeparture = connection.departureSec
+                } else if (departure == null) {
+                    currentDeparture = connection.departureSec
+                }
+                group += connection
+            }
+
+            if (keepGoing && group.isNotEmpty()) {
+                flushGroup()
             }
         }
     }

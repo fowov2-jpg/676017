@@ -12,9 +12,9 @@ import kotlin.math.sqrt
 
 /**
  * Connection Scan Algorithm over the official Moscow BUS/TRAM timetable.
- * Origin and destination walking use the installed OSM walking graph when available.
- * Short stop-to-stop transfers remain a conservative geometry fallback until transfer
- * footpaths are precomputed from the same OSM graph.
+ * Walking access, egress and stop-to-stop transfers use the installed OSM walking graph when
+ * available. The predecessor chain is immutable so a later, faster label cannot corrupt the path
+ * that was used to board an already-reachable trip.
  */
 internal class SurfaceCsaRouter(
     private val repository: SurfaceScheduleRepository,
@@ -61,23 +61,31 @@ internal class SurfaceCsaRouter(
                 maxSeconds = DIRECT_GRAPH_SEARCH_LIMIT_SECONDS,
                 maxMeters = DIRECT_GRAPH_SEARCH_LIMIT_METERS
             )
-        } else null
+        } else {
+            null
+        }
         val directMeters = exactDirect?.meters ?: geometricDirectMeters
         val directWalkSeconds = exactDirect?.seconds ?: walkingSeconds(directMeters)
+
         var bestArrivalSec = departureServiceSec + directWalkSeconds
         var bestStopIndex = -1
 
         val earliest = IntArray(stops.size) { INF }
-        val previous = arrayOfNulls<Previous>(stops.size)
+        val paths = arrayOfNulls<PathNode>(stops.size)
 
         for (link in accessLinks(origin)) {
             val arrival = departureServiceSec + link.seconds
             if (arrival < earliest[link.stopIndex]) {
                 earliest[link.stopIndex] = arrival
-                previous[link.stopIndex] = Previous.Access(
-                    departureSec = departureServiceSec,
-                    arrivalSec = arrival,
-                    meters = link.meters
+                paths[link.stopIndex] = PathNode(
+                    parent = null,
+                    step = RawStep.Walk(
+                        from = originPlace,
+                        to = stops[link.stopIndex].place(),
+                        departureSec = departureServiceSec,
+                        arrivalSec = arrival,
+                        meters = link.meters
+                    )
                 )
             }
         }
@@ -95,7 +103,7 @@ internal class SurfaceCsaRouter(
             }
         }
 
-        val boardedTrips = HashSet<String>(4_096)
+        val tripStates = HashMap<String, TripState>(4_096)
         val scanEnd = min(departureServiceSec + horizonSeconds, MAX_SERVICE_SEC)
 
         repository.scanConnections(departureServiceSec, scanEnd) { connection ->
@@ -103,21 +111,44 @@ internal class SurfaceCsaRouter(
 
             val fromIndex = stopIndexById[connection.fromStopId] ?: return@scanConnections true
             val toIndex = stopIndexById[connection.toStopId] ?: return@scanConnections true
-            val alreadyOnTrip = boardedTrips.contains(connection.tripId)
-            val ready = if (alreadyOnTrip) {
-                true
+
+            val existingState = tripStates[connection.tripId]
+            val state = if (existingState != null) {
+                if (connection.sequence < existingState.boardingSequence) {
+                    return@scanConnections true
+                }
+                existingState
             } else {
                 val knownArrival = earliest[fromIndex]
-                knownArrival != INF &&
-                    knownArrival + boardBufferSeconds(previous[fromIndex]) <= connection.departureSec
+                val boardingPath = paths[fromIndex] ?: return@scanConnections true
+                if (knownArrival == INF ||
+                    knownArrival + boardBufferSeconds(boardingPath) > connection.departureSec
+                ) {
+                    return@scanConnections true
+                }
+
+                TripState(
+                    boardingPath = boardingPath,
+                    boardingStopIndex = fromIndex,
+                    firstConnection = connection,
+                    boardingSequence = connection.sequence
+                ).also { tripStates[connection.tripId] = it }
             }
 
-            if (!ready) return@scanConnections true
-            boardedTrips.add(connection.tripId)
-
             if (connection.arrivalSec < earliest[toIndex]) {
+                val ridePath = PathNode(
+                    parent = state.boardingPath,
+                    step = RawStep.Ride(
+                        from = stops[state.boardingStopIndex].place(),
+                        to = stops[toIndex].place(),
+                        firstConnection = state.firstConnection,
+                        lastConnection = connection
+                    )
+                )
+
                 earliest[toIndex] = connection.arrivalSec
-                previous[toIndex] = Previous.Ride(fromIndex, connection)
+                paths[toIndex] = ridePath
+
                 egressByStop[toIndex]?.let { egress ->
                     val candidate = connection.arrivalSec + egress.seconds
                     if (candidate < bestArrivalSec) {
@@ -129,13 +160,19 @@ internal class SurfaceCsaRouter(
                 for (transfer in transferNeighbors(toIndex)) {
                     val transferArrival = connection.arrivalSec + transfer.seconds
                     if (transferArrival < earliest[transfer.stopIndex]) {
-                        earliest[transfer.stopIndex] = transferArrival
-                        previous[transfer.stopIndex] = Previous.Transfer(
-                            fromIndex = toIndex,
-                            departureSec = connection.arrivalSec,
-                            arrivalSec = transferArrival,
-                            meters = transfer.meters
+                        val transferPath = PathNode(
+                            parent = ridePath,
+                            step = RawStep.Walk(
+                                from = stops[toIndex].place(),
+                                to = stops[transfer.stopIndex].place(),
+                                departureSec = connection.arrivalSec,
+                                arrivalSec = transferArrival,
+                                meters = transfer.meters
+                            )
                         )
+                        earliest[transfer.stopIndex] = transferArrival
+                        paths[transfer.stopIndex] = transferPath
+
                         egressByStop[transfer.stopIndex]?.let { egress ->
                             val candidate = transferArrival + egress.seconds
                             if (candidate < bestArrivalSec) {
@@ -173,14 +210,36 @@ internal class SurfaceCsaRouter(
             )
         }
 
-        val rawSteps = reconstruct(
+        val terminalPath = paths[bestStopIndex]
+            ?: return Result(
+                fastest = RouteCandidate(
+                    id = "walk-$departureServiceSec",
+                    requestedDepartureEpochSec = serviceMidnightEpochSec + departureServiceSec,
+                    legs = listOf(
+                        RouteLeg(
+                            mode = TransportMode.WALK,
+                            from = originPlace,
+                            to = destinationPlace,
+                            departureEpochSec = serviceMidnightEpochSec + departureServiceSec,
+                            arrivalEpochSec = serviceMidnightEpochSec + departureServiceSec + directWalkSeconds,
+                            walkMeters = directMeters,
+                            uncertaintySeconds = if (exactDirect != null) 15 else 90,
+                            realtimeConfidence = if (exactDirect != null) 0.98 else 0.70
+                        )
+                    )
+                ),
+                serviceDate = repository.serviceDate,
+                usedTransit = false,
+                usedOsmWalkingGraph = walkGraph != null
+            )
+
+        val rawSteps = collectPath(
+            terminalPath = terminalPath,
             terminalStopIndex = bestStopIndex,
-            previous = previous,
-            origin = originPlace,
             destination = destinationPlace,
             egress = egressByStop[bestStopIndex]
         )
-        val legs = mergeRideSteps(rawSteps, serviceMidnightEpochSec)
+        val legs = toRouteLegs(rawSteps, serviceMidnightEpochSec)
 
         return Result(
             fastest = RouteCandidate(
@@ -198,7 +257,8 @@ internal class SurfaceCsaRouter(
         val exact = walkGraph?.stopCostsFrom(
             point = point,
             maxSeconds = ACCESS_MAX_SECONDS,
-            maxMeters = ACCESS_RADIUS_METERS
+            maxMeters = ACCESS_RADIUS_METERS,
+            limit = MAX_ACCESS_STOPS
         )
         if (exact != null && exact.isNotEmpty()) {
             return exact.entries.mapNotNull { (stopId, cost) ->
@@ -212,7 +272,8 @@ internal class SurfaceCsaRouter(
         val exact = walkGraph?.stopCostsTo(
             point = point,
             maxSeconds = EGRESS_MAX_SECONDS,
-            maxMeters = EGRESS_RADIUS_METERS
+            maxMeters = EGRESS_RADIUS_METERS,
+            limit = MAX_EGRESS_STOPS
         )
         if (exact != null && exact.isNotEmpty()) {
             return exact.entries.mapNotNull { (stopId, cost) ->
@@ -222,54 +283,52 @@ internal class SurfaceCsaRouter(
         return nearbyStops(point, EGRESS_RADIUS_METERS, MAX_EGRESS_STOPS)
     }
 
-    private fun reconstruct(
+    private fun transferNeighbors(stopIndex: Int): List<WalkLink> {
+        transferCache[stopIndex]?.let { return it }
+
+        val stop = stops[stopIndex]
+        val exact = walkGraph?.stopCostsFromStop(
+            stopId = stop.id,
+            maxSeconds = TRANSFER_MAX_SECONDS,
+            maxMeters = TRANSFER_MAX_METERS,
+            limit = MAX_TRANSFER_NEIGHBORS
+        )
+
+        val links = if (exact != null && exact.isNotEmpty()) {
+            exact.entries.mapNotNull { (stopId, cost) ->
+                val index = stopIndexById[stopId] ?: return@mapNotNull null
+                if (index == stopIndex) null else WalkLink(index, cost.meters, cost.seconds)
+            }.sortedBy { it.seconds }.take(MAX_TRANSFER_NEIGHBORS)
+        } else {
+            nearbyStops(
+                point = GeoPoint(stop.lat, stop.lon),
+                maxMeters = TRANSFER_GEOMETRY_FALLBACK_METERS,
+                limit = MAX_TRANSFER_NEIGHBORS + 1
+            ).filter { it.stopIndex != stopIndex }.take(MAX_TRANSFER_NEIGHBORS)
+        }
+
+        transferCache[stopIndex] = links
+        return links
+    }
+
+    private fun collectPath(
+        terminalPath: PathNode,
         terminalStopIndex: Int,
-        previous: Array<Previous?>,
-        origin: RoutePlace,
         destination: RoutePlace,
         egress: WalkLink?
     ): List<RawStep> {
         val reversed = ArrayList<RawStep>()
-        var index = terminalStopIndex
-        while (true) {
-            when (val prev = previous[index]) {
-                is Previous.Access -> {
-                    reversed += RawStep.Walk(
-                        from = origin,
-                        to = stops[index].place(),
-                        departureSec = prev.departureSec,
-                        arrivalSec = prev.arrivalSec,
-                        meters = prev.meters
-                    )
-                    break
-                }
-                is Previous.Ride -> {
-                    reversed += RawStep.Ride(
-                        from = stops[prev.fromIndex].place(),
-                        to = stops[index].place(),
-                        connection = prev.connection
-                    )
-                    index = prev.fromIndex
-                }
-                is Previous.Transfer -> {
-                    reversed += RawStep.Walk(
-                        from = stops[prev.fromIndex].place(),
-                        to = stops[index].place(),
-                        departureSec = prev.departureSec,
-                        arrivalSec = prev.arrivalSec,
-                        meters = prev.meters
-                    )
-                    index = prev.fromIndex
-                }
-                null -> break
-            }
+        var node: PathNode? = terminalPath
+        while (node != null) {
+            reversed += node.step
+            node = node.parent
         }
         reversed.reverse()
 
         if (egress != null && egress.seconds > 0) {
             val startSec = when (val last = reversed.lastOrNull()) {
                 is RawStep.Walk -> last.arrivalSec
-                is RawStep.Ride -> last.connection.arrivalSec
+                is RawStep.Ride -> last.lastConnection.arrivalSec
                 null -> 0
             }
             reversed += RawStep.Walk(
@@ -283,18 +342,23 @@ internal class SurfaceCsaRouter(
         return reversed
     }
 
-    private fun mergeRideSteps(
+    private fun toRouteLegs(
         steps: List<RawStep>,
         serviceMidnightEpochSec: Long
     ): List<RouteLeg> {
-        val result = ArrayList<RouteLeg>()
-        var index = 0
+        val result = ArrayList<RouteLeg>(steps.size)
         var previousTransitArrival: Int? = null
+        var walkingSinceTransitSeconds = 0
+
         fun epoch(serviceSec: Int): Long = serviceMidnightEpochSec + serviceSec
 
-        while (index < steps.size) {
-            when (val step = steps[index]) {
+        for (step in steps) {
+            when (step) {
                 is RawStep.Walk -> {
+                    val duration = (step.arrivalSec - step.departureSec).coerceAtLeast(0)
+                    if (previousTransitArrival != null) {
+                        walkingSinceTransitSeconds += duration
+                    }
                     result += RouteLeg(
                         mode = TransportMode.WALK,
                         from = step.from,
@@ -305,38 +369,36 @@ internal class SurfaceCsaRouter(
                         uncertaintySeconds = if (walkGraph != null) 20 else 75,
                         realtimeConfidence = if (walkGraph != null) 0.97 else 0.72
                     )
-                    index++
                 }
+
                 is RawStep.Ride -> {
-                    val first = step
-                    var last = step
-                    var cursor = index + 1
-                    while (cursor < steps.size) {
-                        val next = steps[cursor]
-                        if (next !is RawStep.Ride || next.connection.tripId != first.connection.tripId) break
-                        last = next
-                        cursor++
-                    }
-                    val route = routes[first.connection.routeId]
+                    val first = step.firstConnection
+                    val last = step.lastConnection
+                    val route = routes[first.routeId]
                     val mode = route?.mode ?: TransportMode.BUS
-                    val duration = (last.connection.arrivalSec - first.connection.departureSec).coerceAtLeast(0)
-                    val transferBuffer = previousTransitArrival?.let {
-                        (first.connection.departureSec - it).coerceAtLeast(0)
+                    val duration = (last.arrivalSec - first.departureSec).coerceAtLeast(0)
+                    val transferBuffer = previousTransitArrival?.let { previousArrival ->
+                        (
+                            first.departureSec -
+                                previousArrival -
+                                walkingSinceTransitSeconds
+                            ).coerceAtLeast(0)
                     } ?: 0
+
                     result += RouteLeg(
                         mode = mode,
-                        from = first.from,
-                        to = last.to,
-                        departureEpochSec = epoch(first.connection.departureSec),
-                        arrivalEpochSec = epoch(last.connection.arrivalSec),
-                        lineId = route?.id ?: first.connection.routeId,
+                        from = step.from,
+                        to = step.to,
+                        departureEpochSec = epoch(first.departureSec),
+                        arrivalEpochSec = epoch(last.arrivalSec),
+                        lineId = route?.id ?: first.routeId,
                         lineName = route?.shortName ?: route?.longName,
                         uncertaintySeconds = (duration * 0.15).toInt().coerceIn(60, 300),
                         realtimeConfidence = 0.45,
                         transferBufferSeconds = transferBuffer
                     )
-                    previousTransitArrival = last.connection.arrivalSec
-                    index = cursor
+                    previousTransitArrival = last.arrivalSec
+                    walkingSinceTransitSeconds = 0
                 }
             }
         }
@@ -356,21 +418,10 @@ internal class SurfaceCsaRouter(
         point = GeoPoint(lat, lon)
     )
 
-    private fun boardBufferSeconds(previous: Previous?): Int = when (previous) {
-        is Previous.Ride -> SAME_STOP_TRANSFER_BUFFER_SECONDS
-        else -> 0
-    }
-
-    private fun transferNeighbors(stopIndex: Int): List<WalkLink> {
-        transferCache[stopIndex]?.let { return it }
-        val stop = stops[stopIndex]
-        val links = nearbyStops(
-            GeoPoint(stop.lat, stop.lon),
-            TRANSFER_RADIUS_METERS,
-            MAX_TRANSFER_NEIGHBORS + 1
-        ).filter { it.stopIndex != stopIndex }.take(MAX_TRANSFER_NEIGHBORS)
-        transferCache[stopIndex] = links
-        return links
+    private fun boardBufferSeconds(path: PathNode): Int = when {
+        path.step is RawStep.Ride -> SAME_STOP_TRANSFER_BUFFER_SECONDS
+        path.parent == null -> ACCESS_BOARD_BUFFER_SECONDS
+        else -> WALK_TRANSFER_BOARD_BUFFER_SECONDS
     }
 
     private fun nearbyStops(point: GeoPoint, maxMeters: Int, limit: Int): List<WalkLink> {
@@ -378,6 +429,7 @@ internal class SurfaceCsaRouter(
         val baseX = gridX(point.lat)
         val baseY = gridY(point.lon)
         val candidates = ArrayList<WalkLink>()
+
         for (dx in -radiusCells..radiusCells) {
             for (dy in -radiusCells..radiusCells) {
                 val indices = grid[packGrid(baseX + dx, baseY + dy)] ?: continue
@@ -385,8 +437,14 @@ internal class SurfaceCsaRouter(
                     val stop = stops[index]
                     val meters = haversineMeters(point.lat, point.lon, stop.lat, stop.lon)
                     if (meters <= maxMeters) {
-                        val conservativeMeters = (meters * WALK_DETOUR_FACTOR).toInt().coerceAtLeast(1)
-                        candidates += WalkLink(index, conservativeMeters, walkingSeconds(conservativeMeters))
+                        val conservativeMeters = (meters * WALK_DETOUR_FACTOR)
+                            .toInt()
+                            .coerceAtLeast(1)
+                        candidates += WalkLink(
+                            stopIndex = index,
+                            meters = conservativeMeters,
+                            seconds = walkingSeconds(conservativeMeters)
+                        )
                     }
                 }
             }
@@ -396,7 +454,8 @@ internal class SurfaceCsaRouter(
 
     private fun walkingMeters(from: GeoPoint, to: GeoPoint): Int =
         (haversineMeters(from.lat, from.lon, to.lat, to.lon) * WALK_DETOUR_FACTOR)
-            .toInt().coerceAtLeast(1)
+            .toInt()
+            .coerceAtLeast(1)
 
     private fun walkingSeconds(meters: Int): Int =
         max(1, (meters / preferences.walkingSpeedMetersPerSecond).toInt())
@@ -404,6 +463,7 @@ internal class SurfaceCsaRouter(
     private fun gridKey(lat: Double, lon: Double): Long = packGrid(gridX(lat), gridY(lon))
     private fun gridX(lat: Double): Int = floor((lat + 90.0) / GRID_DEGREES).toInt()
     private fun gridY(lon: Double): Int = floor((lon + 180.0) / GRID_DEGREES).toInt()
+
     private fun packGrid(x: Int, y: Int): Long =
         (x.toLong() shl 32) xor (y.toLong() and 0xffffffffL)
 
@@ -417,16 +477,17 @@ internal class SurfaceCsaRouter(
         return 2.0 * EARTH_RADIUS_METERS * asin(min(1.0, sqrt(a)))
     }
 
-    private sealed interface Previous {
-        data class Access(val departureSec: Int, val arrivalSec: Int, val meters: Int) : Previous
-        data class Ride(val fromIndex: Int, val connection: SurfaceConnection) : Previous
-        data class Transfer(
-            val fromIndex: Int,
-            val departureSec: Int,
-            val arrivalSec: Int,
-            val meters: Int
-        ) : Previous
-    }
+    private data class PathNode(
+        val parent: PathNode?,
+        val step: RawStep
+    )
+
+    private data class TripState(
+        val boardingPath: PathNode,
+        val boardingStopIndex: Int,
+        val firstConnection: SurfaceConnection,
+        val boardingSequence: Int
+    )
 
     private sealed interface RawStep {
         data class Walk(
@@ -436,14 +497,20 @@ internal class SurfaceCsaRouter(
             val arrivalSec: Int,
             val meters: Int
         ) : RawStep
+
         data class Ride(
             val from: RoutePlace,
             val to: RoutePlace,
-            val connection: SurfaceConnection
+            val firstConnection: SurfaceConnection,
+            val lastConnection: SurfaceConnection
         ) : RawStep
     }
 
-    private data class WalkLink(val stopIndex: Int, val meters: Int, val seconds: Int)
+    private data class WalkLink(
+        val stopIndex: Int,
+        val meters: Int,
+        val seconds: Int
+    )
 
     companion object {
         private const val INF = Int.MAX_VALUE / 4
@@ -451,15 +518,23 @@ internal class SurfaceCsaRouter(
         private const val GRID_DEGREES = 0.005
         private const val APPROX_CELL_METERS = 550.0
         private const val WALK_DETOUR_FACTOR = 1.22
+
         private const val ACCESS_RADIUS_METERS = 1_600
         private const val EGRESS_RADIUS_METERS = 1_600
         private const val ACCESS_MAX_SECONDS = 25 * 60
         private const val EGRESS_MAX_SECONDS = 25 * 60
-        private const val TRANSFER_RADIUS_METERS = 500
         private const val MAX_ACCESS_STOPS = 48
         private const val MAX_EGRESS_STOPS = 48
+
+        private const val TRANSFER_MAX_METERS = 700
+        private const val TRANSFER_MAX_SECONDS = 12 * 60
+        private const val TRANSFER_GEOMETRY_FALLBACK_METERS = 500
         private const val MAX_TRANSFER_NEIGHBORS = 12
+
+        private const val ACCESS_BOARD_BUFFER_SECONDS = 20
+        private const val WALK_TRANSFER_BOARD_BUFFER_SECONDS = 30
         private const val SAME_STOP_TRANSFER_BUFFER_SECONDS = 45
+
         private const val DIRECT_GRAPH_SEARCH_LIMIT_METERS = 6_000
         private const val DIRECT_GRAPH_SEARCH_LIMIT_SECONDS = 90 * 60
         private const val MAX_SERVICE_SEC = 30 * 60 * 60
