@@ -73,9 +73,11 @@ internal class SurfaceScheduleRepository(
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 val id = cursor.getString(0)
-                val mode = when (cursor.getString(3)?.uppercase()) {
+                val rawMode = if (cursor.isNull(3)) null else cursor.getString(3)?.trim()?.uppercase()
+                val mode = when (rawMode) {
+                    "BUS" -> TransportMode.BUS
                     "TRAM" -> TransportMode.TRAM
-                    else -> TransportMode.BUS
+                    else -> error("Unsupported surface route_mode=$rawMode for route_id=$id")
                 }
                 result[id] = SurfaceRoute(
                     id = id,
