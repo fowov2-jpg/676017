@@ -8,12 +8,16 @@ import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
@@ -24,9 +28,11 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
 import kotlin.math.abs
 
 class MainActivity : AppCompatActivity() {
+    private lateinit var root: View
     private lateinit var mapView: MapView
     private lateinit var status: TextView
     private lateinit var progress: ProgressBar
@@ -36,9 +42,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var searchPanel: LinearLayout
     private lateinit var retryButton: Button
     private lateinit var routeButton: Button
-    private lateinit var settingsButton: TextView
-    private lateinit var searchHandle: TextView
-    private lateinit var navHandle: TextView
+    private lateinit var settingsNavButton: TextView
+    private lateinit var searchHandle: ImageButton
+    private lateinit var navHandle: ImageButton
     private lateinit var leftEdgeZone: View
 
     private var runtimeReady = false
@@ -50,6 +56,7 @@ class MainActivity : AppCompatActivity() {
         MapLibre.getInstance(this)
         setContentView(R.layout.activity_main)
 
+        root = findViewById(R.id.root)
         mapView = findViewById(R.id.mapView)
         status = findViewById(R.id.status)
         progress = findViewById(R.id.progress)
@@ -59,26 +66,36 @@ class MainActivity : AppCompatActivity() {
         searchPanel = findViewById(R.id.searchPanel)
         retryButton = findViewById(R.id.retryButton)
         routeButton = findViewById(R.id.routeButton)
-        settingsButton = findViewById(R.id.settingsButton)
+        settingsNavButton = findViewById(R.id.settingsNavButton)
         searchHandle = findViewById(R.id.searchHandle)
         navHandle = findViewById(R.id.navHandle)
         leftEdgeZone = findViewById(R.id.leftEdgeZone)
 
+        applySystemInsets()
+
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync { map ->
+            map.setStyle(Style.Builder().fromUri("asset://map_style.json"))
             map.cameraPosition = CameraPosition.Builder()
                 .target(LatLng(55.751244, 37.618423))
-                .zoom(10.5)
+                .zoom(11.0)
                 .build()
+        }
+        mapView.addOnDidFailLoadingMapListener { error ->
+            Toast.makeText(this, "Не удалось загрузить карту: $error", Toast.LENGTH_SHORT).show()
         }
 
         routeButton.setOnClickListener {
             closeDrawer(searchPanel)
-            status.text = "Выберите точки «Откуда» и «Куда»"
-            loadingPanel.visibility = View.VISIBLE
+            if (!runtimeReady) {
+                Toast.makeText(this, "Данные Москвы ещё загружаются", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Выберите точки «Откуда» и «Куда»", Toast.LENGTH_SHORT).show()
+            }
         }
         retryButton.setOnClickListener { enqueueRuntimeDownload(replace = true) }
-        settingsButton.setOnClickListener {
+        settingsNavButton.setOnClickListener {
+            closeDrawer(bottomNav)
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 
@@ -89,6 +106,14 @@ class MainActivity : AppCompatActivity() {
         requestNotificationPermissionIfNeeded()
         observeRuntimeDownload()
         enqueueRuntimeDownload(replace = false)
+    }
+
+    private fun applySystemInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(0, bars.top, 0, bars.bottom)
+            insets
+        }
     }
 
     private fun requestNotificationPermissionIfNeeded() {
@@ -107,8 +132,6 @@ class MainActivity : AppCompatActivity() {
         runtimeReady = false
         retryButton.visibility = View.GONE
         loadingPanel.visibility = View.VISIBLE
-        navHandle.visibility = View.GONE
-        closeDrawer(bottomNav)
         progress.progress = 0
         status.text = "Проверяем данные…"
         progressText.text = "0%"
@@ -152,7 +175,6 @@ class MainActivity : AppCompatActivity() {
                         progress.progress = 100
                         progressText.text = "100%"
                         loadingPanel.visibility = View.GONE
-                        navHandle.visibility = View.VISIBLE
                     }
                     WorkInfo.State.FAILED -> {
                         runtimeReady = false
@@ -207,7 +229,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun toggleNavDrawer() {
-        if (!runtimeReady) return
         if (bottomNav.visibility == View.VISIBLE) closeDrawer(bottomNav) else openNavDrawer()
     }
 
@@ -216,17 +237,16 @@ class MainActivity : AppCompatActivity() {
         searchPanel.visibility = View.VISIBLE
         searchPanel.post {
             searchPanel.translationX = -searchPanel.width.toFloat() - 24f
-            searchPanel.animate().translationX(0f).setDuration(190).start()
+            searchPanel.animate().translationX(0f).setDuration(180).start()
         }
     }
 
     private fun openNavDrawer() {
-        if (!runtimeReady) return
         closeDrawer(searchPanel)
         bottomNav.visibility = View.VISIBLE
         bottomNav.post {
             bottomNav.translationX = -bottomNav.width.toFloat() - 24f
-            bottomNav.animate().translationX(0f).setDuration(190).start()
+            bottomNav.animate().translationX(0f).setDuration(180).start()
         }
     }
 
@@ -235,7 +255,7 @@ class MainActivity : AppCompatActivity() {
         val width = if (view.width > 0) view.width.toFloat() else 700f
         view.animate()
             .translationX(-width - 24f)
-            .setDuration(170)
+            .setDuration(160)
             .withEndAction {
                 view.visibility = View.INVISIBLE
                 view.translationX = 0f
@@ -257,8 +277,8 @@ class MainActivity : AppCompatActivity() {
                     val dx = event.rawX - downX
                     val dy = event.rawY - downY
                     if (dx > 70f && abs(dx) > abs(dy)) {
-                        val split = resources.displayMetrics.heightPixels * 0.90f
-                        if (downY >= split && runtimeReady) openNavDrawer() else openSearchDrawer()
+                        val split = resources.displayMetrics.heightPixels * 0.82f
+                        if (downY >= split) openNavDrawer() else openSearchDrawer()
                     }
                     true
                 }
