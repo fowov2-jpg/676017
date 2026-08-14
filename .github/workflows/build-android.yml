@@ -22,10 +22,16 @@ jobs:
           wget -q https://services.gradle.org/distributions/gradle-8.9-bin.zip -O /tmp/gradle.zip
           unzip -q /tmp/gradle.zip -d /tmp
           echo "/tmp/gradle-8.9/bin" >> "$GITHUB_PATH"
-      - name: Build debug APK
+      - name: Build debug APK and run Android Lint
         working-directory: android
-        run: gradle --no-daemon assembleDebug
+        run: gradle --no-daemon assembleDebug lintDebug
       - uses: actions/upload-artifact@v4
         with:
           name: human-router-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: human-router-lint-report
+          path: android/app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
