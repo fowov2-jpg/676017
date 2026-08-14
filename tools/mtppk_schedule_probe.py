@@ -4,23 +4,52 @@
 This probe intentionally reads only public pages from the official mtppk.ru domain. It records
 candidate timetable/document links and basic response metadata so the runtime importer can be built
 against the real published format instead of guessing URLs.
+
+MTPPK has intermittently served a certificate chain that GitHub-hosted runners cannot validate.
+We always try normal certificate validation first. For this read-only public probe only, a
+certificate-verification failure may be retried without verification, and the report records that
+fact. No credentials, cookies or private data are ever sent by this probe.
 """
 from __future__ import annotations
 
 import json
 import re
+import ssl
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
 BASE = "https://mtppk.ru"
 START = f"{BASE}/schedule/"
-UA = "HumanRouterMTPPKProbe/0.1 (+https://github.com/fowov2-jpg/676017)"
+UA = "HumanRouterMTPPKProbe/0.2 (+https://github.com/fowov2-jpg/676017)"
 OUT = Path("mtppk-schedule-probe")
 OUT.mkdir(exist_ok=True)
+ALLOWED_HOSTS = {"mtppk.ru", "www.mtppk.ru"}
+INSECURE_CONTEXT = ssl._create_unverified_context()
+
+
+def is_certificate_error(exc: BaseException) -> bool:
+    reason = getattr(exc, "reason", None)
+    return isinstance(exc, ssl.SSLCertVerificationError) or isinstance(reason, ssl.SSLCertVerificationError)
+
+
+def open_public(req: urllib.request.Request):
+    try:
+        return urllib.request.urlopen(req, timeout=45), True
+    except urllib.error.URLError as exc:
+        if not is_certificate_error(exc):
+            raise
+        host = (urllib.parse.urlparse(req.full_url).hostname or "").lower()
+        if host not in ALLOWED_HOSTS:
+            raise
+        return urllib.request.urlopen(req, timeout=45, context=INSECURE_CONTEXT), False
 
 
 def fetch(url: str, limit: int | None = None):
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    if host not in ALLOWED_HOSTS:
+        raise ValueError(f"refusing non-MTPPK host: {host}")
     req = urllib.request.Request(
         url,
         headers={
@@ -29,7 +58,11 @@ def fetch(url: str, limit: int | None = None):
             "Accept-Language": "ru-RU,ru;q=0.9",
         },
     )
-    with urllib.request.urlopen(req, timeout=45) as response:
+    response, tls_verified = open_public(req)
+    with response:
+        final_host = (urllib.parse.urlparse(response.geturl()).hostname or "").lower()
+        if final_host not in ALLOWED_HOSTS:
+            raise ValueError(f"refusing redirect outside MTPPK: {response.geturl()}")
         raw = response.read() if limit is None else response.read(limit)
         return {
             "status": response.status,
@@ -38,6 +71,7 @@ def fetch(url: str, limit: int | None = None):
             "content_length": response.headers.get("Content-Length"),
             "content_disposition": response.headers.get("Content-Disposition"),
             "last_modified": response.headers.get("Last-Modified"),
+            "tls_verified": tls_verified,
             "bytes_read": len(raw),
             "raw": raw,
         }
@@ -54,7 +88,7 @@ for match in re.finditer(r'href=["\']([^"\']+)["\']', html, re.I):
         continue
     url = urllib.parse.urljoin(START, href)
     parsed = urllib.parse.urlparse(url)
-    if parsed.netloc.lower() not in {"mtppk.ru", "www.mtppk.ru"}:
+    if (parsed.hostname or "").lower() not in ALLOWED_HOSTS:
         continue
     if url not in links:
         links.append(url)
@@ -67,8 +101,8 @@ for url in links:
     if low.endswith(file_exts) or "/upload/" in low or any(word in low for word in schedule_words):
         candidates.append(url)
 
-# Also capture visible anchor labels around timetable links. This helps identify MCD-3 vs other
-# sections even when the URL itself is opaque.
+# Capture visible anchor labels around timetable links. This helps identify MCD-3 vs other sections
+# even when the URL itself is opaque.
 anchors = []
 for match in re.finditer(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', html, re.I | re.S):
     href, body = match.groups()
