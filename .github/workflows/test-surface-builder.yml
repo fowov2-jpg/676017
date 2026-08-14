@@ -1,0 +1,23 @@
+name: Test surface runtime builder
+
+on:
+  push:
+    paths:
+      - 'tools/build_surface_runtime.py'
+      - 'tools/test_build_surface_runtime.py'
+      - '.github/workflows/test-surface-builder.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run surface runtime integration test
+        run: python tools/test_build_surface_runtime.py
