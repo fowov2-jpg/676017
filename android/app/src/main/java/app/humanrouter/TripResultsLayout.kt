@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.View
 import android.widget.Button
@@ -34,8 +35,11 @@ class TripResultsLayout @JvmOverloads constructor(
 
         addView(Button(context).apply {
             tag = START_BUTTON_TAG
-            text = "Поехали"
+            text = "Начать поездку"
             isAllCaps = false
+            setTextColor(0xFFFFFFFF.toInt())
+            setTypeface(typeface, Typeface.BOLD)
+            background = ContextCompat.getDrawable(context, R.drawable.bg_primary)
             setOnClickListener {
                 if (!hasLocationPermission()) {
                     Toast.makeText(context, "Для навигации нужен доступ к геопозиции", Toast.LENGTH_LONG).show()
@@ -49,10 +53,10 @@ class TripResultsLayout @JvmOverloads constructor(
                     putExtra(TripNavigationService.EXTRA_ROUTE_ID, seed.routeId)
                 }
                 ContextCompat.startForegroundService(context, intent)
-                Toast.makeText(context, "Навигация запущена — маршрут пересчитывается каждую минуту", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "ВремяХодом ведёт по маршруту и пересчитывает его каждую минуту", Toast.LENGTH_SHORT).show()
             }
-            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dp(46)).apply {
-                topMargin = dp(8)
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dp(50)).apply {
+                topMargin = dp(10)
             }
         })
     }
