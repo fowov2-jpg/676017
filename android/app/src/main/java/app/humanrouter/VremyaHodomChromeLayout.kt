@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.util.AttributeSet
 import android.view.View
+import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -38,6 +39,12 @@ class VremyaHodomChromeLayout @JvmOverloads constructor(
         val nearby = findViewById<View?>(R.id.nearbyPanel)
         val bottom = findViewById<View?>(R.id.bottomNav)
         val destination = findViewById<EditText?>(R.id.toField)
+        bottom?.visibility = View.VISIBLE
+
+        findViewById<Button?>(R.id.routeButton)?.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+            val button = view as Button
+            if (button.text.toString() == "Найти маршрут") button.text = "Найти"
+        }
 
         findViewById<TextView?>(R.id.homeQuickButton)?.setOnClickListener {
             Toast.makeText(context, "Сначала сохраните адрес дома", Toast.LENGTH_SHORT).show()
