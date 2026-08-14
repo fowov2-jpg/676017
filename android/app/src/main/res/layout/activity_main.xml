@@ -76,7 +76,22 @@
             android:visibility="gone" />
     </LinearLayout>
 
-    <!-- Route search: opens from the left but rests exactly in the horizontal center. -->
+    <TextView
+        android:id="@+id/osmAttribution"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="86dp"
+        android:layout_marginEnd="8dp"
+        android:background="#CCFFFFFF"
+        android:paddingStart="5dp"
+        android:paddingTop="3dp"
+        android:paddingEnd="5dp"
+        android:paddingBottom="3dp"
+        android:text="© OpenStreetMap contributors"
+        android:textColor="#FF475467"
+        android:textSize="10sp" />
+
     <LinearLayout
         android:id="@+id/searchPanel"
         android:layout_width="320dp"
@@ -136,7 +151,6 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Left navigation drawer. Settings are intentionally NOT here anymore. -->
     <LinearLayout
         android:id="@+id/bottomNav"
         android:layout_width="150dp"
@@ -151,6 +165,7 @@
         android:visibility="invisible">
 
         <TextView
+            android:id="@+id/mapNavButton"
             android:layout_width="match_parent"
             android:layout_height="44dp"
             android:gravity="center_vertical"
@@ -159,6 +174,7 @@
             android:textColor="#FF111827"
             android:textStyle="bold" />
         <TextView
+            android:id="@+id/routesNavButton"
             android:layout_width="match_parent"
             android:layout_height="44dp"
             android:gravity="center_vertical"
@@ -166,6 +182,7 @@
             android:text="Маршруты"
             android:textColor="#FF667085" />
         <TextView
+            android:id="@+id/transportNavButton"
             android:layout_width="match_parent"
             android:layout_height="44dp"
             android:gravity="center_vertical"
@@ -174,7 +191,6 @@
             android:textColor="#FF667085" />
     </LinearLayout>
 
-    <!-- Functional settings drawer. It enters and exits through the RIGHT edge. -->
     <LinearLayout
         android:id="@+id/settingsPanel"
         android:layout_width="300dp"
@@ -257,7 +273,6 @@
             android:textAllCaps="false" />
     </LinearLayout>
 
-    <!-- Left controls. -->
     <ImageButton
         android:id="@+id/searchHandle"
         android:layout_width="36dp"
@@ -282,7 +297,6 @@
         android:padding="8dp"
         android:src="@android:drawable/ic_menu_more" />
 
-    <!-- Settings key on the RIGHT. -->
     <ImageButton
         android:id="@+id/settingsHandle"
         android:layout_width="36dp"
