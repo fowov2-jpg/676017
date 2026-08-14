@@ -43,9 +43,6 @@ class RuntimeDownloadWorker(
                         .build()
                     setProgressAsync(progress)
 
-                    // A periodic background check should stay invisible when runtime-current has not
-                    // changed. If an update actually starts, the first non-final progress event
-                    // promotes the worker to a foreground data-sync job as required by Android.
                     if (!silentCheck || !p.done) {
                         setForegroundAsync(createForegroundInfo(p.percent, p.message))
                     }
@@ -75,10 +72,10 @@ class RuntimeDownloadWorker(
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID,
-                    "Загрузка данных Human Router",
+                    "ВремяХодом · данные",
                     NotificationManager.IMPORTANCE_LOW
                 ).apply {
-                    description = "Фоновая загрузка и обновление транспортных данных"
+                    description = "Фоновая загрузка и обновление транспортных данных ВремяХодом"
                     setShowBadge(false)
                 }
             )
@@ -96,7 +93,7 @@ class RuntimeDownloadWorker(
 
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("Human Router · данные Москвы")
+            .setContentTitle("ВремяХодом · данные Москвы")
             .setContentText(message)
             .setContentIntent(pendingIntent)
             .setOnlyAlertOnce(true)
