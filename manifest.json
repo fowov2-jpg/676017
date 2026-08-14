@@ -1,0 +1,11 @@
+{
+  "schema": 2,
+  "version": "moscow-runtime-2026-08-14-r2",
+  "description": "Human Router Moscow runtime: BUS/TRAM schedule + OSM WALK graph + METRO/MCC/MCD topology",
+  "total_download_bytes": 110756094,
+  "total_installed_bytes": 287032681,
+  "required_free_bytes": 401643302,
+  "status": "assets-pending",
+  "release_tag": "runtime-v0.4.3",
+  "notes": "Canonical full pack manifest is being prepared for GitHub Release assets."
+}
