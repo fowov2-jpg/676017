@@ -36,6 +36,7 @@ import androidx.work.WorkManager
 import app.humanrouter.routing.GeoPoint
 import app.humanrouter.routing.HumanRouterEngine
 import app.humanrouter.routing.RouteLeg
+import app.humanrouter.routing.RouteObjective
 import app.humanrouter.routing.TransportMode
 import app.humanrouter.search.PhotonGeocoder
 import app.humanrouter.search.SearchPlace
@@ -311,7 +312,7 @@ class MainActivity : AppCompatActivity() {
                 return@execute
             }
 
-            val result = engine.planFastest(
+            val result = engine.planOptions(
                 origin = originPlace.point,
                 destination = destinationPlace.point,
                 departureEpochSec = Instant.now().epochSecond
@@ -348,20 +349,23 @@ class MainActivity : AppCompatActivity() {
         routeResultsPanel.removeAllViews()
         when (result) {
             is HumanRouterEngine.PlanResult.Success -> {
-                val ranked = result.fastest
-                val route = ranked.route
-                val durationMin = maxOf(1, ceil(route.totalSeconds / 60.0).toInt())
-                val arrival = Instant.ofEpochSecond(route.arrivalEpochSec).atZone(zoneId).format(timeFormatter)
-                val successPct = (ranked.transferSuccessProbability * 100).toInt().coerceIn(0, 100)
-                addResultText("$durationMin мин · прибытие $arrival", 20f, true)
+                addResultText("Варианты маршрута", 20f, true)
                 addResultText("${origin.title} → ${destination.title}", 13f, false)
-                addResultText(
-                    "Пешком ${route.walkMeters} м · пересадок ${route.transferCount}" +
-                        if (route.transferCount > 0) " · шанс пересадок $successPct%" else "",
-                    13f,
-                    false
-                )
-                for (leg in route.legs) addResultText(formatLeg(leg), 14f, false, card = true)
+                result.routes.forEachIndexed { index, ranked ->
+                    val route = ranked.route
+                    val durationMin = maxOf(1, ceil(route.totalSeconds / 60.0).toInt())
+                    val arrival = Instant.ofEpochSecond(route.arrivalEpochSec).atZone(zoneId).format(timeFormatter)
+                    val successPct = (ranked.transferSuccessProbability * 100).toInt().coerceIn(0, 100)
+                    val label = if (index == 0) "Самый быстрый" else objectiveLabel(ranked.objective)
+                    val legs = route.legs.joinToString(" → ") { shortLeg(it) }
+                    val risk = if (route.transferCount > 0) " · пересадка $successPct%" else ""
+                    addResultText(
+                        "$label · $durationMin мин · до $arrival\n$legs\nПешком ${route.walkMeters} м · пересадок ${route.transferCount}$risk",
+                        14f,
+                        index == 0,
+                        card = true
+                    )
+                }
                 addResultAction("Изменить маршрут") {
                     routeResultsPanel.visibility = View.GONE
                     openSearchDrawer()
@@ -377,17 +381,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun formatLeg(leg: RouteLeg): String {
-        val minutes = maxOf(1, ceil(leg.durationSeconds / 60.0).toInt())
-        return when (leg.mode) {
-            TransportMode.WALK -> "Пешком · ${leg.walkMeters} м · $minutes мин"
-            TransportMode.BUS -> "Автобус ${leg.lineName ?: leg.lineId.orEmpty()} · $minutes мин"
-            TransportMode.TRAM -> "Трамвай ${leg.lineName ?: leg.lineId.orEmpty()} · $minutes мин"
-            TransportMode.METRO -> "Метро ${leg.lineName ?: ""} · $minutes мин"
-            TransportMode.MCC -> "МЦК ${leg.lineName ?: ""} · $minutes мин"
-            TransportMode.MCD -> "МЦД ${leg.lineName ?: ""} · $minutes мин"
-            TransportMode.TRAIN -> "Поезд ${leg.lineName ?: ""} · $minutes мин"
-        }
+    private fun objectiveLabel(objective: RouteObjective): String = when (objective) {
+        RouteObjective.FASTEST -> "Быстрый"
+        RouteObjective.RELIABLE -> "Надёжнее"
+        RouteObjective.LESS_WALKING -> "Меньше пешком"
+        RouteObjective.FEWER_TRANSFERS -> "Меньше пересадок"
+    }
+
+    private fun shortLeg(leg: RouteLeg): String = when (leg.mode) {
+        TransportMode.WALK -> "пешком ${leg.walkMeters} м"
+        TransportMode.BUS -> "автобус ${leg.lineName ?: leg.lineId.orEmpty()}"
+        TransportMode.TRAM -> "трамвай ${leg.lineName ?: leg.lineId.orEmpty()}"
+        TransportMode.METRO -> "метро ${leg.lineName ?: ""}"
+        TransportMode.MCC -> "МЦК ${leg.lineName ?: ""}"
+        TransportMode.MCD -> "МЦД ${leg.lineName ?: ""}"
+        TransportMode.TRAIN -> "поезд ${leg.lineName ?: ""}"
     }
 
     private fun showPlanError(message: String) {
