@@ -94,7 +94,7 @@
 
     <LinearLayout
         android:id="@+id/searchPanel"
-        android:layout_width="320dp"
+        android:layout_width="340dp"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
         android:layout_marginBottom="18dp"
@@ -113,31 +113,44 @@
             android:textSize="18sp"
             android:textStyle="bold" />
 
-        <TextView
+        <EditText
             android:id="@+id/fromField"
             android:layout_width="match_parent"
             android:layout_height="48dp"
             android:layout_marginTop="10dp"
             android:background="@drawable/bg_input"
-            android:gravity="center_vertical"
+            android:hint="Откуда"
+            android:imeOptions="actionNext"
+            android:inputType="textPostalAddress"
+            android:maxLines="1"
             android:paddingStart="14dp"
             android:paddingEnd="12dp"
-            android:text="Откуда"
-            android:textColor="#FF667085"
+            android:textColor="#FF111827"
+            android:textColorHint="#FF667085"
             android:textSize="15sp" />
 
-        <TextView
+        <EditText
             android:id="@+id/toField"
             android:layout_width="match_parent"
             android:layout_height="48dp"
             android:layout_marginTop="7dp"
             android:background="@drawable/bg_input"
-            android:gravity="center_vertical"
+            android:hint="Куда"
+            android:imeOptions="actionDone"
+            android:inputType="textPostalAddress"
+            android:maxLines="1"
             android:paddingStart="14dp"
             android:paddingEnd="12dp"
-            android:text="Куда"
-            android:textColor="#FF667085"
+            android:textColor="#FF111827"
+            android:textColorHint="#FF667085"
             android:textSize="15sp" />
+
+        <LinearLayout
+            android:id="@+id/suggestionsPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:orientation="vertical" />
 
         <Button
             android:id="@+id/routeButton"
@@ -150,6 +163,18 @@
             android:textColor="#FFFFFFFF"
             android:textStyle="bold" />
     </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/routeResultsPanel"
+        android:layout_width="340dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="18dp"
+        android:background="@drawable/bg_panel"
+        android:elevation="15dp"
+        android:orientation="vertical"
+        android:padding="12dp"
+        android:visibility="gone" />
 
     <LinearLayout
         android:id="@+id/bottomNav"
@@ -173,6 +198,7 @@
             android:text="Карта"
             android:textColor="#FF111827"
             android:textStyle="bold" />
+
         <TextView
             android:id="@+id/routesNavButton"
             android:layout_width="match_parent"
@@ -180,14 +206,6 @@
             android:gravity="center_vertical"
             android:paddingStart="12dp"
             android:text="Маршруты"
-            android:textColor="#FF667085" />
-        <TextView
-            android:id="@+id/transportNavButton"
-            android:layout_width="match_parent"
-            android:layout_height="44dp"
-            android:gravity="center_vertical"
-            android:paddingStart="12dp"
-            android:text="Транспорт"
             android:textColor="#FF667085" />
     </LinearLayout>
 
@@ -255,14 +273,6 @@
             android:text="Runtime: проверяем…"
             android:textColor="#FF667085"
             android:textSize="13sp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="5dp"
-            android:text="Пакеты проверяются по размеру и SHA-256 до и после распаковки."
-            android:textColor="#FF667085"
-            android:textSize="12sp" />
 
         <Button
             android:id="@+id/checkDataButton"
