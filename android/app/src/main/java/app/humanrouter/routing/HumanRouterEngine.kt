@@ -11,10 +11,16 @@ internal class HumanRouterEngine(
     private val preferences: RoutePreferences = RoutePreferences(),
     private val zoneId: ZoneId = ZoneId.of("Europe/Moscow")
 ) {
+    private val runtimeRoot = File(context.filesDir, "runtime")
+    private val walkGraph: RuntimeWalkGraph? by lazy {
+        RuntimeWalkGraph.openOrNull(runtimeRoot, preferences)
+    }
+
     sealed interface PlanResult {
         data class Success(
             val fastest: RankedRoute,
-            val serviceDate: LocalDate
+            val serviceDate: LocalDate,
+            val exactWalkingGraph: Boolean
         ) : PlanResult
 
         data class RuntimeMissing(val reason: String) : PlanResult
@@ -27,7 +33,7 @@ internal class HumanRouterEngine(
         destination: GeoPoint,
         departureEpochSec: Long
     ): PlanResult {
-        val runtimeSurface = File(context.filesDir, "runtime/surface")
+        val runtimeSurface = File(runtimeRoot, "surface")
         if (!File(runtimeSurface, "manifest.json").exists()) {
             return PlanResult.RuntimeMissing("Транспортные данные ещё не установлены")
         }
@@ -52,7 +58,7 @@ internal class HumanRouterEngine(
                     return@use PlanResult.ScheduleUnavailable(serviceDate, departureDate)
                 }
 
-                val router = SurfaceCsaRouter(repository, preferences)
+                val router = SurfaceCsaRouter(repository, preferences, walkGraph)
                 val surface = router.findFastest(
                     origin = origin,
                     destination = destination,
@@ -61,7 +67,8 @@ internal class HumanRouterEngine(
                 )
                 PlanResult.Success(
                     fastest = RouteRanker.score(surface.fastest, RouteObjective.FASTEST, preferences),
-                    serviceDate = serviceDate
+                    serviceDate = serviceDate,
+                    exactWalkingGraph = surface.usedOsmWalkingGraph
                 )
             }
         }.getOrElse { error ->
