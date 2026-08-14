@@ -60,11 +60,9 @@ jobs:
           TAG: ${{ steps.tag.outputs.value }}
         shell: bash
         run: |
+          set -euo pipefail
           VERSION=$(python -c 'import json; print(json.load(open("manifest.json", encoding="utf-8"))["version"])')
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" runtime/* manifest.json --clobber
-          else
-            gh release create "$TAG" runtime/* manifest.json \
-              --title "Human Router runtime $TAG" \
-              --notes "Verified Human Router runtime. Version: $VERSION"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "Human Router runtime $TAG" --notes "Verified Human Router runtime. Version: $VERSION"
           fi
+          gh release upload "$TAG" runtime/* manifest.json --clobber
