@@ -1,0 +1,52 @@
+name: Probe data.mos.ru alternate egress
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/probe-data-mos-tor.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Install Tor
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tor
+          printf '\nExitNodes {ru},{fi},{ee},{lv},{lt},{pl},{de}\nStrictNodes 0\nSocksPort 9050\n' | sudo tee -a /etc/tor/torrc >/dev/null
+          sudo systemctl restart tor
+
+      - name: Wait for alternate egress and probe official API
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 35); do
+            if curl --fail --silent --show-error --max-time 10 \
+              --socks5-hostname 127.0.0.1:9050 \
+              https://check.torproject.org/api/ip > /tmp/tor.json; then
+              cat /tmp/tor.json
+              break
+            fi
+            sleep 2
+          done
+          test -s /tmp/tor.json
+
+          URL='https://apidata.mos.ru/v1/datasets/60662/count'
+          code=$(curl --silent --show-error --location --max-time 25 \
+            --socks5-hostname 127.0.0.1:9050 \
+            -A 'HumanRouterRuntimeBuilder/0.1' \
+            -o /tmp/data-mos-body.txt -w '%{http_code}' "$URL" || true)
+          echo "HTTP=$code"
+          head -c 1000 /tmp/data-mos-body.txt || true
+          echo
+          if [ "$code" = '000' ]; then
+            echo 'No HTTP response from official API through alternate egress' >&2
+            exit 2
+          fi
