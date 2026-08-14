@@ -9,6 +9,7 @@ import android.util.AttributeSet
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import app.humanrouter.routing.LastPlanStore
@@ -20,6 +21,17 @@ class TripResultsLayout @JvmOverloads constructor(
 
     override fun onViewAdded(child: View?) {
         super.onViewAdded(child)
+        when (child) {
+            is Button -> if (child.tag != START_BUTTON_TAG) {
+                child.background = ContextCompat.getDrawable(context, R.drawable.bg_chip)
+                child.setTextColor(0xFF287BFF.toInt())
+                child.setTypeface(child.typeface, Typeface.BOLD)
+            }
+            is TextView -> {
+                child.setLineSpacing(0f, 1.08f)
+                if (child.background != null) child.elevation = dp(1).toFloat()
+            }
+        }
         if (child?.tag != START_BUTTON_TAG) post { ensureStartButton() }
     }
 
