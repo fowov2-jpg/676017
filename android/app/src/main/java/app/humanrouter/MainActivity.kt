@@ -31,6 +31,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var leftEdgeZone: View
 
     private var runtimeReady = false
+    private var globalDownX = 0f
+    private var globalDownY = 0f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,12 +73,41 @@ class MainActivity : AppCompatActivity() {
 
         searchHandle.setOnClickListener { toggleSearchDrawer() }
         navHandle.setOnClickListener { toggleNavDrawer() }
-
-        attachSwipeToClose(searchPanel)
-        attachSwipeToClose(bottomNav)
         attachLeftEdgeSwipe()
 
         startRuntimeInstall()
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                globalDownX = event.rawX
+                globalDownY = event.rawY
+            }
+            MotionEvent.ACTION_UP -> {
+                val dx = event.rawX - globalDownX
+                val dy = event.rawY - globalDownY
+                if (dx < -80f && abs(dx) > abs(dy)) {
+                    val target = when {
+                        searchPanel.visibility == View.VISIBLE && pointInside(searchPanel, globalDownX, globalDownY) -> searchPanel
+                        bottomNav.visibility == View.VISIBLE && pointInside(bottomNav, globalDownX, globalDownY) -> bottomNav
+                        else -> null
+                    }
+                    if (target != null) {
+                        closeDrawer(target)
+                        return true
+                    }
+                }
+            }
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
+    private fun pointInside(view: View, rawX: Float, rawY: Float): Boolean {
+        val location = IntArray(2)
+        view.getLocationOnScreen(location)
+        return rawX >= location[0] && rawX <= location[0] + view.width &&
+            rawY >= location[1] && rawY <= location[1] + view.height
     }
 
     private fun toggleSearchDrawer() {
@@ -118,29 +149,6 @@ class MainActivity : AppCompatActivity() {
                 view.translationX = 0f
             }
             .start()
-    }
-
-    private fun attachSwipeToClose(view: View) {
-        var downX = 0f
-        var downY = 0f
-        view.setOnTouchListener { _, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    downX = event.rawX
-                    downY = event.rawY
-                    false
-                }
-                MotionEvent.ACTION_UP -> {
-                    val dx = event.rawX - downX
-                    val dy = event.rawY - downY
-                    if (dx < -80f && abs(dx) > abs(dy)) {
-                        closeDrawer(view)
-                        true
-                    } else false
-                }
-                else -> false
-            }
-        }
     }
 
     private fun attachLeftEdgeSwipe() {
