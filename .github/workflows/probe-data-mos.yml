@@ -1,0 +1,30 @@
+name: Probe official data.mos.ru surface datasets
+
+on:
+  push:
+    paths:
+      - 'tools/data_mos_surface_probe.py'
+      - '.github/workflows/probe-data-mos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Probe official open-data API and export endpoints
+        env:
+          DATA_MOS_API_KEY: ${{ secrets.DATA_MOS_API_KEY }}
+        run: python tools/data_mos_surface_probe.py
+      - name: Upload data.mos.ru probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-mos-surface-probe
+          path: data-mos-probe/
+          if-no-files-found: error
