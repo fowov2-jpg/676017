@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">ВремяХодом</string>
+    <string name="search_destination">Куда едем?</string>
+    <string name="quick_home">Дом</string>
+    <string name="quick_work">Работа</string>
+    <string name="quick_nearby">Рядом</string>
+    <string name="nav_map">Карта</string>
+    <string name="nav_routes">Маршруты</string>
+    <string name="nav_transport">Транспорт</string>
+    <string name="nav_favorites">Избранное</string>
+    <string name="settings">Настройки</string>
+</resources>
