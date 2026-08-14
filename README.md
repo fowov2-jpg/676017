@@ -6,7 +6,9 @@ Current runtime: `moscow-runtime-2026-08-14-r2` (v0.4.3)
 
 The Android app downloads `manifest.json` and then the required prepared runtime packs. Raw OSM PBF and source archives are not downloaded to the phone.
 
-Runtime contents:
+Routing scope: WALK + public transport. Bicycle and scooter routing are intentionally excluded. The target public-transport coverage includes BUS, TRAM, METRO, MCC, MCD, suburban TRAIN and regular urban RIVER services; a mode is enabled only when operational timing is backed by real data. See `TRANSPORT_SCOPE.md`.
+
+Runtime contents today:
 - BUS/TRAM surface SQLite
 - stop → OSM walk-node mapping
 - OSM WALK CSR + reverse CSR + spatial grid
