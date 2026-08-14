@@ -455,6 +455,7 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
+    @android.annotation.SuppressLint("MissingPermission")
     private fun refreshCurrentLocation() {
         if (!hasLocationPermission()) return
         val providers = runCatching { locationManager.getProviders(true) }.getOrDefault(emptyList())
