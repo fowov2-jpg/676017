@@ -48,7 +48,7 @@ jobs:
       - name: Verify runtime package set
         run: python tools/verify_runtime_release.py --manifest manifest.json --root runtime
 
-      - name: Determine tag
+      - name: Determine immutable tag
         id: tag
         shell: bash
         run: |
@@ -58,16 +58,23 @@ jobs:
             echo "value=runtime-v0.5.0" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create or update GitHub Release
+      - name: Publish immutable and rolling releases
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.value }}
+          CURRENT_TAG: runtime-current
         shell: bash
         run: |
           set -euo pipefail
           VERSION=$(python -c 'import json; print(json.load(open("manifest.json", encoding="utf-8"))["version"])')
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --title "Human Router runtime $TAG" --notes "Verified Human Router runtime with routeable rail graph. Version: $VERSION"
-          fi
           mapfile -t ASSETS < <(find runtime -maxdepth 1 -type f ! -name manifest.json -print | sort)
+
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "Human Router runtime $TAG" --notes "Verified Human Router runtime. Version: $VERSION"
+          fi
           gh release upload "$TAG" "${ASSETS[@]}" manifest.json --clobber
+
+          if ! gh release view "$CURRENT_TAG" >/dev/null 2>&1; then
+            gh release create "$CURRENT_TAG" --title "Human Router current runtime" --notes "Rolling verified runtime channel. Applications should use this tag for automatic data updates."
+          fi
+          gh release upload "$CURRENT_TAG" "${ASSETS[@]}" manifest.json --clobber
