@@ -3,6 +3,8 @@ package app.humanrouter
 import android.content.Context
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
+import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.zip.GZIPInputStream
@@ -18,7 +20,7 @@ object RuntimeInstaller {
 
     fun install(context: Context, onProgress: (Progress) -> Unit) {
         val base = BuildConfig.RUNTIME_BASE_URL
-        val manifestText = URL(base + "manifest.json").readText()
+        val manifestText = readText(base + "manifest.json")
         val manifest = JSONObject(manifestText)
         val packs = manifest.getJSONArray("packs")
         val totalBytes = manifest.getLong("total_download_bytes")
@@ -40,19 +42,24 @@ object RuntimeInstaller {
             if (!cached.exists() || cached.length() != expectedBytes || sha256(cached) != expectedSha) {
                 val tmp = File(cached.absolutePath + ".part")
                 var fileBytes = 0L
-                URL(base + name).openStream().use { input ->
-                    tmp.outputStream().use { output ->
-                        val buffer = ByteArray(256 * 1024)
-                        while (true) {
-                            val n = input.read(buffer)
-                            if (n <= 0) break
-                            output.write(buffer, 0, n)
-                            fileBytes += n
-                            val now = completedBytes + fileBytes
-                            val percent = ((now * 100L) / totalBytes).toInt().coerceIn(0, 99)
-                            onProgress(Progress(percent, now, totalBytes, "${i + 1}/${packs.length()} · $name"))
+                val connection = openConnection(base + name)
+                try {
+                    connection.inputStream.buffered().use { input ->
+                        tmp.outputStream().buffered().use { output ->
+                            val buffer = ByteArray(256 * 1024)
+                            while (true) {
+                                val n = input.read(buffer)
+                                if (n <= 0) break
+                                output.write(buffer, 0, n)
+                                fileBytes += n
+                                val now = completedBytes + fileBytes
+                                val percent = ((now * 100L) / totalBytes).toInt().coerceIn(0, 99)
+                                onProgress(Progress(percent, now, totalBytes, "${i + 1}/${packs.length()} · $name"))
+                            }
                         }
                     }
+                } finally {
+                    connection.disconnect()
                 }
                 check(tmp.length() == expectedBytes) { "Size mismatch: $name" }
                 check(sha256(tmp) == expectedSha) { "SHA-256 mismatch: $name" }
@@ -87,6 +94,30 @@ object RuntimeInstaller {
 
         File(root, "manifest.json").writeText(manifestText)
         onProgress(Progress(100, totalBytes, totalBytes, "Данные Москвы готовы", done = true))
+    }
+
+    private fun readText(url: String): String {
+        val connection = openConnection(url)
+        return try {
+            connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun openConnection(url: String): HttpURLConnection {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 45_000
+        connection.instanceFollowRedirects = true
+        connection.setRequestProperty("User-Agent", "HumanRouter/0.1 Android")
+        connection.connect()
+        val code = connection.responseCode
+        if (code !in 200..299) {
+            connection.disconnect()
+            throw IOException("HTTP $code: $url")
+        }
+        return connection
     }
 
     private fun sha256(file: File): String {
