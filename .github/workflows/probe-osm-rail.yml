@@ -1,0 +1,28 @@
+name: Probe OSM rail relations
+
+on:
+  push:
+    paths:
+      - 'tools/osm_rail_relation_probe.py'
+      - '.github/workflows/probe-osm-rail.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Read ordered rail relation members
+        run: python tools/osm_rail_relation_probe.py
+      - name: Upload OSM rail probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: osm-rail-relations
+          path: osm-rail-probe/
+          if-no-files-found: error
