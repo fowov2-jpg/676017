@@ -28,7 +28,7 @@ class HumanRouterApp : Application() {
     }
 
     private fun bindQuickDestinations(activity: MainActivity) {
-        val home = activity.findViewById<TextView?>(R.id.homeQuickButton) ?: return
+        val home = activity.findViewById<TextView>(R.id.homeQuickButton) ?: return
         if (home.tag == QUICK_BIND_TAG) return
         home.tag = QUICK_BIND_TAG
 
