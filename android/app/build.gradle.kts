@@ -27,7 +27,7 @@ android {
         targetSdk = 35
         versionCode = ciVersionCode
         versionName = "0.1.$ciVersionCode"
-        buildConfigField("String", "RUNTIME_BASE_URL", "\"https://github.com/fowov2-jpg/676017/releases/download/runtime-v0.4.3/\"")
+        buildConfigField("String", "RUNTIME_BASE_URL", "\"https://github.com/fowov2-jpg/676017/releases/download/runtime-v0.5.0/\"")
     }
 
     buildTypes {
