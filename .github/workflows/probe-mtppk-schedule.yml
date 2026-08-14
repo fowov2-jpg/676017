@@ -1,0 +1,29 @@
+name: Probe official MTPPK timetable sources
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/mtppk_schedule_probe.py'
+      - '.github/workflows/probe-mtppk-schedule.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Probe public MTPPK timetable downloads
+        run: python tools/mtppk_schedule_probe.py
+      - name: Upload timetable probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: mtppk-schedule-probe
+          path: mtppk-schedule-probe/
+          if-no-files-found: error
