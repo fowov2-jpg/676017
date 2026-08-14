@@ -6,6 +6,7 @@ on:
     paths:
       - 'tools/mtppk_schedule_probe.py'
       - 'tools/parse_mtppk_xlsx.py'
+      - 'tools/mtppk_exception_probe.py'
       - '.github/workflows/probe-mtppk-schedule.yml'
 
 permissions:
@@ -40,6 +41,8 @@ jobs:
             exit 1
           fi
           echo "Parsed $count MTPPK XLSX timetable files"
+      - name: Capture timetable-change notices
+        run: python tools/mtppk_exception_probe.py
       - name: Upload timetable probe
         uses: actions/upload-artifact@v4
         with:
