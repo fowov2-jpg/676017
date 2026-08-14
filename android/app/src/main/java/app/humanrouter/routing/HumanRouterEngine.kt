@@ -15,6 +15,9 @@ internal class HumanRouterEngine(
     private val walkGraph: RuntimeWalkGraph? by lazy {
         RuntimeWalkGraph.openOrNull(runtimeRoot, preferences)
     }
+    private val railRouter: RailGraphRouter? by lazy {
+        RailGraphRouter.openOrNull(runtimeRoot, preferences, walkGraph)
+    }
 
     sealed interface PlanResult {
         data class Success(
@@ -72,7 +75,7 @@ internal class HumanRouterEngine(
                     return@use PlanResult.ScheduleUnavailable(serviceDate, departureDate)
                 }
 
-                val router = SurfaceCsaRouter(repository, preferences, walkGraph)
+                val surfaceRouter = SurfaceCsaRouter(repository, preferences, walkGraph)
                 val offsets = if (alternatives) ALTERNATIVE_DEPARTURE_OFFSETS else intArrayOf(0)
                 val candidates = LinkedHashMap<String, RouteCandidate>()
                 var exactWalking = false
@@ -80,7 +83,7 @@ internal class HumanRouterEngine(
                 for (offset in offsets) {
                     val shifted = serviceSeconds + offset
                     if (shifted !in 0..MAX_SERVICE_SECONDS) continue
-                    val surface = router.findFastest(
+                    val surface = surfaceRouter.findFastest(
                         origin = origin,
                         destination = destination,
                         departureServiceSec = shifted,
@@ -91,6 +94,15 @@ internal class HumanRouterEngine(
                         requestedDepartureEpochSec = departureEpochSec
                     )
                     candidates.putIfAbsent(normalized.id, normalized)
+                }
+
+                railRouter?.findFastest(
+                    origin = origin,
+                    destination = destination,
+                    departureEpochSec = departureEpochSec
+                )?.let { rail ->
+                    candidates.putIfAbsent(rail.id, rail)
+                    exactWalking = exactWalking || walkGraph != null
                 }
 
                 if (candidates.isEmpty()) {
@@ -116,7 +128,10 @@ internal class HumanRouterEngine(
                 }
 
                 val ordered = selected.values
-                    .sortedWith(compareBy<RankedRoute> { it.expectedArrivalEpochSec }.thenByDescending { it.transferSuccessProbability })
+                    .sortedWith(
+                        compareBy<RankedRoute> { it.expectedArrivalEpochSec }
+                            .thenByDescending { it.transferSuccessProbability }
+                    )
                     .take(MAX_VISIBLE_OPTIONS)
 
                 if (ordered.isEmpty()) {
