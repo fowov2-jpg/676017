@@ -18,10 +18,13 @@ internal class HumanRouterEngine(
 
     sealed interface PlanResult {
         data class Success(
-            val fastest: RankedRoute,
+            val routes: List<RankedRoute>,
             val serviceDate: LocalDate,
             val exactWalkingGraph: Boolean
-        ) : PlanResult
+        ) : PlanResult {
+            init { require(routes.isNotEmpty()) }
+            val fastest: RankedRoute get() = routes.first()
+        }
 
         data class RuntimeMissing(val reason: String) : PlanResult
         data class ScheduleUnavailable(val serviceDate: LocalDate?, val requestedDate: LocalDate) : PlanResult
@@ -32,6 +35,19 @@ internal class HumanRouterEngine(
         origin: GeoPoint,
         destination: GeoPoint,
         departureEpochSec: Long
+    ): PlanResult = planInternal(origin, destination, departureEpochSec, alternatives = false)
+
+    fun planOptions(
+        origin: GeoPoint,
+        destination: GeoPoint,
+        departureEpochSec: Long
+    ): PlanResult = planInternal(origin, destination, departureEpochSec, alternatives = true)
+
+    private fun planInternal(
+        origin: GeoPoint,
+        destination: GeoPoint,
+        departureEpochSec: Long,
+        alternatives: Boolean
     ): PlanResult {
         val runtimeSurface = File(runtimeRoot, "surface")
         if (!File(runtimeSurface, "manifest.json").exists()) {
@@ -48,27 +64,64 @@ internal class HumanRouterEngine(
                 val departureDate = Instant.ofEpochSecond(departureEpochSec)
                     .atZone(zoneId)
                     .toLocalDate()
-
                 val serviceMidnight = serviceDate.atStartOfDay(zoneId).toEpochSecond()
                 val serviceSeconds = (departureEpochSec - serviceMidnight).toInt()
 
-                // Moscow service days may legitimately continue after midnight. We allow a runtime
-                // to serve up to 30:00 of its service day, but never silently use it beyond that.
                 if (serviceSeconds !in 0..MAX_SERVICE_SECONDS) {
                     return@use PlanResult.ScheduleUnavailable(serviceDate, departureDate)
                 }
 
                 val router = SurfaceCsaRouter(repository, preferences, walkGraph)
-                val surface = router.findFastest(
-                    origin = origin,
-                    destination = destination,
-                    departureServiceSec = serviceSeconds,
-                    serviceMidnightEpochSec = serviceMidnight
+                val offsets = if (alternatives) ALTERNATIVE_DEPARTURE_OFFSETS else intArrayOf(0)
+                val candidates = LinkedHashMap<String, RouteCandidate>()
+                var exactWalking = false
+
+                for (offset in offsets) {
+                    val shifted = serviceSeconds + offset
+                    if (shifted !in 0..MAX_SERVICE_SECONDS) continue
+                    val surface = router.findFastest(
+                        origin = origin,
+                        destination = destination,
+                        departureServiceSec = shifted,
+                        serviceMidnightEpochSec = serviceMidnight
+                    )
+                    exactWalking = exactWalking || surface.usedOsmWalkingGraph
+                    val normalized = surface.fastest.copy(
+                        requestedDepartureEpochSec = departureEpochSec
+                    )
+                    candidates.putIfAbsent(normalized.id, normalized)
+                }
+
+                if (candidates.isEmpty()) {
+                    return@use PlanResult.Failure("Маршрутный движок не вернул ни одного варианта")
+                }
+
+                val all = candidates.values.toList()
+                val selected = LinkedHashMap<String, RankedRoute>()
+                val objectives = listOf(
+                    RouteObjective.FASTEST,
+                    RouteObjective.RELIABLE,
+                    RouteObjective.LESS_WALKING,
+                    RouteObjective.FEWER_TRANSFERS
                 )
+
+                for (objective in objectives) {
+                    val ranked = RouteRanker.rank(all, objective, preferences).firstOrNull() ?: continue
+                    selected.putIfAbsent(ranked.route.id, ranked)
+                }
+                for (ranked in RouteRanker.rank(all, RouteObjective.FASTEST, preferences)) {
+                    if (selected.size >= MAX_VISIBLE_OPTIONS) break
+                    selected.putIfAbsent(ranked.route.id, ranked)
+                }
+
+                val ordered = selected.values
+                    .sortedWith(compareBy<RankedRoute> { it.expectedArrivalEpochSec }.thenByDescending { it.transferSuccessProbability })
+                    .take(MAX_VISIBLE_OPTIONS)
+
                 PlanResult.Success(
-                    fastest = RouteRanker.score(surface.fastest, RouteObjective.FASTEST, preferences),
+                    routes = ordered,
                     serviceDate = serviceDate,
-                    exactWalkingGraph = surface.usedOsmWalkingGraph
+                    exactWalkingGraph = exactWalking
                 )
             }
         }.getOrElse { error ->
@@ -78,5 +131,7 @@ internal class HumanRouterEngine(
 
     companion object {
         private const val MAX_SERVICE_SECONDS = 30 * 60 * 60
+        private const val MAX_VISIBLE_OPTIONS = 4
+        private val ALTERNATIVE_DEPARTURE_OFFSETS = intArrayOf(0, 120, 300, 600)
     }
 }
