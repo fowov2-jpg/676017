@@ -1,0 +1,52 @@
+name: Publish Human Router runtime
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag
+        required: true
+        default: runtime-v0.4.3
+  push:
+    paths:
+      - manifest.json
+      - runtime/**
+      - tools/verify_runtime_release.py
+      - .github/workflows/publish-runtime.yml
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify runtime package set
+        run: python tools/verify_runtime_release.py --manifest manifest.json --root runtime
+      - name: Determine tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=runtime-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.value }}
+        shell: bash
+        run: |
+          VERSION=$(python -c 'import json; print(json.load(open("manifest.json", encoding="utf-8"))["version"])')
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" runtime/* manifest.json --clobber
+          else
+            gh release create "$TAG" runtime/* manifest.json \
+              --title "Human Router runtime $TAG" \
+              --notes "Verified Human Router runtime. Version: $VERSION"
+          fi
