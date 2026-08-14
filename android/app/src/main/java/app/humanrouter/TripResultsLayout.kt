@@ -282,7 +282,7 @@ class TripResultsLayout @JvmOverloads constructor(
             background = ContextCompat.getDrawable(context, R.drawable.bg_chip)
             setOnClickListener {
                 context.startService(Intent(context, TripNavigationService::class.java).setAction(TripNavigationService.ACTION_STOP))
-                visibility = View.GONE
+                this@TripResultsLayout.visibility = View.GONE
                 rootView?.findViewById<View?>(R.id.nearbyPanel)?.visibility = View.VISIBLE
                 rootView?.findViewById<View?>(R.id.searchPanel)?.visibility = View.VISIBLE
                 rootView?.findViewById<View?>(R.id.bottomNav)?.visibility = View.VISIBLE
