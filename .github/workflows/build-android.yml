@@ -1,4 +1,4 @@
-name: Build Human Router Android
+name: Build VremyaHodom Android
 
 on:
   workflow_dispatch:
@@ -28,16 +28,16 @@ jobs:
         run: |
           set -euo pipefail
           BASE='https://github.com/fowov2-jpg/676017/releases/download/runtime-current/'
-          mkdir -p /tmp/human-router-runtime-smoke
+          mkdir -p /tmp/vremyahodom-runtime-smoke
           curl -fL --retry 4 --retry-delay 2 --connect-timeout 20 \
-            "$BASE/manifest.json" -o /tmp/human-router-runtime-smoke/manifest.json
+            "$BASE/manifest.json" -o /tmp/vremyahodom-runtime-smoke/manifest.json
           python - <<'PY'
           import hashlib
           import json
           import pathlib
           import subprocess
 
-          root = pathlib.Path('/tmp/human-router-runtime-smoke')
+          root = pathlib.Path('/tmp/vremyahodom-runtime-smoke')
           manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
           packs = [p for p in manifest.get('packs', []) if p.get('required', True)]
           if not packs:
@@ -128,7 +128,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: human-router-debug-apk
+          name: vremyahodom-debug-apk
           path: |
             android/app/build/outputs/apk/debug/app-debug.apk
             android/app/build/outputs/apk/debug/app-debug.apk.sha256
@@ -137,6 +137,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: human-router-lint-report
+          name: vremyahodom-lint-report
           path: android/app/build/reports/lint-results-debug.html
           if-no-files-found: ignore
