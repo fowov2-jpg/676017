@@ -1,6 +1,6 @@
 {
   "version": 8,
-  "name": "Human Router Base Map",
+  "name": "VremyaHodom Base Map",
   "sources": {
     "osm": {
       "type": "raster",
