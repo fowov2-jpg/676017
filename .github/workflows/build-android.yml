@@ -5,17 +5,91 @@ on:
   push:
     paths:
       - android/**
+      - tools/build_surface_runtime.py
+      - tools/test_build_surface_runtime.py
       - .github/workflows/build-android.yml
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Surface runtime integration smoke test
+        run: python tools/test_build_surface_runtime.py
+
+      - name: Smoke-check published runtime-current
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://github.com/fowov2-jpg/676017/releases/download/runtime-current/'
+          mkdir -p /tmp/human-router-runtime-smoke
+          curl -fL --retry 4 --retry-delay 2 --connect-timeout 20 \
+            "$BASE/manifest.json" -o /tmp/human-router-runtime-smoke/manifest.json
+          python - <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import subprocess
+
+          root = pathlib.Path('/tmp/human-router-runtime-smoke')
+          manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+          packs = [p for p in manifest.get('packs', []) if p.get('required', True)]
+          if not packs:
+              raise SystemExit('runtime-current manifest has no required packs')
+
+          install_paths = {p.get('install_as', '') for p in packs}
+          required_exact = {'surface/manifest.json', 'rail/graph.json'}
+          missing = sorted(required_exact - install_paths)
+          if missing:
+              raise SystemExit(f'missing critical runtime install paths: {missing}')
+          if not any(path.startswith('surface/') and path.endswith('.sqlite') for path in install_paths):
+              raise SystemExit('runtime-current has no surface SQLite package')
+          if not any(path.startswith('walk/') for path in install_paths):
+              raise SystemExit('runtime-current has no pedestrian graph package')
+
+          selected = []
+          for predicate in (
+              lambda path: path == 'surface/manifest.json',
+              lambda path: path.startswith('surface/') and path.endswith('.sqlite'),
+              lambda path: path == 'rail/graph.json',
+              lambda path: path.startswith('walk/'),
+          ):
+              hit = next((p for p in packs if predicate(p.get('install_as', ''))), None)
+              if hit and hit not in selected:
+                  selected.append(hit)
+
+          base = 'https://github.com/fowov2-jpg/676017/releases/download/runtime-current/'
+          for pack in selected:
+              target = root / pack['file']
+              target.parent.mkdir(parents=True, exist_ok=True)
+              subprocess.run([
+                  'curl', '-fL', '--retry', '4', '--retry-delay', '2', '--connect-timeout', '20',
+                  base + pack['file'], '-o', str(target)
+              ], check=True)
+              data = target.read_bytes()
+              if len(data) != int(pack['compressed_bytes']):
+                  raise SystemExit(f"size mismatch for {pack['file']}")
+              digest = hashlib.sha256(data).hexdigest()
+              if digest.lower() != pack['sha256_compressed'].lower():
+                  raise SystemExit(f"sha256 mismatch for {pack['file']}")
+
+          print(
+              f"runtime-current smoke OK: version={manifest.get('version')} "
+              f"packs={len(packs)} checked={len(selected)} total={manifest.get('total_download_bytes')}"
+          )
+          PY
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - name: Install verified Gradle
         shell: bash
         run: |
@@ -24,17 +98,36 @@ jobs:
           echo 'd725d707bfabd4dfdc958c624003b3c80accc03f7037b5122c4b1d0ef15cecab  /tmp/gradle.zip' | sha256sum -c -
           unzip -q /tmp/gradle.zip -d /tmp
           echo "/tmp/gradle-8.9/bin" >> "$GITHUB_PATH"
+
       - name: Prepare stable CI debug signing key
         working-directory: android
         shell: bash
         run: base64 --decode ci-debug.keystore.b64 > ci-debug.keystore
+
       - name: Test, build debug APK and run Android Lint
         working-directory: android
         run: gradle --no-daemon testDebugUnitTest assembleDebug lintDebug
+
+      - name: Verify built APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK='android/app/build/outputs/apk/debug/app-debug.apk'
+          test -s "$APK"
+          unzip -tq "$APK" >/dev/null
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose "$APK"
+          sha256sum "$APK" | tee android/app/build/outputs/apk/debug/app-debug.apk.sha256
+
       - uses: actions/upload-artifact@v4
         with:
           name: human-router-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/debug/app-debug.apk.sha256
+          if-no-files-found: error
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
