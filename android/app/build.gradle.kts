@@ -31,5 +31,6 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.work:work-runtime:2.11.2")
     implementation("org.maplibre.gl:android-sdk:11.8.0")
 }
