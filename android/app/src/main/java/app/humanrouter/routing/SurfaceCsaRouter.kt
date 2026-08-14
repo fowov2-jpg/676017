@@ -11,17 +11,15 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * First production routing core for the data that is already trustworthy in the runtime:
- * WALK + official BUS/TRAM schedule. It uses a Connection Scan Algorithm over the timetable
- * connections and allows short walking transfers between nearby surface stops.
- *
- * The stop-to-stop transfer walk is deliberately conservative (great-circle distance with a
- * detour factor) until it is replaced by the installed OSM walk graph. The timetable itself is
- * exact for the runtime service date.
+ * Connection Scan Algorithm over the official Moscow BUS/TRAM timetable.
+ * Origin and destination walking use the installed OSM walking graph when available.
+ * Short stop-to-stop transfers remain a conservative geometry fallback until transfer
+ * footpaths are precomputed from the same OSM graph.
  */
 internal class SurfaceCsaRouter(
     private val repository: SurfaceScheduleRepository,
-    private val preferences: RoutePreferences = RoutePreferences()
+    private val preferences: RoutePreferences = RoutePreferences(),
+    private val walkGraph: RuntimeWalkGraph? = null
 ) {
     private val stops = repository.loadStops()
     private val routes = repository.loadRoutes()
@@ -39,7 +37,8 @@ internal class SurfaceCsaRouter(
     data class Result(
         val fastest: RouteCandidate,
         val serviceDate: String,
-        val usedTransit: Boolean
+        val usedTransit: Boolean,
+        val usedOsmWalkingGraph: Boolean
     )
 
     fun findFastest(
@@ -54,15 +53,24 @@ internal class SurfaceCsaRouter(
         val originPlace = RoutePlace("origin", originName, origin)
         val destinationPlace = RoutePlace("destination", destinationName, destination)
 
-        val directMeters = walkingMeters(origin, destination)
-        val directWalkSeconds = walkingSeconds(directMeters)
+        val geometricDirectMeters = walkingMeters(origin, destination)
+        val exactDirect = if (geometricDirectMeters <= DIRECT_GRAPH_SEARCH_LIMIT_METERS) {
+            walkGraph?.shortestWalk(
+                from = origin,
+                to = destination,
+                maxSeconds = DIRECT_GRAPH_SEARCH_LIMIT_SECONDS,
+                maxMeters = DIRECT_GRAPH_SEARCH_LIMIT_METERS
+            )
+        } else null
+        val directMeters = exactDirect?.meters ?: geometricDirectMeters
+        val directWalkSeconds = exactDirect?.seconds ?: walkingSeconds(directMeters)
         var bestArrivalSec = departureServiceSec + directWalkSeconds
         var bestStopIndex = -1
 
         val earliest = IntArray(stops.size) { INF }
         val previous = arrayOfNulls<Previous>(stops.size)
 
-        for (link in nearbyStops(origin, ACCESS_RADIUS_METERS, MAX_ACCESS_STOPS)) {
+        for (link in accessLinks(origin)) {
             val arrival = departureServiceSec + link.seconds
             if (arrival < earliest[link.stopIndex]) {
                 earliest[link.stopIndex] = arrival
@@ -75,7 +83,7 @@ internal class SurfaceCsaRouter(
         }
 
         val egressByStop = HashMap<Int, WalkLink>()
-        for (link in nearbyStops(destination, EGRESS_RADIUS_METERS, MAX_EGRESS_STOPS)) {
+        for (link in egressLinks(destination)) {
             egressByStop[link.stopIndex] = link
             val accessArrival = earliest[link.stopIndex]
             if (accessArrival != INF) {
@@ -118,8 +126,6 @@ internal class SurfaceCsaRouter(
                     }
                 }
 
-                // One explicit street transfer is enough between two transit legs. Access walking
-                // already seeds all nearby origin stops, so we do not recursively chain footpaths.
                 for (transfer in transferNeighbors(toIndex)) {
                     val transferArrival = connection.arrivalSec + transfer.seconds
                     if (transferArrival < earliest[transfer.stopIndex]) {
@@ -156,13 +162,14 @@ internal class SurfaceCsaRouter(
                             departureEpochSec = serviceMidnightEpochSec + departureServiceSec,
                             arrivalEpochSec = serviceMidnightEpochSec + departureServiceSec + directWalkSeconds,
                             walkMeters = directMeters,
-                            uncertaintySeconds = 30,
-                            realtimeConfidence = 0.95
+                            uncertaintySeconds = if (exactDirect != null) 15 else 90,
+                            realtimeConfidence = if (exactDirect != null) 0.98 else 0.70
                         )
                     )
                 ),
                 serviceDate = repository.serviceDate,
-                usedTransit = false
+                usedTransit = false,
+                usedOsmWalkingGraph = walkGraph != null
             )
         }
 
@@ -182,8 +189,37 @@ internal class SurfaceCsaRouter(
                 legs = legs
             ),
             serviceDate = repository.serviceDate,
-            usedTransit = legs.any { it.mode != TransportMode.WALK }
+            usedTransit = legs.any { it.mode != TransportMode.WALK },
+            usedOsmWalkingGraph = walkGraph != null
         )
+    }
+
+    private fun accessLinks(point: GeoPoint): List<WalkLink> {
+        val exact = walkGraph?.stopCostsFrom(
+            point = point,
+            maxSeconds = ACCESS_MAX_SECONDS,
+            maxMeters = ACCESS_RADIUS_METERS
+        )
+        if (exact != null && exact.isNotEmpty()) {
+            return exact.entries.mapNotNull { (stopId, cost) ->
+                stopIndexById[stopId]?.let { WalkLink(it, cost.meters, cost.seconds) }
+            }.sortedBy { it.seconds }.take(MAX_ACCESS_STOPS)
+        }
+        return nearbyStops(point, ACCESS_RADIUS_METERS, MAX_ACCESS_STOPS)
+    }
+
+    private fun egressLinks(point: GeoPoint): List<WalkLink> {
+        val exact = walkGraph?.stopCostsTo(
+            point = point,
+            maxSeconds = EGRESS_MAX_SECONDS,
+            maxMeters = EGRESS_RADIUS_METERS
+        )
+        if (exact != null && exact.isNotEmpty()) {
+            return exact.entries.mapNotNull { (stopId, cost) ->
+                stopIndexById[stopId]?.let { WalkLink(it, cost.meters, cost.seconds) }
+            }.sortedBy { it.seconds }.take(MAX_EGRESS_STOPS)
+        }
+        return nearbyStops(point, EGRESS_RADIUS_METERS, MAX_EGRESS_STOPS)
     }
 
     private fun reconstruct(
@@ -266,8 +302,8 @@ internal class SurfaceCsaRouter(
                         departureEpochSec = epoch(step.departureSec),
                         arrivalEpochSec = epoch(step.arrivalSec),
                         walkMeters = step.meters,
-                        uncertaintySeconds = 30,
-                        realtimeConfidence = 0.95
+                        uncertaintySeconds = if (walkGraph != null) 20 else 75,
+                        realtimeConfidence = if (walkGraph != null) 0.97 else 0.72
                     )
                     index++
                 }
@@ -415,13 +451,17 @@ internal class SurfaceCsaRouter(
         private const val GRID_DEGREES = 0.005
         private const val APPROX_CELL_METERS = 550.0
         private const val WALK_DETOUR_FACTOR = 1.22
-        private const val ACCESS_RADIUS_METERS = 1_500
-        private const val EGRESS_RADIUS_METERS = 1_500
+        private const val ACCESS_RADIUS_METERS = 1_600
+        private const val EGRESS_RADIUS_METERS = 1_600
+        private const val ACCESS_MAX_SECONDS = 25 * 60
+        private const val EGRESS_MAX_SECONDS = 25 * 60
         private const val TRANSFER_RADIUS_METERS = 500
-        private const val MAX_ACCESS_STOPS = 40
-        private const val MAX_EGRESS_STOPS = 40
+        private const val MAX_ACCESS_STOPS = 48
+        private const val MAX_EGRESS_STOPS = 48
         private const val MAX_TRANSFER_NEIGHBORS = 12
         private const val SAME_STOP_TRANSFER_BUFFER_SECONDS = 45
+        private const val DIRECT_GRAPH_SEARCH_LIMIT_METERS = 6_000
+        private const val DIRECT_GRAPH_SEARCH_LIMIT_SECONDS = 90 * 60
         private const val MAX_SERVICE_SEC = 30 * 60 * 60
     }
 }
