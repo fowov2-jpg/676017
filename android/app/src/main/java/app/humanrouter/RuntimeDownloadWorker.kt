@@ -21,7 +21,10 @@ class RuntimeDownloadWorker(
 
     override fun doWork(): Result {
         createNotificationChannel()
-        setForegroundAsync(createForegroundInfo(0, "Подготавливаем данные…")).get()
+        val silentCheck = inputData.getBoolean(KEY_SILENT_CHECK, false)
+        if (!silentCheck) {
+            setForegroundAsync(createForegroundInfo(0, "Подготавливаем данные…")).get()
+        }
 
         var lastPublishedPercent = -1
         return try {
@@ -39,7 +42,13 @@ class RuntimeDownloadWorker(
                         .putBoolean(KEY_DONE, p.done)
                         .build()
                     setProgressAsync(progress)
-                    setForegroundAsync(createForegroundInfo(p.percent, p.message))
+
+                    // A periodic background check should stay invisible when runtime-current has not
+                    // changed. If an update actually starts, the first non-final progress event
+                    // promotes the worker to a foreground data-sync job as required by Android.
+                    if (!silentCheck || !p.done) {
+                        setForegroundAsync(createForegroundInfo(p.percent, p.message))
+                    }
                 }
             }
             Result.success(
@@ -108,6 +117,7 @@ class RuntimeDownloadWorker(
 
     companion object {
         const val UNIQUE_WORK = "runtime-download"
+        const val KEY_SILENT_CHECK = "silent_check"
         const val KEY_PERCENT = "percent"
         const val KEY_DOWNLOADED = "downloaded"
         const val KEY_TOTAL = "total"

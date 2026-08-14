@@ -1,6 +1,7 @@
 package app.humanrouter
 
 import android.content.Context
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -25,14 +26,31 @@ object RuntimeInstaller {
     ) {
         if (shouldStop()) return
         val base = BuildConfig.RUNTIME_BASE_URL
+        val root = File(context.filesDir, "runtime").apply { mkdirs() }
+        val localManifestFile = File(root, "manifest.json")
         val manifestText = readText(base + "manifest.json")
         if (shouldStop()) return
         val manifest = JSONObject(manifestText)
         val packs = manifest.getJSONArray("packs")
         val totalBytes = manifest.getLong("total_download_bytes")
-        val root = File(context.filesDir, "runtime").apply { mkdirs() }
-        var completedBytes = 0L
 
+        // Normal launches and periodic checks only need one small manifest request when the rolling
+        // runtime has not changed. The previous manifest is written only after a fully verified
+        // installation, so equality means the local pack set completed successfully before.
+        val previousManifestText = runCatching {
+            if (localManifestFile.exists()) localManifestFile.readText() else null
+        }.getOrNull()
+        if (previousManifestText == manifestText) {
+            onProgress(Progress(100, totalBytes, totalBytes, "Данные актуальны", done = true))
+            return
+        }
+
+        val previousManifest = previousManifestText
+            ?.let { runCatching { JSONObject(it) }.getOrNull() }
+        val previousByFile = indexPacks(previousManifest?.optJSONArray("packs"), "file")
+        val previousByInstallPath = indexPacks(previousManifest?.optJSONArray("packs"), "install_as")
+
+        var completedBytes = 0L
         for (i in 0 until packs.length()) {
             if (shouldStop()) return
             val pack = packs.getJSONObject(i)
@@ -46,7 +64,16 @@ object RuntimeInstaller {
             val cached = File(root, "downloads/$name")
             cached.parentFile?.mkdirs()
 
-            if (!cached.exists() || cached.length() != expectedBytes || sha256(cached) != expectedSha) {
+            val previousDownload = previousByFile[name]
+            val cachedKnownGood = cached.exists() &&
+                cached.length() == expectedBytes &&
+                previousDownload != null &&
+                previousDownload.optLong("compressed_bytes", -1L) == expectedBytes &&
+                previousDownload.optString("sha256_compressed").equals(expectedSha, ignoreCase = true)
+
+            if (!cachedKnownGood &&
+                (!cached.exists() || cached.length() != expectedBytes || sha256(cached) != expectedSha)
+            ) {
                 val tmp = File(cached.absolutePath + ".part")
                 var fileBytes = 0L
                 val connection = openConnection(base + name)
@@ -62,7 +89,14 @@ object RuntimeInstaller {
                                 fileBytes += n
                                 val now = completedBytes + fileBytes
                                 val percent = ((now * 100L) / totalBytes).toInt().coerceIn(0, 99)
-                                onProgress(Progress(percent, now, totalBytes, "${i + 1}/${packs.length()} · $name"))
+                                onProgress(
+                                    Progress(
+                                        percent,
+                                        now,
+                                        totalBytes,
+                                        "${i + 1}/${packs.length()} · $name"
+                                    )
+                                )
                             }
                         }
                     }
@@ -79,7 +113,15 @@ object RuntimeInstaller {
             completedBytes += expectedBytes
             val installed = File(root, installAs)
             installed.parentFile?.mkdirs()
-            val installNeeded = !installed.exists() || installed.length() != expectedRawBytes || sha256(installed) != expectedRawSha
+            val previousInstalled = previousByInstallPath[installAs]
+            val installedKnownGood = installed.exists() &&
+                installed.length() == expectedRawBytes &&
+                previousInstalled != null &&
+                previousInstalled.optLong("raw_bytes", -1L) == expectedRawBytes &&
+                previousInstalled.optString("sha256_raw").equals(expectedRawSha, ignoreCase = true)
+            val installNeeded = !installedKnownGood &&
+                (!installed.exists() || installed.length() != expectedRawBytes || sha256(installed) != expectedRawSha)
+
             if (installNeeded) {
                 val tmpInstall = File(installed.absolutePath + ".part")
                 when (compression) {
@@ -98,12 +140,51 @@ object RuntimeInstaller {
             }
 
             val percent = ((completedBytes * 100L) / totalBytes).toInt().coerceIn(0, 100)
-            onProgress(Progress(percent, completedBytes, totalBytes, "Готово ${i + 1} из ${packs.length()}"))
+            onProgress(
+                Progress(
+                    percent,
+                    completedBytes,
+                    totalBytes,
+                    "Готово ${i + 1} из ${packs.length()}"
+                )
+            )
         }
 
         if (shouldStop()) return
-        File(root, "manifest.json").writeText(manifestText)
+        localManifestFile.writeText(manifestText)
+        cleanupObsoleteFiles(root, packs)
         onProgress(Progress(100, totalBytes, totalBytes, "Данные Москвы готовы", done = true))
+    }
+
+    private fun indexPacks(packs: JSONArray?, key: String): Map<String, JSONObject> {
+        if (packs == null) return emptyMap()
+        val result = HashMap<String, JSONObject>(packs.length() * 2)
+        for (i in 0 until packs.length()) {
+            val pack = packs.optJSONObject(i) ?: continue
+            val value = pack.optString(key)
+            if (value.isNotBlank()) result[value] = pack
+        }
+        return result
+    }
+
+    private fun cleanupObsoleteFiles(root: File, packs: JSONArray) {
+        val allowed = HashSet<String>(packs.length() * 2 + 1)
+        allowed += "manifest.json"
+        for (i in 0 until packs.length()) {
+            val pack = packs.getJSONObject(i)
+            allowed += pack.getString("install_as").replace('\\', '/')
+            allowed += "downloads/${pack.getString("file").replace('\\', '/')}"
+        }
+
+        root.walkBottomUp().forEach { file ->
+            if (file == root) return@forEach
+            if (file.isFile) {
+                val relative = file.relativeTo(root).invariantSeparatorsPath
+                if (relative !in allowed) file.delete()
+            } else if (file.isDirectory && file.list()?.isEmpty() == true) {
+                file.delete()
+            }
+        }
     }
 
     private fun readText(url: String): String {
