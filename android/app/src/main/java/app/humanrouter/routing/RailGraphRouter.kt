@@ -2,6 +2,8 @@ package app.humanrouter.routing
 
 import org.json.JSONObject
 import java.io.File
+import java.time.Instant
+import java.time.ZoneId
 import java.util.PriorityQueue
 import kotlin.math.PI
 import kotlin.math.asin
@@ -112,12 +114,16 @@ internal class RailGraphRouter private constructor(
             }
 
             for (edge in adjacency[item.state.node]) {
+                val continuingSameTrain = item.state.lineKey == edge.lineKey
                 val extra = when {
-                    item.state.lineKey == edge.lineKey -> 0
+                    continuingSameTrain -> 0
                     item.state.lineKey == null && !item.state.insideSystem -> entranceSeconds(edge.mode) + expectedWaitSeconds(edge.mode)
                     item.state.lineKey == null -> expectedWaitSeconds(edge.mode)
                     else -> SAME_PLATFORM_CHANGE_SECONDS + expectedWaitSeconds(edge.mode)
                 }
+                val boardingEpochSec = departureEpochSec + item.seconds + extra
+                if (!continuingSameTrain && !serviceAcceptsBoarding(edge.mode, boardingEpochSec)) continue
+
                 val next = State(edge.to, edge.lineKey, true)
                 val candidate = item.seconds + extra + edge.seconds
                 relax(next, candidate, Previous.Ride(item.state, edge, extra), distance, previous, queue)
@@ -187,6 +193,11 @@ internal class RailGraphRouter private constructor(
                 is Previous.Ride -> {
                     val previousArrival = departureEpochSec + previousSeconds(prev.previous, previous)
                     val departure = previousArrival + prev.extraBeforeSeconds
+                    val boardingUncertainty = if (prev.previous.lineKey == prev.edge.lineKey) {
+                        0
+                    } else {
+                        serviceBoundaryUncertaintySeconds(prev.edge.mode, departure)
+                    }
                     reversed += RouteLeg(
                         mode = prev.edge.mode,
                         from = nodes[prev.edge.from].place(),
@@ -196,7 +207,7 @@ internal class RailGraphRouter private constructor(
                         lineId = prev.edge.lineKey,
                         lineName = prev.edge.lineName,
                         waitSeconds = prev.extraBeforeSeconds,
-                        uncertaintySeconds = maxOf(45, (prev.edge.seconds * (1.0 - prev.edge.confidence)).toInt()),
+                        uncertaintySeconds = maxOf(45, (prev.edge.seconds * (1.0 - prev.edge.confidence)).toInt()) + boardingUncertainty,
                         realtimeConfidence = prev.edge.confidence,
                         transferBufferSeconds = if (prev.previous.insideSystem) expectedWaitSeconds(prev.edge.mode) else 0
                     )
@@ -413,6 +424,25 @@ internal class RailGraphRouter private constructor(
         else -> 0
     }
 
+    private fun serviceAcceptsBoarding(mode: TransportMode, epochSec: Long): Boolean {
+        if (mode != TransportMode.METRO) return true
+        val secondOfDay = localSecondOfDay(epochSec)
+        return secondOfDay >= METRO_SERVICE_START_SECONDS || secondOfDay < METRO_SERVICE_END_SECONDS
+    }
+
+    private fun serviceBoundaryUncertaintySeconds(mode: TransportMode, epochSec: Long): Int {
+        if (mode != TransportMode.METRO) return 0
+        val secondOfDay = localSecondOfDay(epochSec)
+        return if (secondOfDay in METRO_SERVICE_START_SECONDS until METRO_FIRST_TRAIN_LATEST_SECONDS) {
+            METRO_EARLY_SERVICE_UNCERTAINTY_SECONDS
+        } else {
+            0
+        }
+    }
+
+    private fun localSecondOfDay(epochSec: Long): Int =
+        Instant.ofEpochSecond(epochSec).atZone(MOSCOW_ZONE).toLocalTime().toSecondOfDay()
+
     private fun Node.place(): RoutePlace = RoutePlace("rail:$osmId", name, point)
 
     private fun buildRouteId(legs: List<RouteLeg>): String {
@@ -437,6 +467,8 @@ internal class RailGraphRouter private constructor(
     }
 
     companion object {
+        private val MOSCOW_ZONE = ZoneId.of("Europe/Moscow")
+
         private const val EARTH_RADIUS_METERS = 6_371_000.0
         private const val WALK_DETOUR_FACTOR = 1.20
         private const val MAX_ACCESS_GEOMETRIC_METERS = 2_400
@@ -444,6 +476,11 @@ internal class RailGraphRouter private constructor(
         private const val ACCESS_MAX_SECONDS = 40 * 60
         private const val MAX_ACCESS_CANDIDATES = 10
         private const val MAX_EXACT_ACCESS = 5
+
+        private const val METRO_SERVICE_START_SECONDS = 5 * 60 * 60 + 30 * 60
+        private const val METRO_FIRST_TRAIN_LATEST_SECONDS = 6 * 60 * 60 + 5 * 60
+        private const val METRO_SERVICE_END_SECONDS = 1 * 60 * 60
+        private const val METRO_EARLY_SERVICE_UNCERTAINTY_SECONDS = 35 * 60
 
         private const val METRO_EXPECTED_WAIT_SECONDS = 120
         private const val MCC_EXPECTED_WAIT_SECONDS = 240
