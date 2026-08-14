@@ -17,11 +17,7 @@ import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
 
-/**
- * Lightweight UI chrome kept separate from the routing activity. It owns only
- * map-screen conveniences and presentation preferences; routing/runtime logic
- * remains in MainActivity/HumanRouterEngine.
- */
+/** Presentation chrome for the map-first ВремяХодом shell. */
 class VremyaHodomChromeLayout @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
@@ -37,29 +33,51 @@ class VremyaHodomChromeLayout @JvmOverloads constructor(
     }
 
     private fun wireChrome() {
+        val search = findViewById<View?>(R.id.searchPanel)
+        val results = findViewById<View?>(R.id.routeResultsPanel)
+        val nearby = findViewById<View?>(R.id.nearbyPanel)
+        val bottom = findViewById<View?>(R.id.bottomNav)
+        val destination = findViewById<EditText?>(R.id.toField)
+
         findViewById<TextView?>(R.id.homeQuickButton)?.setOnClickListener {
-            Toast.makeText(context, "Дом можно будет сохранить после выбора адреса", Toast.LENGTH_SHORT).show()
-            findViewById<EditText?>(R.id.toField)?.requestFocus()
+            Toast.makeText(context, "Сначала сохраните адрес дома", Toast.LENGTH_SHORT).show()
+            destination?.requestFocus()
         }
         findViewById<TextView?>(R.id.workQuickButton)?.setOnClickListener {
-            Toast.makeText(context, "Работу можно будет сохранить после выбора адреса", Toast.LENGTH_SHORT).show()
-            findViewById<EditText?>(R.id.toField)?.requestFocus()
+            Toast.makeText(context, "Сначала сохраните адрес работы", Toast.LENGTH_SHORT).show()
+            destination?.requestFocus()
         }
-        findViewById<TextView?>(R.id.nearbyQuickButton)?.setOnClickListener {
-            showNearby(true)
+        findViewById<TextView?>(R.id.nearbyQuickButton)?.setOnClickListener { showNearby(true) }
+        findViewById<View?>(R.id.locationButton)?.setOnClickListener { centerOnLastLocation() }
+
+        // Override the legacy drawer handlers installed by MainActivity. The bottom bar
+        // is persistent in the new map-first shell and switches visible content only.
+        findViewById<TextView?>(R.id.mapNavButton)?.setOnClickListener {
+            results?.visibility = View.GONE
+            nearby?.visibility = View.VISIBLE
+            search?.visibility = View.VISIBLE
+            bottom?.visibility = View.VISIBLE
         }
-        findViewById<View?>(R.id.locationButton)?.setOnClickListener {
-            centerOnLastLocation()
+        findViewById<TextView?>(R.id.routesNavButton)?.setOnClickListener {
+            results?.visibility = View.GONE
+            nearby?.visibility = View.GONE
+            search?.visibility = View.VISIBLE
+            bottom?.visibility = View.VISIBLE
+            destination?.requestFocus()
         }
         findViewById<TextView?>(R.id.transportNavButton)?.setOnClickListener {
+            search?.visibility = View.VISIBLE
+            bottom?.visibility = View.VISIBLE
             showNearby(true)
         }
         findViewById<TextView?>(R.id.favoritesNavButton)?.setOnClickListener {
-            Toast.makeText(context, "Избранное появится здесь после сохранения маршрутов", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Избранные маршруты пока пусты", Toast.LENGTH_SHORT).show()
         }
-        findViewById<TextView?>(R.id.closeSettingsButton)?.setOnClickListener {
-            closeSettings()
-        }
+        findViewById<TextView?>(R.id.closeSettingsButton)?.setOnClickListener { closeSettings() }
+
+        findViewById<View?>(R.id.nearbyBusRow)?.setOnClickListener { focusNearby("автобус") }
+        findViewById<View?>(R.id.nearbyTramRow)?.setOnClickListener { focusNearby("трамвай") }
+        findViewById<View?>(R.id.nearbyMetroRow)?.setOnClickListener { focusNearby("метро") }
 
         bindPreferenceSwitch(R.id.showStopsSwitch, "show_stops", true)
         bindPreferenceSwitch(R.id.showTransportSwitch, "show_transport", true)
@@ -68,20 +86,26 @@ class VremyaHodomChromeLayout @JvmOverloads constructor(
         bindPreferenceSwitch(R.id.avoidTransfersSwitch, "avoid_transfers", false)
     }
 
+    private fun focusNearby(kind: String) {
+        Toast.makeText(context, "Показываем $kind рядом", Toast.LENGTH_SHORT).show()
+        findViewById<EditText?>(R.id.toField)?.requestFocus()
+    }
+
     private fun showNearby(show: Boolean) {
         val panel = findViewById<View?>(R.id.nearbyPanel) ?: return
         panel.visibility = if (show) View.VISIBLE else View.GONE
+        findViewById<View?>(R.id.bottomNav)?.visibility = View.VISIBLE
         if (show) {
             findViewById<View?>(R.id.routeResultsPanel)?.visibility = View.GONE
             panel.alpha = 0f
-            panel.translationY = dp(28).toFloat()
-            panel.animate().alpha(1f).translationY(0f).setDuration(180).start()
+            panel.translationY = dp(20).toFloat()
+            panel.animate().alpha(1f).translationY(0f).setDuration(170).start()
         }
     }
 
     private fun closeSettings() {
         val panel = findViewById<LinearLayout?>(R.id.settingsPanel) ?: return
-        panel.animate().translationX(panel.width.toFloat()).alpha(0.7f).setDuration(160).withEndAction {
+        panel.animate().translationX(panel.width.toFloat()).alpha(0.8f).setDuration(160).withEndAction {
             panel.visibility = View.INVISIBLE
             panel.translationX = 0f
             panel.alpha = 1f
@@ -93,9 +117,7 @@ class VremyaHodomChromeLayout @JvmOverloads constructor(
     private fun bindPreferenceSwitch(id: Int, key: String, defaultValue: Boolean) {
         val switch = findViewById<SwitchCompat?>(id) ?: return
         switch.isChecked = prefs.getBoolean(key, defaultValue)
-        switch.setOnCheckedChangeListener { _, checked ->
-            prefs.edit().putBoolean(key, checked).apply()
-        }
+        switch.setOnCheckedChangeListener { _, checked -> prefs.edit().putBoolean(key, checked).apply() }
     }
 
     private fun centerOnLastLocation() {
@@ -116,10 +138,7 @@ class VremyaHodomChromeLayout @JvmOverloads constructor(
         findViewById<MapView?>(R.id.mapView)?.getMapAsync { map ->
             map.animateCamera(
                 org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(
-                    CameraPosition.Builder()
-                        .target(LatLng(location.latitude, location.longitude))
-                        .zoom(15.2)
-                        .build()
+                    CameraPosition.Builder().target(LatLng(location.latitude, location.longitude)).zoom(15.2).build()
                 ),
                 420
             )
