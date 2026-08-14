@@ -85,7 +85,7 @@ class RuntimeDownloadWorker(
             .setProgress(100, percent.coerceIn(0, 100), false)
             .build()
 
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             ForegroundInfo(
                 NOTIFICATION_ID,
                 notification,
