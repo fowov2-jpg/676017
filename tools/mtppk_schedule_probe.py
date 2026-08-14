@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Discover machine-readable/downloadable MTPPK timetable sources.
+"""Discover and capture public MTPPK timetable sources.
 
 This probe intentionally reads only public pages from the official mtppk.ru domain. It records
-candidate timetable/document links and basic response metadata so the runtime importer can be built
-against the real published format instead of guessing URLs.
+candidate timetable/document links and downloads public schedule files so the runtime importer can
+be built against the real published format instead of guessed URLs.
 
 MTPPK has intermittently served a certificate chain that GitHub-hosted runners cannot validate.
 We always try normal certificate validation first. For this read-only public probe only, a
@@ -12,6 +12,7 @@ fact. No credentials, cookies or private data are ever sent by this probe.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import ssl
@@ -22,11 +23,14 @@ from pathlib import Path
 
 BASE = "https://mtppk.ru"
 START = f"{BASE}/schedule/"
-UA = "HumanRouterMTPPKProbe/0.2 (+https://github.com/fowov2-jpg/676017)"
+UA = "HumanRouterMTPPKProbe/0.3 (+https://github.com/fowov2-jpg/676017)"
 OUT = Path("mtppk-schedule-probe")
+DOWNLOADS = OUT / "downloads"
 OUT.mkdir(exist_ok=True)
+DOWNLOADS.mkdir(exist_ok=True)
 ALLOWED_HOSTS = {"mtppk.ru", "www.mtppk.ru"}
 INSECURE_CONTEXT = ssl._create_unverified_context()
+MAX_CAPTURE_BYTES = 25 * 1024 * 1024
 
 
 def is_certificate_error(exc: BaseException) -> bool:
@@ -77,6 +81,34 @@ def fetch(url: str, limit: int | None = None):
         }
 
 
+def is_download_url(url: str) -> bool:
+    return urllib.parse.urlparse(url).path.lower().endswith("/download.php")
+
+
+def capture_name(url: str, response: dict) -> str:
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+    ident = re.sub(r"[^0-9A-Za-z_-]+", "_", (query.get("id") or ["unknown"])[0])
+    content_type = (response.get("content_type") or "").lower()
+    disposition = response.get("content_disposition") or ""
+    filename_match = re.search(r'filename\*?=(?:UTF-8\'\')?["\']?([^"\';]+)', disposition, re.I)
+    if filename_match:
+        supplied = urllib.parse.unquote(filename_match.group(1)).strip()
+        suffix = Path(supplied).suffix.lower()
+        if suffix in {".pdf", ".xls", ".xlsx", ".csv", ".zip", ".json", ".xml"}:
+            return f"download_{ident}{suffix}"
+    if "pdf" in content_type:
+        suffix = ".pdf"
+    elif "spreadsheetml" in content_type:
+        suffix = ".xlsx"
+    elif "ms-excel" in content_type:
+        suffix = ".xls"
+    elif "zip" in content_type:
+        suffix = ".zip"
+    else:
+        suffix = ".bin"
+    return f"download_{ident}{suffix}"
+
+
 page = fetch(START)
 html = page.pop("raw").decode("utf-8", "replace")
 (OUT / "schedule.html").write_text(html, encoding="utf-8")
@@ -98,27 +130,44 @@ file_exts = (".pdf", ".xls", ".xlsx", ".csv", ".zip", ".json", ".xml")
 candidates = []
 for url in links:
     low = urllib.parse.unquote(url).lower()
-    if low.endswith(file_exts) or "/upload/" in low or any(word in low for word in schedule_words):
+    if (
+        low.endswith(file_exts)
+        or "/upload/" in low
+        or is_download_url(url)
+        or any(word in low for word in schedule_words)
+    ):
         candidates.append(url)
 
-# Capture visible anchor labels around timetable links. This helps identify MCD-3 vs other sections
-# even when the URL itself is opaque.
+# Capture visible anchor labels around timetable links. This identifies MCD-3 and the effective date
+# even when the URL itself is only /download.php?id=...
 anchors = []
+label_by_url = {}
 for match in re.finditer(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', html, re.I | re.S):
     href, body = match.groups()
     text = re.sub(r'<[^>]+>', ' ', body)
     text = re.sub(r'\s+', ' ', text).strip()
     url = urllib.parse.urljoin(START, href.strip())
     if text and url in candidates:
-        anchors.append({"text": text[:300], "url": url})
+        item = {"text": text[:500], "url": url}
+        anchors.append(item)
+        label_by_url.setdefault(url, text[:500])
 
 probes = []
-for url in candidates[:80]:
-    item = {"url": url}
+for url in candidates[:120]:
+    item = {"url": url, "label": label_by_url.get(url)}
     try:
-        response = fetch(url, limit=64 * 1024)
-        response.pop("raw", None)
+        capture = is_download_url(url)
+        response = fetch(url, limit=MAX_CAPTURE_BYTES if capture else 64 * 1024)
+        raw = response.pop("raw")
         item.update(response)
+        if capture:
+            declared = response.get("content_length")
+            declared_int = int(declared) if str(declared or "").isdigit() else None
+            item["truncated"] = declared_int is not None and declared_int > len(raw)
+            item["sha256"] = hashlib.sha256(raw).hexdigest()
+            name = capture_name(url, response)
+            (DOWNLOADS / name).write_bytes(raw)
+            item["captured_file"] = f"downloads/{name}"
     except Exception as exc:
         item["status"] = getattr(exc, "code", None)
         item["error"] = repr(exc)
@@ -143,6 +192,7 @@ print(json.dumps({
     "page": page,
     "link_count": len(links),
     "candidate_count": len(candidates),
-    "anchors": anchors[:30],
-    "probes": probes[:40],
+    "download_count": sum(1 for p in probes if p.get("captured_file")),
+    "anchors": anchors[:40],
+    "downloads": [p for p in probes if p.get("captured_file")],
 }, ensure_ascii=False, indent=2))
