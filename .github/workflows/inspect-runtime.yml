@@ -1,0 +1,111 @@
+name: Inspect Human Router runtime
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/inspect-runtime.yml
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reassemble runtime archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat incoming/HumanRouter_RUNTIME_HOST_v0.4.3.zip.part-* > /tmp/HumanRouter_RUNTIME_HOST_v0.4.3.zip
+          echo 'b927bdedfe1fc295f12eac1d83abf039e6bb799bf28f5d92218c91b92ab51dcb  /tmp/HumanRouter_RUNTIME_HOST_v0.4.3.zip' | sha256sum -c -
+          rm -rf /tmp/hr-unpack
+          mkdir -p /tmp/hr-unpack
+          unzip -q /tmp/HumanRouter_RUNTIME_HOST_v0.4.3.zip -d /tmp/hr-unpack
+
+      - name: Inspect runtime data model
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/hr-unpack/HumanRouter_RUNTIME_HOST_v0.4.3
+          REPORT="$GITHUB_WORKSPACE/runtime-inspection.txt"
+          : > "$REPORT"
+
+          {
+            echo '=== FILES ==='
+            find "$ROOT" -maxdepth 1 -type f -printf '%f\t%s bytes\n' | sort
+            echo
+
+            echo '=== ROOT MANIFEST ==='
+            cat manifest.json
+            echo
+
+            echo '=== SURFACE MANIFEST ==='
+            gzip -dc "$ROOT/surface_manifest.json.gz"
+            echo
+
+            echo '=== WALK MANIFEST ==='
+            gzip -dc "$ROOT/walk_manifest.json.gz"
+            echo
+
+            echo '=== RAIL MANIFEST ==='
+            gzip -dc "$ROOT/rail_manifest.json.gz"
+            echo
+          } >> "$REPORT"
+
+          gzip -dc "$ROOT/surface_2026-08-14.sqlite.gz" > /tmp/surface.sqlite
+
+          {
+            echo
+            echo '=== SQLITE INTEGRITY ==='
+            sqlite3 /tmp/surface.sqlite 'PRAGMA integrity_check;'
+            echo
+            echo '=== SQLITE TABLES ==='
+            sqlite3 /tmp/surface.sqlite '.tables'
+            echo
+            echo '=== SQLITE SCHEMA ==='
+            sqlite3 /tmp/surface.sqlite '.schema'
+            echo
+            echo '=== TABLE ROW COUNTS ==='
+          } >> "$REPORT"
+
+          sqlite3 /tmp/surface.sqlite "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;" | while read -r table; do
+            count=$(sqlite3 /tmp/surface.sqlite "SELECT COUNT(*) FROM \"$table\";")
+            printf '%s\t%s\n' "$table" "$count" >> "$REPORT"
+          done
+
+          {
+            echo
+            echo '=== TABLE COLUMNS ==='
+          } >> "$REPORT"
+          sqlite3 /tmp/surface.sqlite "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;" | while read -r table; do
+            echo "--- $table ---" >> "$REPORT"
+            sqlite3 -header -column /tmp/surface.sqlite "PRAGMA table_info(\"$table\");" >> "$REPORT"
+          done
+
+          python3 - <<'PY' >> "$REPORT"
+          import gzip, json, os, struct
+          root='/tmp/hr-unpack/HumanRouter_RUNTIME_HOST_v0.4.3'
+          print('\n=== NPY HEADERS ===')
+          names=[
+            'walk_lat_e7.npy.gz','walk_lon_e7.npy.gz','walk_offsets.npy.gz','walk_targets.npy.gz',
+            'walk_seconds.npy.gz','walk_meters.npy.gz','walk_flags.npy.gz','walk_rev_offsets.npy.gz',
+            'walk_rev_targets.npy.gz','walk_rev_seconds.npy.gz','walk_rev_meters.npy.gz','walk_rev_flags.npy.gz',
+            'walk_grid_keys.npy.gz','walk_grid_offsets.npy.gz','walk_grid_nodes.npy.gz'
+          ]
+          for name in names:
+              path=os.path.join(root,name)
+              with gzip.open(path,'rb') as f:
+                  magic=f.read(6)
+                  major,minor=f.read(1)[0],f.read(1)[0]
+                  if major==1:
+                      hlen=struct.unpack('<H',f.read(2))[0]
+                  else:
+                      hlen=struct.unpack('<I',f.read(4))[0]
+                  header=f.read(hlen).decode('latin1').strip()
+              print(f'{name}: npy v{major}.{minor} {header}')
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-inspection
+          path: runtime-inspection.txt
