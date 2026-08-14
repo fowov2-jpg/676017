@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#FFE9EEF3">
+    android:layout_height="match_parent">
 
     <org.maplibre.android.maps.MapView
         android:id="@+id/mapView"
@@ -13,49 +12,65 @@
         android:id="@+id/searchPanel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="14dp"
-        android:layout_marginTop="18dp"
-        android:layout_marginEnd="14dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="12dp"
         android:orientation="vertical"
         android:background="@drawable/bg_panel"
-        android:elevation="8dp">
+        android:elevation="8dp"
+        android:padding="10dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Human Router"
-            android:textStyle="bold"
-            android:textSize="20sp"
-            android:textColor="#FF111827"
-            android:layout_marginBottom="10dp" />
-
-        <TextView
-            android:id="@+id/fromField"
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/bg_input"
-            android:text="●  Откуда"
-            android:textColor="#FF667085"
-            android:textSize="16sp" />
+            android:layout_height="44dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-        <Space android:layout_width="1dp" android:layout_height="8dp" />
+            <TextView
+                android:id="@+id/fromField"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_input"
+                android:paddingStart="14dp"
+                android:paddingEnd="10dp"
+                android:text="●  Откуда"
+                android:textColor="#FF667085"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/settingsButton"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:gravity="center"
+                android:background="@drawable/bg_input"
+                android:text="⚙"
+                android:textSize="20sp"
+                android:textColor="#FF111827" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/toField"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginTop="6dp"
+            android:gravity="center_vertical"
             android:background="@drawable/bg_input"
+            android:paddingStart="14dp"
+            android:paddingEnd="10dp"
             android:text="●  Куда"
             android:textColor="#FF667085"
-            android:textSize="16sp" />
+            android:textSize="15sp" />
 
         <Button
             android:id="@+id/routeButton"
             android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="10dp"
+            android:layout_height="42dp"
+            android:layout_marginTop="6dp"
             android:background="@drawable/bg_primary"
-            android:text="Построить маршрут"
+            android:text="Построить"
             android:textAllCaps="false"
             android:textColor="#FFFFFFFF"
             android:textStyle="bold" />
@@ -66,54 +81,56 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:layout_margin="14dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="12dp"
         android:orientation="vertical"
         android:background="@drawable/bg_panel"
-        android:elevation="10dp">
+        android:elevation="10dp"
+        android:padding="12dp">
 
-        <TextView
-            android:id="@+id/loadingTitle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Подготавливаем Москву"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="#FF111827" />
-
-        <TextView
-            android:id="@+id/status"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="Проверяем данные…"
-            android:textColor="#FF667085"
-            android:textSize="14sp" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/status"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Подготавливаем данные…"
+                android:textColor="#FF344054"
+                android:textSize="13sp"
+                android:maxLines="1" />
+
+            <TextView
+                android:id="@+id/progressText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="0%"
+                android:textColor="#FF111827"
+                android:textStyle="bold" />
+        </LinearLayout>
 
         <ProgressBar
             android:id="@+id/progress"
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="8dp"
-            android:layout_marginTop="12dp"
+            android:layout_height="6dp"
+            android:layout_marginTop="8dp"
             android:max="100"
             android:progress="0" />
-
-        <TextView
-            android:id="@+id/progressText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="0% · 0 / 110.8 МБ"
-            android:textColor="#FF344054"
-            android:textStyle="bold" />
 
         <Button
             android:id="@+id/retryButton"
             android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="10dp"
+            android:layout_height="40dp"
+            android:layout_marginTop="8dp"
             android:background="@drawable/bg_primary"
-            android:text="Повторить загрузку"
+            android:text="Повторить"
             android:textAllCaps="false"
             android:textColor="#FFFFFFFF"
             android:visibility="gone" />
@@ -122,11 +139,11 @@
     <LinearLayout
         android:id="@+id/bottomNav"
         android:layout_width="match_parent"
-        android:layout_height="64dp"
+        android:layout_height="56dp"
         android:layout_gravity="bottom"
         android:orientation="horizontal"
         android:gravity="center"
-        android:background="#F7FFFFFF"
+        android:background="#F2FFFFFF"
         android:elevation="8dp"
         android:visibility="gone">
 
