@@ -1,0 +1,28 @@
+name: Probe mirrored Moscow GTFS
+
+on:
+  push:
+    paths:
+      - 'tools/probe_mobility_moscow.py'
+      - '.github/workflows/probe-mobility-moscow.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Probe MobilityDatabase Moscow feeds
+        run: python tools/probe_mobility_moscow.py
+      - name: Upload probe report
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobility-moscow-probe
+          path: mobility-moscow-probe/
+          if-no-files-found: error
