@@ -2,6 +2,7 @@ package app.humanrouter
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
@@ -12,6 +13,7 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
+import kotlin.math.abs
 
 class MainActivity : AppCompatActivity() {
     private lateinit var mapView: MapView
@@ -20,9 +22,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressText: TextView
     private lateinit var loadingPanel: LinearLayout
     private lateinit var bottomNav: LinearLayout
+    private lateinit var searchPanel: LinearLayout
     private lateinit var retryButton: Button
     private lateinit var routeButton: Button
     private lateinit var settingsButton: TextView
+    private lateinit var searchHandle: TextView
+    private lateinit var navHandle: TextView
+    private lateinit var leftEdgeZone: View
+
+    private var runtimeReady = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,9 +43,13 @@ class MainActivity : AppCompatActivity() {
         progressText = findViewById(R.id.progressText)
         loadingPanel = findViewById(R.id.loadingPanel)
         bottomNav = findViewById(R.id.bottomNav)
+        searchPanel = findViewById(R.id.searchPanel)
         retryButton = findViewById(R.id.retryButton)
         routeButton = findViewById(R.id.routeButton)
         settingsButton = findViewById(R.id.settingsButton)
+        searchHandle = findViewById(R.id.searchHandle)
+        navHandle = findViewById(R.id.navHandle)
+        leftEdgeZone = findViewById(R.id.leftEdgeZone)
 
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync { map ->
@@ -48,6 +60,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         routeButton.setOnClickListener {
+            closeDrawer(searchPanel)
             status.text = "Выберите точки «Откуда» и «Куда»"
             loadingPanel.visibility = View.VISIBLE
         }
@@ -56,13 +69,110 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 
+        searchHandle.setOnClickListener { toggleSearchDrawer() }
+        navHandle.setOnClickListener { toggleNavDrawer() }
+
+        attachSwipeToClose(searchPanel)
+        attachSwipeToClose(bottomNav)
+        attachLeftEdgeSwipe()
+
         startRuntimeInstall()
     }
 
+    private fun toggleSearchDrawer() {
+        if (searchPanel.visibility == View.VISIBLE) closeDrawer(searchPanel) else openSearchDrawer()
+    }
+
+    private fun toggleNavDrawer() {
+        if (!runtimeReady) return
+        if (bottomNav.visibility == View.VISIBLE) closeDrawer(bottomNav) else openNavDrawer()
+    }
+
+    private fun openSearchDrawer() {
+        closeDrawer(bottomNav)
+        searchPanel.visibility = View.VISIBLE
+        searchPanel.post {
+            searchPanel.translationX = -searchPanel.width.toFloat() - 24f
+            searchPanel.animate().translationX(0f).setDuration(190).start()
+        }
+    }
+
+    private fun openNavDrawer() {
+        if (!runtimeReady) return
+        closeDrawer(searchPanel)
+        bottomNav.visibility = View.VISIBLE
+        bottomNav.post {
+            bottomNav.translationX = -bottomNav.width.toFloat() - 24f
+            bottomNav.animate().translationX(0f).setDuration(190).start()
+        }
+    }
+
+    private fun closeDrawer(view: View) {
+        if (view.visibility != View.VISIBLE) return
+        val width = if (view.width > 0) view.width.toFloat() else 700f
+        view.animate()
+            .translationX(-width - 24f)
+            .setDuration(170)
+            .withEndAction {
+                view.visibility = View.INVISIBLE
+                view.translationX = 0f
+            }
+            .start()
+    }
+
+    private fun attachSwipeToClose(view: View) {
+        var downX = 0f
+        var downY = 0f
+        view.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    false
+                }
+                MotionEvent.ACTION_UP -> {
+                    val dx = event.rawX - downX
+                    val dy = event.rawY - downY
+                    if (dx < -80f && abs(dx) > abs(dy)) {
+                        closeDrawer(view)
+                        true
+                    } else false
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun attachLeftEdgeSwipe() {
+        var downX = 0f
+        var downY = 0f
+        leftEdgeZone.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val dx = event.rawX - downX
+                    val dy = event.rawY - downY
+                    if (dx > 70f && abs(dx) > abs(dy)) {
+                        val split = resources.displayMetrics.heightPixels * 0.90f
+                        if (downY >= split && runtimeReady) openNavDrawer() else openSearchDrawer()
+                    }
+                    true
+                }
+                else -> true
+            }
+        }
+    }
+
     private fun startRuntimeInstall() {
+        runtimeReady = false
         retryButton.visibility = View.GONE
         loadingPanel.visibility = View.VISIBLE
-        bottomNav.visibility = View.GONE
+        navHandle.visibility = View.GONE
+        closeDrawer(bottomNav)
         progress.progress = 0
         status.text = "Проверяем данные…"
         progressText.text = "0%"
@@ -75,8 +185,9 @@ class MainActivity : AppCompatActivity() {
                         status.text = p.message
                         progressText.text = "${p.percent}%"
                         if (p.done) {
+                            runtimeReady = true
                             loadingPanel.visibility = View.GONE
-                            bottomNav.visibility = View.VISIBLE
+                            navHandle.visibility = View.VISIBLE
                         }
                     }
                 }
