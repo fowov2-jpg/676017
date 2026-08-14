@@ -12,7 +12,9 @@
     <application
         android:name=".HumanRouterApp"
         android:theme="@style/Theme.HumanRouter"
-        android:label="Human Router">
+        android:label="Human Router"
+        android:icon="@drawable/ic_launcher"
+        android:roundIcon="@drawable/ic_launcher">
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
