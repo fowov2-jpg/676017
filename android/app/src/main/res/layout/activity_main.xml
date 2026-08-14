@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -8,56 +9,67 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Bottom-left route drawer. Hidden by default and revealed from the left edge. -->
     <LinearLayout
         android:id="@+id/searchPanel"
-        android:layout_width="match_parent"
+        android:layout_width="310dp"
         android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
         android:layout_marginStart="12dp"
-        android:layout_marginTop="12dp"
-        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="82dp"
         android:orientation="vertical"
         android:background="@drawable/bg_panel"
-        android:elevation="8dp"
-        android:padding="10dp">
+        android:elevation="12dp"
+        android:padding="10dp"
+        android:visibility="invisible">
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="44dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:layout_height="40dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
             <TextView
-                android:id="@+id/fromField"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:gravity="center_vertical"
-                android:background="@drawable/bg_input"
-                android:paddingStart="14dp"
-                android:paddingEnd="10dp"
-                android:text="●  Откуда"
-                android:textColor="#FF667085"
-                android:textSize="15sp" />
+                android:text="Маршрут"
+                android:textColor="#FF111827"
+                android:textSize="16sp"
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/settingsButton"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:layout_marginStart="8dp"
-                android:gravity="center"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:background="@drawable/bg_input"
+                android:gravity="center"
                 android:text="⚙"
-                android:textSize="20sp"
-                android:textColor="#FF111827" />
+                android:textColor="#FF111827"
+                android:textSize="18sp" />
         </LinearLayout>
+
+        <TextView
+            android:id="@+id/fromField"
+            android:layout_width="match_parent"
+            android:layout_height="42dp"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_input"
+            android:gravity="center_vertical"
+            android:paddingStart="14dp"
+            android:paddingEnd="10dp"
+            android:text="●  Откуда"
+            android:textColor="#FF667085"
+            android:textSize="15sp" />
 
         <TextView
             android:id="@+id/toField"
             android:layout_width="match_parent"
-            android:layout_height="44dp"
+            android:layout_height="42dp"
             android:layout_marginTop="6dp"
-            android:gravity="center_vertical"
             android:background="@drawable/bg_input"
+            android:gravity="center_vertical"
             android:paddingStart="14dp"
             android:paddingEnd="10dp"
             android:text="●  Куда"
@@ -76,6 +88,7 @@
             android:textStyle="bold" />
     </LinearLayout>
 
+    <!-- Dedicated bottom status strip. It never shares space with navigation. -->
     <LinearLayout
         android:id="@+id/loadingPanel"
         android:layout_width="match_parent"
@@ -84,26 +97,26 @@
         android:layout_marginStart="12dp"
         android:layout_marginEnd="12dp"
         android:layout_marginBottom="12dp"
-        android:orientation="vertical"
         android:background="@drawable/bg_panel"
-        android:elevation="10dp"
-        android:padding="12dp">
+        android:elevation="14dp"
+        android:orientation="vertical"
+        android:padding="10dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
             <TextView
                 android:id="@+id/status"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:maxLines="1"
                 android:text="Подготавливаем данные…"
                 android:textColor="#FF344054"
-                android:textSize="13sp"
-                android:maxLines="1" />
+                android:textSize="12sp" />
 
             <TextView
                 android:id="@+id/progressText"
@@ -119,16 +132,16 @@
             android:id="@+id/progress"
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="6dp"
-            android:layout_marginTop="8dp"
+            android:layout_height="5dp"
+            android:layout_marginTop="6dp"
             android:max="100"
             android:progress="0" />
 
         <Button
             android:id="@+id/retryButton"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:layout_marginTop="8dp"
+            android:layout_height="38dp"
+            android:layout_marginTop="6dp"
             android:background="@drawable/bg_primary"
             android:text="Повторить"
             android:textAllCaps="false"
@@ -136,20 +149,64 @@
             android:visibility="gone" />
     </LinearLayout>
 
+    <!-- Navigation is an independent drawer, also hidden to the left. -->
     <LinearLayout
         android:id="@+id/bottomNav"
-        android:layout_width="match_parent"
+        android:layout_width="310dp"
         android:layout_height="56dp"
-        android:layout_gravity="bottom"
-        android:orientation="horizontal"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="12dp"
+        android:layout_marginBottom="12dp"
+        android:background="@drawable/bg_panel"
+        android:elevation="12dp"
         android:gravity="center"
-        android:background="#F2FFFFFF"
-        android:elevation="8dp"
-        android:visibility="gone">
+        android:orientation="horizontal"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:visibility="invisible">
 
         <TextView android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:text="Карта" android:textStyle="bold" android:textColor="#FF111827" />
         <TextView android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:text="Маршруты" android:textColor="#FF667085" />
         <TextView android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:text="Транспорт" android:textColor="#FF667085" />
         <TextView android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:text="Ещё" android:textColor="#FF667085" />
     </LinearLayout>
+
+    <!-- Small handles never cover meaningful map area. -->
+    <TextView
+        android:id="@+id/searchHandle"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="8dp"
+        android:layout_marginBottom="74dp"
+        android:background="@drawable/bg_panel"
+        android:elevation="14dp"
+        android:gravity="center"
+        android:text="⌕"
+        android:textColor="#FF111827"
+        android:textSize="22sp" />
+
+    <TextView
+        android:id="@+id/navHandle"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="8dp"
+        android:layout_marginBottom="18dp"
+        android:background="@drawable/bg_panel"
+        android:elevation="14dp"
+        android:gravity="center"
+        android:text="☰"
+        android:textColor="#FF111827"
+        android:textSize="20sp"
+        android:visibility="gone" />
+
+    <!-- Narrow swipe detector at the lower left edge. -->
+    <View
+        android:id="@+id/leftEdgeZone"
+        android:layout_width="24dp"
+        android:layout_height="240dp"
+        android:layout_gravity="bottom|start"
+        android:background="#00000000" />
+
 </FrameLayout>
