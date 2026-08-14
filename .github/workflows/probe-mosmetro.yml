@@ -1,0 +1,28 @@
+name: Probe Mosmetro official data
+
+on:
+  push:
+    paths:
+      - 'tools/mosmetro_probe.py'
+      - '.github/workflows/probe-mosmetro.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Probe official Mosmetro pages
+        run: python tools/mosmetro_probe.py
+      - name: Upload probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: mosmetro-official-probe
+          path: mosmetro-probe/
+          if-no-files-found: error
