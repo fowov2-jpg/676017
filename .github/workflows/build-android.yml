@@ -50,19 +50,25 @@ jobs:
               raise SystemExit(f'missing critical runtime install paths: {missing}')
           if not any(path.startswith('surface/') and path.endswith('.sqlite') for path in install_paths):
               raise SystemExit('runtime-current has no surface SQLite package')
-          if not any(path.startswith('walk/') for path in install_paths):
+          if not any(str(p.get('file', '')).startswith('walk_') for p in packs):
               raise SystemExit('runtime-current has no pedestrian graph package')
 
           selected = []
-          for predicate in (
+          path_predicates = (
               lambda path: path == 'surface/manifest.json',
               lambda path: path.startswith('surface/') and path.endswith('.sqlite'),
               lambda path: path == 'rail/graph.json',
-              lambda path: path.startswith('walk/'),
-          ):
+          )
+          for predicate in path_predicates:
               hit = next((p for p in packs if predicate(p.get('install_as', ''))), None)
               if hit and hit not in selected:
                   selected.append(hit)
+          walk_hit = next(
+              (p for p in packs if str(p.get('file', '')).startswith('walk_manifest')),
+              next((p for p in packs if str(p.get('file', '')).startswith('walk_')), None),
+          )
+          if walk_hit and walk_hit not in selected:
+              selected.append(walk_hit)
 
           base = 'https://github.com/fowov2-jpg/676017/releases/download/runtime-current/'
           for pack in selected:
