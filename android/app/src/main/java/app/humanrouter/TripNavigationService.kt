@@ -145,7 +145,7 @@ class TripNavigationService : Service(), LocationListener {
 
         executor.execute {
             try {
-                val result = engine.planOptions(
+                val result = engine.planFastest(
                     origin = GeoPoint(location.latitude, location.longitude),
                     destination = target,
                     departureEpochSec = Instant.now().epochSecond
