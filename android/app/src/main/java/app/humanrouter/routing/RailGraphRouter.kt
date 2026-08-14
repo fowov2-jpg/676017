@@ -221,8 +221,6 @@ internal class RailGraphRouter private constructor(
         }
         reversed.reverse()
 
-        // Rebase times sequentially. Dijkstra predecessor states contain correct costs, but a compact
-        // sequential pass avoids exposing reconstruction bookkeeping as gaps or overlaps in UI.
         var cursor = departureEpochSec
         return reversed.map { leg ->
             val duration = leg.durationSeconds
@@ -321,7 +319,7 @@ internal class RailGraphRouter private constructor(
                 seconds = ceil(geometricMeters * WALK_DETOUR_FACTOR / preferences.walkingSpeedMetersPerSecond).toInt(),
                 meters = ceil(geometricMeters * WALK_DETOUR_FACTOR).toInt()
             )
-            if (cost != null) exact += Access(index, cost)
+            exact += Access(index, cost)
         }
         return exact.sortedBy { it.cost.seconds }.take(MAX_EXACT_ACCESS)
     }
@@ -334,11 +332,10 @@ internal class RailGraphRouter private constructor(
             val mode = when (route.optString("mode")) {
                 "METRO" -> TransportMode.METRO
                 "MCC" -> TransportMode.MCC
-                // MCD requires a departure/headway feed before it is allowed into ETA routing.
                 else -> continue
             }
             val routeId = route.getString("osm_relation_id")
-            val lineKey = "${mode.name}:${route.optString("ref", routeId)}"
+            val lineKey = "${mode.name}:$routeId"
             val lineName = route.optString("ref").takeIf { it.isNotBlank() }
                 ?: route.optString("name", mode.name)
             val confidence = route.optDouble("timing_confidence", 0.65).coerceIn(0.2, 0.95)
@@ -359,7 +356,7 @@ internal class RailGraphRouter private constructor(
                         point = GeoPoint(stop.getDouble("lat"), stop.getDouble("lon"))
                     )
                     nodeIndexByOsmId[osmId] = created
-                    adjacency += ArrayList()
+                    adjacency.add(ArrayList())
                     groupsByName.getOrPut(normalizeName(nodes[created].name)) { ArrayList() }.add(created)
                     created
                 }
@@ -384,8 +381,8 @@ internal class RailGraphRouter private constructor(
     }
 
     private fun transferSeconds(from: Int, to: Int): Int {
-        val sameLine = linesByNode[from].orEmpty().any { it in linesByNode[to].orEmpty() }
-        if (sameLine) return SAME_LINE_DIRECTION_CHANGE_SECONDS
+        val sameRelation = linesByNode[from].orEmpty().any { it in linesByNode[to].orEmpty() }
+        if (sameRelation) return SAME_LINE_DIRECTION_CHANGE_SECONDS
         val fromMode = nodeMode(from)
         val toMode = nodeMode(to)
         return if (fromMode == TransportMode.MCC || toMode == TransportMode.MCC) {
@@ -448,8 +445,6 @@ internal class RailGraphRouter private constructor(
         private const val MAX_ACCESS_CANDIDATES = 10
         private const val MAX_EXACT_ACCESS = 5
 
-        // Conservative expected values until live/headway data is available. Their uncertainty is
-        // carried into RouteLeg, so ranking does not treat them as realtime truth.
         private const val METRO_EXPECTED_WAIT_SECONDS = 120
         private const val MCC_EXPECTED_WAIT_SECONDS = 240
         private const val METRO_ENTRANCE_SECONDS = 90
