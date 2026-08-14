@@ -164,7 +164,7 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <LinearLayout
+    <app.humanrouter.TripResultsLayout
         android:id="@+id/routeResultsPanel"
         android:layout_width="340dp"
         android:layout_height="wrap_content"

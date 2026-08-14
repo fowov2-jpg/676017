@@ -49,6 +49,7 @@ internal class HumanRouterEngine(
         departureEpochSec: Long,
         alternatives: Boolean
     ): PlanResult {
+        LastPlanStore.seed = null
         val runtimeSurface = File(runtimeRoot, "surface")
         if (!File(runtimeSurface, "manifest.json").exists()) {
             return PlanResult.RuntimeMissing("Транспортные данные ещё не установлены")
@@ -118,6 +119,16 @@ internal class HumanRouterEngine(
                     .sortedWith(compareBy<RankedRoute> { it.expectedArrivalEpochSec }.thenByDescending { it.transferSuccessProbability })
                     .take(MAX_VISIBLE_OPTIONS)
 
+                if (ordered.isEmpty()) {
+                    return@use PlanResult.Failure("После фильтрации не осталось допустимых маршрутов")
+                }
+
+                LastPlanStore.seed = ActivePlanSeed(
+                    destination = destination,
+                    baselineArrivalEpochSec = ordered.first().route.arrivalEpochSec,
+                    routeId = ordered.first().route.id
+                )
+
                 PlanResult.Success(
                     routes = ordered,
                     serviceDate = serviceDate,
@@ -125,6 +136,7 @@ internal class HumanRouterEngine(
                 )
             }
         }.getOrElse { error ->
+            LastPlanStore.seed = null
             PlanResult.Failure(error.message ?: error.javaClass.simpleName)
         }
     }
