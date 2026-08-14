@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'tools/mtppk_schedule_probe.py'
+      - 'tools/parse_mtppk_xlsx.py'
       - '.github/workflows/probe-mtppk-schedule.yml'
 
 permissions:
@@ -21,6 +22,24 @@ jobs:
           python-version: '3.12'
       - name: Probe public MTPPK timetable downloads
         run: python tools/mtppk_schedule_probe.py
+      - name: Parse captured XLSX timetables
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p mtppk-schedule-probe/parsed
+          count=0
+          for file in mtppk-schedule-probe/downloads/*.xlsx; do
+            [ -e "$file" ] || continue
+            base=$(basename "$file" .xlsx)
+            python tools/parse_mtppk_xlsx.py "$file" \
+              --output "mtppk-schedule-probe/parsed/${base}.json"
+            count=$((count + 1))
+          done
+          if [ "$count" -eq 0 ]; then
+            echo 'No XLSX timetable was captured' >&2
+            exit 1
+          fi
+          echo "Parsed $count MTPPK XLSX timetable files"
       - name: Upload timetable probe
         uses: actions/upload-artifact@v4
         with:
