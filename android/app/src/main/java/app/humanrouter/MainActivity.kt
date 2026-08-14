@@ -55,6 +55,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var rotateMapSwitch: SwitchCompat
     private lateinit var tiltMapSwitch: SwitchCompat
     private lateinit var runtimeVersionText: TextView
+    private lateinit var mapNavButton: TextView
+    private lateinit var routesNavButton: TextView
+    private lateinit var transportNavButton: TextView
 
     private var map: MapLibreMap? = null
     private var runtimeReady = false
@@ -90,6 +93,9 @@ class MainActivity : AppCompatActivity() {
         rotateMapSwitch = findViewById(R.id.rotateMapSwitch)
         tiltMapSwitch = findViewById(R.id.tiltMapSwitch)
         runtimeVersionText = findViewById(R.id.runtimeVersionText)
+        mapNavButton = findViewById(R.id.mapNavButton)
+        routesNavButton = findViewById(R.id.routesNavButton)
+        transportNavButton = findViewById(R.id.transportNavButton)
 
         applySystemInsets()
         configureSettings()
@@ -113,13 +119,25 @@ class MainActivity : AppCompatActivity() {
             if (!runtimeReady) {
                 Toast.makeText(this, "Данные Москвы ещё загружаются", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(this, "Выберите точки «Откуда» и «Куда»", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Поиск адресов и расчёт маршрута — следующий функциональный блок", Toast.LENGTH_SHORT).show()
             }
         }
         retryButton.setOnClickListener { enqueueRuntimeDownload(replace = true) }
         checkDataButton.setOnClickListener {
             enqueueRuntimeDownload(replace = true)
             Toast.makeText(this, "Проверка данных запущена в фоне", Toast.LENGTH_SHORT).show()
+        }
+
+        mapNavButton.setOnClickListener { closeLeftDrawer(bottomNav) }
+        routesNavButton.setOnClickListener { openSearchDrawer() }
+        transportNavButton.setOnClickListener {
+            closeLeftDrawer(bottomNav)
+            val message = if (runtimeReady) {
+                "Данные транспорта готовы; слой транспорта на карте ещё не подключён"
+            } else {
+                "Данные транспорта ещё загружаются"
+            }
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
         }
 
         searchHandle.setOnClickListener { toggleSearchDrawer() }
