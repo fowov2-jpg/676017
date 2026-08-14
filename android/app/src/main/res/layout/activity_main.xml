@@ -1,19 +1,138 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="#FFE9EEF3">
 
     <org.maplibre.android.maps.MapView
         android:id="@+id/mapView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <TextView
-        android:id="@+id/status"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:id="@+id/searchPanel"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        android:background="#CCFFFFFF"
-        android:padding="12dp"
-        android:text="Human Router" />
+        android:layout_marginStart="14dp"
+        android:layout_marginTop="18dp"
+        android:layout_marginEnd="14dp"
+        android:orientation="vertical"
+        android:background="@drawable/bg_panel"
+        android:elevation="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Human Router"
+            android:textStyle="bold"
+            android:textSize="20sp"
+            android:textColor="#FF111827"
+            android:layout_marginBottom="10dp" />
+
+        <TextView
+            android:id="@+id/fromField"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_input"
+            android:text="●  Откуда"
+            android:textColor="#FF667085"
+            android:textSize="16sp" />
+
+        <Space android:layout_width="1dp" android:layout_height="8dp" />
+
+        <TextView
+            android:id="@+id/toField"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_input"
+            android:text="●  Куда"
+            android:textColor="#FF667085"
+            android:textSize="16sp" />
+
+        <Button
+            android:id="@+id/routeButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_primary"
+            android:text="Построить маршрут"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFFFF"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/loadingPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_margin="14dp"
+        android:orientation="vertical"
+        android:background="@drawable/bg_panel"
+        android:elevation="10dp">
+
+        <TextView
+            android:id="@+id/loadingTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Подготавливаем Москву"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#FF111827" />
+
+        <TextView
+            android:id="@+id/status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Проверяем данные…"
+            android:textColor="#FF667085"
+            android:textSize="14sp" />
+
+        <ProgressBar
+            android:id="@+id/progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="8dp"
+            android:layout_marginTop="12dp"
+            android:max="100"
+            android:progress="0" />
+
+        <TextView
+            android:id="@+id/progressText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="0% · 0 / 110.8 МБ"
+            android:textColor="#FF344054"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/retryButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_primary"
+            android:text="Повторить загрузку"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFFFF"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/bottomNav"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:layout_gravity="bottom"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:background="#F7FFFFFF"
+        android:elevation="8dp"
+        android:visibility="gone">
+
+        <TextView android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:text="Карта" android:textStyle="bold" android:textColor="#FF111827" />
+        <TextView android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:text="Маршруты" android:textColor="#FF667085" />
+        <TextView android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:text="Транспорт" android:textColor="#FF667085" />
+        <TextView android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:text="Ещё" android:textColor="#FF667085" />
+    </LinearLayout>
 </FrameLayout>
