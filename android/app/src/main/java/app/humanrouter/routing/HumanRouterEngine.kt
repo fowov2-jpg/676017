@@ -18,6 +18,9 @@ internal class HumanRouterEngine(
     private val railRouter: RailGraphRouter? by lazy {
         RailGraphRouter.openOrNull(runtimeRoot, preferences, walkGraph)
     }
+    private val railWaypointIndex: RailWaypointIndex? by lazy {
+        RailWaypointIndex.openOrNull(runtimeRoot)
+    }
 
     sealed interface PlanResult {
         data class Success(
@@ -80,6 +83,7 @@ internal class HumanRouterEngine(
                 val candidates = LinkedHashMap<String, RouteCandidate>()
                 var exactWalking = false
 
+                // Exact timetable surface routes and the direct-walk fallback embedded in CSA.
                 for (offset in offsets) {
                     val shifted = serviceSeconds + offset
                     if (shifted !in 0..MAX_SERVICE_SECONDS) continue
@@ -96,13 +100,37 @@ internal class HumanRouterEngine(
                     candidates.putIfAbsent(normalized.id, normalized)
                 }
 
-                railRouter?.findFastest(
-                    origin = origin,
-                    destination = destination,
-                    departureEpochSec = departureEpochSec
-                )?.let { rail ->
-                    candidates.putIfAbsent(rail.id, rail)
-                    exactWalking = exactWalking || walkGraph != null
+                // Direct METRO/MCC option.
+                val rail = railRouter
+                if (rail != null) {
+                    rail.findFastest(
+                        origin = origin,
+                        destination = destination,
+                        departureEpochSec = departureEpochSec
+                    )?.let { candidate ->
+                        candidates.putIfAbsent(candidate.id, candidate)
+                        exactWalking = exactWalking || walkGraph != null
+                    }
+                }
+
+                // Real mixed surface<->rail beams. Surface stages use the actual BUS/TRAM timetable;
+                // each rail or second surface stage starts at the previous stage's real arrival time.
+                val index = railWaypointIndex
+                if (rail != null && index != null) {
+                    val mixed = MultimodalComposer(
+                        surface = surfaceRouter,
+                        rail = rail,
+                        railIndex = index,
+                        serviceMidnightEpochSec = serviceMidnight
+                    ).findCandidates(
+                        origin = origin,
+                        destination = destination,
+                        departureEpochSec = departureEpochSec,
+                        broadSearch = alternatives
+                    )
+                    for (candidate in mixed) {
+                        candidates.putIfAbsent(candidate.id, candidate)
+                    }
                 }
 
                 if (candidates.isEmpty()) {
