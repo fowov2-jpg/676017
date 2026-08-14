@@ -12,6 +12,7 @@ import androidx.work.Data
 import androidx.work.ForegroundInfo
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import java.io.IOException
 
 class RuntimeDownloadWorker(
     appContext: Context,
@@ -22,17 +23,21 @@ class RuntimeDownloadWorker(
         createNotificationChannel()
         setForegroundAsync(createForegroundInfo(0, "Подготавливаем данные…")).get()
 
-        return runCatching {
+        var lastPublishedPercent = -1
+        return try {
             RuntimeInstaller.install(applicationContext) { p ->
-                val progress = Data.Builder()
-                    .putInt(KEY_PERCENT, p.percent)
-                    .putLong(KEY_DOWNLOADED, p.downloadedBytes)
-                    .putLong(KEY_TOTAL, p.totalBytes)
-                    .putString(KEY_MESSAGE, p.message)
-                    .putBoolean(KEY_DONE, p.done)
-                    .build()
-                setProgressAsync(progress)
-                setForegroundAsync(createForegroundInfo(p.percent, p.message))
+                if (p.percent != lastPublishedPercent || p.done) {
+                    lastPublishedPercent = p.percent
+                    val progress = Data.Builder()
+                        .putInt(KEY_PERCENT, p.percent)
+                        .putLong(KEY_DOWNLOADED, p.downloadedBytes)
+                        .putLong(KEY_TOTAL, p.totalBytes)
+                        .putString(KEY_MESSAGE, p.message)
+                        .putBoolean(KEY_DONE, p.done)
+                        .build()
+                    setProgressAsync(progress)
+                    setForegroundAsync(createForegroundInfo(p.percent, p.message))
+                }
             }
             Result.success(
                 Data.Builder()
@@ -41,7 +46,9 @@ class RuntimeDownloadWorker(
                     .putString(KEY_MESSAGE, "Данные готовы")
                     .build()
             )
-        }.getOrElse { error ->
+        } catch (error: IOException) {
+            Result.retry()
+        } catch (error: Throwable) {
             Result.failure(
                 Data.Builder()
                     .putString(KEY_ERROR, error.message ?: "Неизвестная ошибка")
