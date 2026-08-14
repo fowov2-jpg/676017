@@ -34,19 +34,15 @@ jobs:
             echo '=== FILES ==='
             find "$ROOT" -maxdepth 1 -type f -printf '%f\t%s bytes\n' | sort
             echo
-
             echo '=== ROOT MANIFEST ==='
             cat manifest.json
             echo
-
             echo '=== SURFACE MANIFEST ==='
             gzip -dc "$ROOT/surface_manifest.json.gz"
             echo
-
             echo '=== WALK MANIFEST ==='
             gzip -dc "$ROOT/walk_manifest.json.gz"
             echo
-
             echo '=== RAIL MANIFEST ==='
             gzip -dc "$ROOT/rail_manifest.json.gz"
             echo
@@ -75,16 +71,38 @@ jobs:
 
           {
             echo
+            echo '=== META ==='
+            sqlite3 -header -column /tmp/surface.sqlite 'SELECT * FROM meta ORDER BY key;'
+            echo
+            echo '=== ROUTE MODE COUNTS ==='
+            sqlite3 -header -column /tmp/surface.sqlite 'SELECT route_mode, COUNT(*) AS routes FROM routes GROUP BY route_mode ORDER BY routes DESC;'
+            echo
+            echo '=== CONNECTION TIME RANGE ==='
+            sqlite3 -header -column /tmp/surface.sqlite 'SELECT MIN(dep) AS min_dep, MAX(dep) AS max_dep, MIN(arr) AS min_arr, MAX(arr) AS max_arr FROM connections;'
+            echo
+            echo '=== SAMPLE CONNECTIONS ==='
+            sqlite3 -header -column /tmp/surface.sqlite 'SELECT c.dep,s1.name AS from_name,c.arr,s2.name AS to_name,r.short_name,r.route_mode,c.trip_id,c.seq FROM connections c JOIN stops s1 ON s1.stop_id=c.from_stop JOIN stops s2 ON s2.stop_id=c.to_stop JOIN routes r ON r.route_id=c.route_id ORDER BY c.dep LIMIT 20;'
+            echo
             echo '=== TABLE COLUMNS ==='
           } >> "$REPORT"
+
           sqlite3 /tmp/surface.sqlite "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;" | while read -r table; do
             echo "--- $table ---" >> "$REPORT"
             sqlite3 -header -column /tmp/surface.sqlite "PRAGMA table_info(\"$table\");" >> "$REPORT"
           done
 
           python3 - <<'PY' >> "$REPORT"
-          import gzip, json, os, struct
+          import ast, gzip, json, os, struct, zipfile
           root='/tmp/hr-unpack/HumanRouter_RUNTIME_HOST_v0.4.3'
+
+          def npy_header(stream):
+              magic=stream.read(6)
+              if magic != b'\x93NUMPY':
+                  return 'not-npy'
+              major,minor=stream.read(1)[0],stream.read(1)[0]
+              hlen=struct.unpack('<H' if major == 1 else '<I', stream.read(2 if major == 1 else 4))[0]
+              return f'v{major}.{minor} ' + stream.read(hlen).decode('latin1').strip()
+
           print('\n=== NPY HEADERS ===')
           names=[
             'walk_lat_e7.npy.gz','walk_lon_e7.npy.gz','walk_offsets.npy.gz','walk_targets.npy.gz',
@@ -93,16 +111,30 @@ jobs:
             'walk_grid_keys.npy.gz','walk_grid_offsets.npy.gz','walk_grid_nodes.npy.gz'
           ]
           for name in names:
-              path=os.path.join(root,name)
-              with gzip.open(path,'rb') as f:
-                  magic=f.read(6)
-                  major,minor=f.read(1)[0],f.read(1)[0]
-                  if major==1:
-                      hlen=struct.unpack('<H',f.read(2))[0]
-                  else:
-                      hlen=struct.unpack('<I',f.read(4))[0]
-                  header=f.read(hlen).decode('latin1').strip()
-              print(f'{name}: npy v{major}.{minor} {header}')
+              with gzip.open(os.path.join(root,name),'rb') as f:
+                  print(f'{name}: {npy_header(f)}')
+
+          print('\n=== STOP-WALK NPZ ===')
+          npz=os.path.join(root,'surface_stop_walk_nodes.npz')
+          with zipfile.ZipFile(npz) as z:
+              for member in sorted(z.namelist()):
+                  with z.open(member) as f:
+                      print(f'{member}: {npy_header(f)}')
+
+          print('\n=== RAIL JSON STRUCTURE ===')
+          for name in ['rail_official_lines_2278.json.gz','rail_osm_subway_stations.json.gz','rail_osm_rail_stations.json.gz','rail_osm_rail_relations.json.gz','rail_mosmetro_scheme_station_index.json.gz']:
+              with gzip.open(os.path.join(root,name),'rt',encoding='utf-8') as f:
+                  obj=json.load(f)
+              print(f'--- {name} ---')
+              print('type=',type(obj).__name__)
+              if isinstance(obj,dict):
+                  print('keys=',list(obj.keys())[:30])
+                  for k,v in list(obj.items())[:3]:
+                      if isinstance(v,list): print(k,'len=',len(v),'sample=',v[:2])
+                      elif isinstance(v,dict): print(k,'keys=',list(v.keys())[:20])
+                      else: print(k,'=',repr(v)[:500])
+              elif isinstance(obj,list):
+                  print('len=',len(obj),'sample=',obj[:2])
           PY
 
       - uses: actions/upload-artifact@v4
