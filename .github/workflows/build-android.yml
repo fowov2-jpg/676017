@@ -16,10 +16,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install Gradle
+      - name: Install verified Gradle
         shell: bash
         run: |
+          set -euo pipefail
           wget -q https://services.gradle.org/distributions/gradle-8.9-bin.zip -O /tmp/gradle.zip
+          echo 'd725d707bfabd4dfdc958c624003b3c80accc03f7037b5122c4b1d0ef15cecab  /tmp/gradle.zip' | sha256sum -c -
           unzip -q /tmp/gradle.zip -d /tmp
           echo "/tmp/gradle-8.9/bin" >> "$GITHUB_PATH"
       - name: Prepare stable CI debug signing key
