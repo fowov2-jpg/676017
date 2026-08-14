@@ -21,6 +21,9 @@ internal class HumanRouterEngine(
     private val railWaypointIndex: RailWaypointIndex? by lazy {
         RailWaypointIndex.openOrNull(runtimeRoot)
     }
+    private val railExternalTransfers: RailExternalTransferComposer? by lazy {
+        RailExternalTransferComposer.openOrNull(runtimeRoot, railRouter, walkGraph, preferences)
+    }
 
     sealed interface PlanResult {
         data class Success(
@@ -111,6 +114,19 @@ internal class HumanRouterEngine(
                         candidates.putIfAbsent(candidate.id, candidate)
                         exactWalking = exactWalking || walkGraph != null
                     }
+                }
+
+                // Some valid Moscow interchanges have different station names. Evaluate those as
+                // real external walking transfers; when the OSM walk graph is installed, the transfer
+                // is routed through the pedestrian graph instead of a straight-line teleport.
+                railExternalTransfers?.findCandidates(
+                    origin = origin,
+                    destination = destination,
+                    departureEpochSec = departureEpochSec,
+                    broadSearch = alternatives
+                )?.forEach { candidate ->
+                    candidates.putIfAbsent(candidate.id, candidate)
+                    exactWalking = exactWalking || walkGraph != null
                 }
 
                 // Real mixed surface<->rail beams. Surface stages use the actual BUS/TRAM timetable;
