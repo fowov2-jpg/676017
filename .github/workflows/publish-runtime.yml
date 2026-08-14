@@ -9,6 +9,7 @@ on:
         default: runtime-v0.4.3
   push:
     paths:
+      - incoming/**
       - manifest.json
       - runtime/**
       - tools/verify_runtime_release.py
@@ -25,8 +26,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Reassemble uploaded runtime ZIP parts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runtime
+          if compgen -G 'incoming/HumanRouter_RUNTIME_HOST_v0.4.3.zip.part-*' > /dev/null; then
+            cat incoming/HumanRouter_RUNTIME_HOST_v0.4.3.zip.part-* > /tmp/HumanRouter_RUNTIME_HOST_v0.4.3.zip
+            echo 'b927bdedfe1fc295f12eac1d83abf039e6bb799bf28f5d92218c91b92ab51dcb  /tmp/HumanRouter_RUNTIME_HOST_v0.4.3.zip' | sha256sum -c -
+            rm -rf /tmp/hr-unpack
+            mkdir -p /tmp/hr-unpack
+            unzip -q /tmp/HumanRouter_RUNTIME_HOST_v0.4.3.zip -d /tmp/hr-unpack
+            cp -f /tmp/hr-unpack/HumanRouter_RUNTIME_HOST_v0.4.3/* runtime/
+          fi
+
       - name: Verify runtime package set
         run: python tools/verify_runtime_release.py --manifest manifest.json --root runtime
+
       - name: Determine tag
         id: tag
         shell: bash
@@ -34,8 +51,9 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
           else
-            echo "value=runtime-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+            echo "value=runtime-v0.4.3" >> "$GITHUB_OUTPUT"
           fi
+
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
