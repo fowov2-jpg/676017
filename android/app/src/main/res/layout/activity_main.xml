@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<app.humanrouter.VremyaHodomChromeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/root"
     android:layout_width="match_parent"
@@ -17,12 +17,12 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top"
         android:layout_marginStart="18dp"
-        android:layout_marginTop="14dp"
+        android:layout_marginTop="16dp"
         android:layout_marginEnd="18dp"
         android:background="@drawable/bg_panel"
-        android:elevation="14dp"
+        android:elevation="18dp"
         android:orientation="vertical"
-        android:padding="8dp"
+        android:padding="7dp"
         android:visibility="visible">
 
         <EditText
@@ -34,17 +34,17 @@
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="58dp"
+            android:layout_height="64dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
             <TextView
-                android:layout_width="38dp"
+                android:layout_width="44dp"
                 android:layout_height="match_parent"
                 android:gravity="center"
                 android:text="⌕"
                 android:textColor="#FF475467"
-                android:textSize="30sp" />
+                android:textSize="31sp" />
 
             <EditText
                 android:id="@+id/toField"
@@ -56,24 +56,24 @@
                 android:imeOptions="actionDone"
                 android:inputType="textPostalAddress"
                 android:maxLines="1"
-                android:paddingStart="6dp"
+                android:paddingStart="2dp"
                 android:paddingEnd="8dp"
-                android:textColor="#FF111827"
+                android:textColor="#FF101828"
                 android:textColorHint="#FF98A2B3"
-                android:textSize="18sp" />
+                android:textSize="20sp" />
 
             <Button
                 android:id="@+id/routeButton"
-                android:layout_width="62dp"
-                android:layout_height="46dp"
+                android:layout_width="92dp"
+                android:layout_height="50dp"
                 android:background="@drawable/bg_primary"
                 android:minWidth="0dp"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
                 android:text="Найти"
                 android:textAllCaps="false"
                 android:textColor="#FFFFFFFF"
-                android:textSize="12sp"
+                android:textSize="14sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
@@ -85,22 +85,25 @@
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/quickActions"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="92dp"
-        android:elevation="12dp"
+        android:layout_marginTop="98dp"
+        android:elevation="13dp"
         android:gravity="center"
         android:orientation="horizontal">
 
         <TextView
             android:id="@+id/homeQuickButton"
             android:layout_width="wrap_content"
-            android:layout_height="44dp"
+            android:layout_height="46dp"
             android:background="@drawable/bg_chip"
             android:gravity="center"
-            android:minWidth="82dp"
-            android:text="@string/quick_home"
+            android:minWidth="92dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="⌂  Дом"
             android:textColor="#FF1D2939"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -108,12 +111,14 @@
         <TextView
             android:id="@+id/workQuickButton"
             android:layout_width="wrap_content"
-            android:layout_height="44dp"
+            android:layout_height="46dp"
             android:layout_marginStart="8dp"
             android:background="@drawable/bg_chip"
             android:gravity="center"
-            android:minWidth="90dp"
-            android:text="@string/quick_work"
+            android:minWidth="104dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="▣  Работа"
             android:textColor="#FF1D2939"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -121,12 +126,14 @@
         <TextView
             android:id="@+id/nearbyQuickButton"
             android:layout_width="wrap_content"
-            android:layout_height="44dp"
+            android:layout_height="46dp"
             android:layout_marginStart="8dp"
             android:background="@drawable/bg_chip"
             android:gravity="center"
-            android:minWidth="88dp"
-            android:text="@string/quick_nearby"
+            android:minWidth="98dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="⌖  Рядом"
             android:textColor="#FF1D2939"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -138,22 +145,21 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top"
         android:layout_marginStart="18dp"
-        android:layout_marginTop="146dp"
+        android:layout_marginTop="154dp"
         android:layout_marginEnd="18dp"
         android:background="@drawable/bg_panel"
-        android:elevation="11dp"
+        android:elevation="12dp"
         android:orientation="vertical"
-        android:paddingStart="14dp"
-        android:paddingTop="8dp"
-        android:paddingEnd="14dp"
-        android:paddingBottom="8dp">
+        android:paddingStart="16dp"
+        android:paddingTop="9dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="9dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal">
-
             <TextView
                 android:id="@+id/status"
                 android:layout_width="0dp"
@@ -162,16 +168,15 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:text="Подготавливаем данные ВремяХодом…"
-                android:textColor="#FF344054"
+                android:textColor="#FF475467"
                 android:textSize="12sp" />
-
             <TextView
                 android:id="@+id/progressText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:text="0%"
-                android:textColor="#FF111827"
+                android:textColor="#FF101828"
                 android:textSize="12sp"
                 android:textStyle="bold" />
         </LinearLayout>
@@ -181,7 +186,7 @@
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
             android:layout_height="4dp"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="7dp"
             android:max="100"
             android:progress="0" />
 
@@ -200,13 +205,209 @@
     </LinearLayout>
 
     <TextView
+        android:id="@+id/locationButton"
+        android:layout_width="58dp"
+        android:layout_height="58dp"
+        android:layout_gravity="center_vertical|end"
+        android:layout_marginEnd="18dp"
+        android:background="@drawable/bg_chip"
+        android:elevation="15dp"
+        android:gravity="center"
+        android:text="◎"
+        android:textColor="#FF287BFF"
+        android:textSize="30sp"
+        android:translationY="-40dp" />
+
+    <ImageButton
+        android:id="@+id/settingsHandle"
+        android:layout_width="58dp"
+        android:layout_height="58dp"
+        android:layout_gravity="center_vertical|end"
+        android:layout_marginEnd="18dp"
+        android:background="@drawable/bg_chip"
+        android:contentDescription="@string/settings"
+        android:elevation="15dp"
+        android:padding="15dp"
+        android:src="@drawable/ic_tune"
+        android:translationY="38dp"
+        app:tint="#FF287BFF" />
+
+    <LinearLayout
+        android:id="@+id/nearbyPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="88dp"
+        android:background="@drawable/bg_panel"
+        android:elevation="20dp"
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="10dp">
+
+        <View
+            android:layout_width="38dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:background="#FFD0D5DD" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Рядом"
+            android:textColor="#FF101828"
+            android:textSize="21sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:background="@drawable/bg_chip"
+                android:backgroundTint="#FFEAF3FF"
+                android:gravity="center"
+                android:text="▣"
+                android:textColor="#FF287BFF"
+                android:textSize="23sp"
+                android:textStyle="bold" />
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Автобусы"
+                    android:textColor="#FF101828"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Ближайшие остановки по вашей геопозиции"
+                    android:textColor="#FF667085"
+                    android:textSize="12sp" />
+            </LinearLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="›"
+                android:textColor="#FF98A2B3"
+                android:textSize="28sp" />
+        </LinearLayout>
+
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#FFF0F2F5" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:background="@drawable/bg_chip"
+                android:backgroundTint="#FFF3EBFF"
+                android:gravity="center"
+                android:text="◇"
+                android:textColor="#FF8657D9"
+                android:textSize="23sp"
+                android:textStyle="bold" />
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Трамваи"
+                    android:textColor="#FF101828"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Маршруты и остановки рядом"
+                    android:textColor="#FF667085"
+                    android:textSize="12sp" />
+            </LinearLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="›"
+                android:textColor="#FF98A2B3"
+                android:textSize="28sp" />
+        </LinearLayout>
+
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#FFF0F2F5" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:background="@drawable/bg_chip"
+                android:backgroundTint="#FFFFE9EC"
+                android:gravity="center"
+                android:text="M"
+                android:textColor="#FFE52B3D"
+                android:textSize="21sp"
+                android:textStyle="bold" />
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Метро и МЦК"
+                    android:textColor="#FF101828"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Станции и пересадки поблизости"
+                    android:textColor="#FF667085"
+                    android:textSize="12sp" />
+            </LinearLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="›"
+                android:textColor="#FF98A2B3"
+                android:textSize="28sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView
         android:id="@+id/osmAttribution"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
-        android:layout_marginEnd="12dp"
+        android:layout_marginEnd="14dp"
         android:layout_marginBottom="92dp"
-        android:background="#DFFFFFFF"
+        android:background="#EFFFFFFF"
         android:paddingStart="6dp"
         android:paddingTop="3dp"
         android:paddingEnd="6dp"
@@ -220,29 +421,29 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:layout_marginStart="14dp"
-        android:layout_marginEnd="14dp"
-        android:layout_marginBottom="82dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="88dp"
         android:background="@drawable/bg_panel"
-        android:elevation="18dp"
+        android:elevation="22dp"
         android:orientation="vertical"
-        android:padding="12dp"
+        android:padding="14dp"
         android:visibility="gone" />
 
     <LinearLayout
         android:id="@+id/bottomNav"
         android:layout_width="match_parent"
-        android:layout_height="72dp"
+        android:layout_height="74dp"
         android:layout_gravity="bottom"
-        android:layout_marginStart="14dp"
-        android:layout_marginEnd="14dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
         android:layout_marginBottom="8dp"
         android:background="@drawable/bg_panel"
-        android:elevation="18dp"
+        android:elevation="22dp"
         android:gravity="center"
         android:orientation="horizontal"
-        android:paddingStart="6dp"
-        android:paddingEnd="6dp"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
         android:visibility="visible">
 
         <TextView
@@ -251,7 +452,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="@string/nav_map"
+            android:text="▱&#10;Карта"
             android:textColor="#FF287BFF"
             android:textSize="12sp"
             android:textStyle="bold" />
@@ -262,117 +463,188 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="@string/nav_routes"
+            android:text="↝&#10;Маршруты"
             android:textColor="#FF667085"
             android:textSize="12sp" />
 
         <TextView
+            android:id="@+id/transportNavButton"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="@string/nav_transport"
+            android:text="▣&#10;Транспорт"
             android:textColor="#FF667085"
             android:textSize="12sp" />
 
         <TextView
+            android:id="@+id/favoritesNavButton"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="@string/nav_favorites"
+            android:text="☆&#10;Избранное"
             android:textColor="#FF667085"
             android:textSize="12sp" />
     </LinearLayout>
 
     <LinearLayout
         android:id="@+id/settingsPanel"
-        android:layout_width="330dp"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_marginEnd="14dp"
-        android:layout_marginBottom="88dp"
-        android:background="@drawable/bg_panel"
-        android:elevation="22dp"
+        android:layout_width="340dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:background="#FFFFFFFF"
+        android:elevation="28dp"
         android:orientation="vertical"
-        android:padding="16dp"
+        android:paddingStart="20dp"
+        android:paddingTop="22dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="18dp"
         android:visibility="invisible">
 
-        <TextView
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/settings"
-            android:textColor="#FF101828"
-            android:textSize="22sp"
-            android:textStyle="bold" />
+            android:layout_height="52dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/settings"
+                android:textColor="#FF101828"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+            <TextView
+                android:id="@+id/closeSettingsButton"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:gravity="center"
+                android:text="×"
+                android:textColor="#FF475467"
+                android:textSize="28sp" />
+        </LinearLayout>
 
-        <TextView
+        <ScrollView
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:text="Карта"
-            android:textColor="#FF344054"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
 
-        <androidx.appcompat.widget.SwitchCompat
-            android:id="@+id/rotateMapSwitch"
-            android:layout_width="match_parent"
-            android:layout_height="50dp"
-            android:text="Разрешить поворот карты"
-            android:textColor="#FF111827"
-            android:textSize="14sp" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Отображение"
+                    android:textColor="#FF344054"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
 
-        <androidx.appcompat.widget.SwitchCompat
-            android:id="@+id/tiltMapSwitch"
-            android:layout_width="match_parent"
-            android:layout_height="50dp"
-            android:text="Разрешить наклон карты"
-            android:textColor="#FF111827"
-            android:textSize="14sp" />
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/showStopsSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="54dp"
+                    android:text="Показывать остановки"
+                    android:textColor="#FF101828"
+                    android:textSize="15sp" />
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/showTransportSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="54dp"
+                    android:text="Показывать транспорт"
+                    android:textColor="#FF101828"
+                    android:textSize="15sp" />
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/darkThemeSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="54dp"
+                    android:text="Тёмная тема"
+                    android:textColor="#FF101828"
+                    android:textSize="15sp" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:text="Данные"
-            android:textColor="#FF344054"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="Маршруты"
+                    android:textColor="#FF344054"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
 
-        <TextView
-            android:id="@+id/runtimeVersionText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="Версия данных: проверяем…"
-            android:textColor="#FF667085"
-            android:textSize="13sp" />
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/lessWalkingSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="54dp"
+                    android:text="Меньше ходьбы"
+                    android:textColor="#FF101828"
+                    android:textSize="15sp" />
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/avoidTransfersSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="54dp"
+                    android:text="Избегать пересадок"
+                    android:textColor="#FF101828"
+                    android:textSize="15sp" />
 
-        <Button
-            android:id="@+id/checkDataButton"
-            android:layout_width="match_parent"
-            android:layout_height="44dp"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/bg_primary"
-            android:text="Проверить данные"
-            android:textAllCaps="false"
-            android:textColor="#FFFFFFFF"
-            android:textStyle="bold" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="Карта"
+                    android:textColor="#FF344054"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/rotateMapSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="54dp"
+                    android:text="Поворот карты"
+                    android:textColor="#FF101828"
+                    android:textSize="15sp" />
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/tiltMapSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="54dp"
+                    android:text="Наклон карты"
+                    android:textColor="#FF101828"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:text="Данные"
+                    android:textColor="#FF344054"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/runtimeVersionText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Версия данных: проверяем…"
+                    android:textColor="#FF667085"
+                    android:textSize="13sp" />
+
+                <Button
+                    android:id="@+id/checkDataButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="14dp"
+                    android:background="@drawable/bg_primary"
+                    android:text="Проверить данные"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFFFF"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </ScrollView>
     </LinearLayout>
-
-    <ImageButton
-        android:id="@+id/settingsHandle"
-        android:layout_width="56dp"
-        android:layout_height="56dp"
-        android:layout_gravity="center_vertical|end"
-        android:layout_marginEnd="18dp"
-        android:background="@drawable/bg_chip"
-        android:contentDescription="@string/settings"
-        android:elevation="16dp"
-        android:padding="14dp"
-        android:src="@android:drawable/ic_menu_manage"
-        app:tint="#FF287BFF" />
 
     <ImageButton
         android:id="@+id/searchHandle"
@@ -402,4 +674,4 @@
         android:layout_gravity="bottom|end"
         android:background="#00000000" />
 
-</FrameLayout>
+</app.humanrouter.VremyaHodomChromeLayout>
