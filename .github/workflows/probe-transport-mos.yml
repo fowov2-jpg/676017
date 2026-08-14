@@ -1,0 +1,28 @@
+name: Probe official Moscow surface schedule
+
+on:
+  push:
+    paths:
+      - 'tools/transport_mos_probe.py'
+      - '.github/workflows/probe-transport-mos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Probe official schedule pages
+        run: python tools/transport_mos_probe.py
+      - name: Upload probe report
+        uses: actions/upload-artifact@v4
+        with:
+          name: transport-mos-official-probe
+          path: transport-mos-probe/
+          if-no-files-found: error
