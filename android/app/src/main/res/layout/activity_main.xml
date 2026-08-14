@@ -10,7 +10,6 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Main destination search. Origin stays bound to GPS/current location in code. -->
     <LinearLayout
         android:id="@+id/searchPanel"
         android:layout_width="match_parent"
@@ -84,8 +83,6 @@
             android:orientation="vertical" />
     </LinearLayout>
 
-    <!-- Quick destinations are deliberately visual shortcuts in this UI pass;
-         route search itself remains fully functional through the search field. -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -96,33 +93,39 @@
         android:orientation="horizontal">
 
         <TextView
+            android:id="@+id/homeQuickButton"
             android:layout_width="wrap_content"
             android:layout_height="44dp"
             android:background="@drawable/bg_chip"
             android:gravity="center"
-            android:text="⌂  @string/quick_home"
+            android:minWidth="82dp"
+            android:text="@string/quick_home"
             android:textColor="#FF1D2939"
             android:textSize="14sp"
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/workQuickButton"
             android:layout_width="wrap_content"
             android:layout_height="44dp"
             android:layout_marginStart="8dp"
             android:background="@drawable/bg_chip"
             android:gravity="center"
-            android:text="▣  @string/quick_work"
+            android:minWidth="90dp"
+            android:text="@string/quick_work"
             android:textColor="#FF1D2939"
             android:textSize="14sp"
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/nearbyQuickButton"
             android:layout_width="wrap_content"
             android:layout_height="44dp"
             android:layout_marginStart="8dp"
             android:background="@drawable/bg_chip"
             android:gravity="center"
-            android:text="⌖  @string/quick_nearby"
+            android:minWidth="88dp"
+            android:text="@string/quick_nearby"
             android:textColor="#FF1D2939"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -225,7 +228,6 @@
         android:padding="12dp"
         android:visibility="gone" />
 
-    <!-- Persistent bottom navigation in the agreed visual language. -->
     <LinearLayout
         android:id="@+id/bottomNav"
         android:layout_width="match_parent"
@@ -248,7 +250,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="⌑\n@string/nav_map"
+            android:text="@string/nav_map"
             android:textColor="#FF287BFF"
             android:textSize="12sp"
             android:textStyle="bold" />
@@ -259,7 +261,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="⌁\n@string/nav_routes"
+            android:text="@string/nav_routes"
             android:textColor="#FF667085"
             android:textSize="12sp" />
 
@@ -268,7 +270,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="▣\n@string/nav_transport"
+            android:text="@string/nav_transport"
             android:textColor="#FF667085"
             android:textSize="12sp" />
 
@@ -277,7 +279,7 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="☆\n@string/nav_favorites"
+            android:text="@string/nav_favorites"
             android:textColor="#FF667085"
             android:textSize="12sp" />
     </LinearLayout>
@@ -371,7 +373,6 @@
         android:src="@android:drawable/ic_menu_manage"
         android:tint="#FF287BFF" />
 
-    <!-- Compatibility handles retained for the existing controller, hidden in the new UI. -->
     <ImageButton
         android:id="@+id/searchHandle"
         android:layout_width="1dp"
