@@ -25,7 +25,10 @@ class RuntimeDownloadWorker(
 
         var lastPublishedPercent = -1
         return try {
-            RuntimeInstaller.install(applicationContext) { p ->
+            RuntimeInstaller.install(
+                applicationContext,
+                shouldStop = { isStopped }
+            ) { p ->
                 if (p.percent != lastPublishedPercent || p.done) {
                     lastPublishedPercent = p.percent
                     val progress = Data.Builder()
