@@ -1,0 +1,28 @@
+name: Audit surface runtime source format
+
+on:
+  push:
+    paths:
+      - 'tools/surface_source_audit.py'
+      - '.github/workflows/audit-surface-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Inspect current surface SQLite format
+        run: python tools/surface_source_audit.py
+      - name: Upload surface audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: surface-source-audit
+          path: surface-source-audit/
+          if-no-files-found: error
