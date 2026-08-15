@@ -84,6 +84,10 @@ internal object FastSearchController {
                             }
                             invokeRenderSuggestions(activity, field, isOrigin, results)
                             attachMapPreviewHooks(activity, isOrigin)
+                            // Search should feel like a map search, not merely a text dropdown. As soon
+                            // as the best candidate is known, preview it on the map without committing
+                            // it as A/B until the user actually chooses the suggestion.
+                            results.firstOrNull()?.let { previewPoint(activity, isOrigin, it) }
                         }
                     }
                 }, DEBOUNCE_MS)
@@ -121,6 +125,10 @@ internal object FastSearchController {
 
     private fun previewSelectedPoint(activity: MainActivity, isOrigin: Boolean) {
         val place = readField<SearchPlace>(activity, if (isOrigin) "selectedFrom" else "selectedTo") ?: return
+        previewPoint(activity, isOrigin, place)
+    }
+
+    private fun previewPoint(activity: MainActivity, isOrigin: Boolean, place: SearchPlace) {
         val map = readField<MapLibreMap>(activity, "map")
         map?.animateCamera(
             CameraUpdateFactory.newLatLngZoom(LatLng(place.point.lat, place.point.lon), 16.4),
