@@ -105,20 +105,36 @@ internal object UiPolish {
             }
 
             activity.findViewById<Button?>(R.id.routeButton)?.apply {
-                minimumHeight = dp(52)
-                minHeight = dp(52)
+                setExactHeight(dp(52))
                 textSize = 16f
                 setTypeface(typeface, Typeface.BOLD)
             }
             activity.findViewById<Button?>(R.id.routePrimaryAction)?.apply {
-                minimumHeight = dp(52)
-                minHeight = dp(52)
+                setExactHeight(dp(52))
                 textSize = 16f
                 setTypeface(typeface, Typeface.BOLD)
             }
             activity.findViewById<Button?>(R.id.retryButton)?.apply {
                 background = ContextCompat.getDrawable(activity, R.drawable.bg_chip)
                 setTextColor(ContextCompat.getColor(activity, R.color.vh_primary))
+            }
+
+            activity.findViewById<ViewGroup?>(R.id.quickActions)?.let { row ->
+                if (row.layoutParams.height > 0 && row.layoutParams.height < dp(48)) {
+                    row.layoutParams = row.layoutParams.apply { height = dp(48) }
+                }
+            }
+            intArrayOf(R.id.homeQuickButton, R.id.workQuickButton, R.id.nearbyQuickButton).forEach { id ->
+                activity.findViewById<TextView?>(id)?.apply {
+                    if (layoutParams.height > 0 && layoutParams.height < dp(48)) {
+                        layoutParams = layoutParams.apply { height = dp(48) }
+                    }
+                    gravity = Gravity.CENTER
+                    includeFontPadding = false
+                    minimumHeight = dp(48)
+                    setPadding(dp(10), 0, dp(10), 0)
+                    installPressMotion(this)
+                }
             }
 
             intArrayOf(R.id.clearFromButton, R.id.clearToButton, R.id.closeSearchButton, R.id.closeSettingsButton).forEach { id ->
@@ -142,16 +158,6 @@ internal object UiPolish {
                 }
             }
 
-            intArrayOf(R.id.homeQuickButton, R.id.workQuickButton, R.id.nearbyQuickButton).forEach { id ->
-                activity.findViewById<TextView?>(id)?.apply {
-                    gravity = Gravity.CENTER
-                    includeFontPadding = false
-                    minimumHeight = dp(46)
-                    setPadding(dp(10), 0, dp(10), 0)
-                    installPressMotion(this)
-                }
-            }
-
             activity.findViewById<ImageButton?>(R.id.locationButton)?.let(::installPressMotion)
             activity.findViewById<ImageButton?>(R.id.settingsButton)?.let(::installPressMotion)
         }
@@ -162,10 +168,19 @@ internal object UiPolish {
             button.includeFontPadding = false
             button.minimumHeight = dp(48)
             button.minHeight = dp(48)
+            if (button.layoutParams.height > 0 && button.layoutParams.height < dp(48)) {
+                button.layoutParams = button.layoutParams.apply { height = dp(48) }
+            }
             button.setPadding(dp(18), 0, dp(18), 0)
             button.maxLines = 1
             button.letterSpacing = 0f
             installPressMotion(button)
+        }
+
+        private fun Button.setExactHeight(heightPx: Int) {
+            minimumHeight = heightPx
+            minHeight = heightPx
+            layoutParams = layoutParams.apply { height = heightPx }
         }
 
         private fun installDynamicStyling() {
