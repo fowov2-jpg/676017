@@ -5,6 +5,7 @@ import app.humanrouter.routing.TransportMode
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.action.ViewActions.swipeLeft
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
@@ -26,9 +27,11 @@ class TransitVisualSystemSmokeTest {
         ActivityScenario.launch<MainActivity>(intent).use {
             onView(withContentDescription("Схема транспорта маршрута"))
                 .check(matches(isDisplayed()))
-            onView(withContentDescription("Автобус м2"))
+            onView(withContentDescription("Транспорт: автобус; м2"))
                 .check(matches(isDisplayed()))
-            onView(withContentDescription("Метро 6"))
+            onView(withContentDescription("Схема транспорта маршрута"))
+                .perform(swipeLeft())
+            onView(withContentDescription("Транспорт: метро; 6"))
                 .check(matches(isDisplayed()))
         }
     }
