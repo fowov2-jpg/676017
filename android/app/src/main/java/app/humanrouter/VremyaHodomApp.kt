@@ -12,7 +12,7 @@ class VremyaHodomApp : Application() {
             AppCompatDelegate.MODE_NIGHT_NO
         }
         AppCompatDelegate.setDefaultNightMode(mode)
-        VremyaHodomRuntimeFixes.install(this)
+        VremyaHodomSafeRuntimeFixes.install(this)
         RuntimeUpdateScheduler.schedule(this)
     }
 }
