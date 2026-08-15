@@ -243,7 +243,8 @@ internal class HumanRouterEngine(
             arrivalEpochSec = departureEpochSec + cost.seconds,
             walkMeters = cost.meters,
             uncertaintySeconds = 30,
-            realtimeConfidence = 0.95
+            realtimeConfidence = 0.95,
+            geometry = cost.geometry
         )
         return RouteCandidate(
             id = "walk-${origin.hashCode().toUInt().toString(16)}-${destination.hashCode().toUInt().toString(16)}",

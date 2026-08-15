@@ -41,7 +41,9 @@ data class RouteLeg(
     val uncertaintySeconds: Int = 0,
     val realtimeConfidence: Double = 0.5,
     val transferBufferSeconds: Int = 0,
-    val stopCount: Int = 0
+    val stopCount: Int = 0,
+    /** Ordered map geometry for this leg. Empty means that only the two endpoints are known. */
+    val geometry: List<GeoPoint> = emptyList()
 ) {
     init {
         require(arrivalEpochSec >= departureEpochSec)
@@ -50,8 +52,18 @@ data class RouteLeg(
         require(uncertaintySeconds >= 0)
         require(stopCount >= 0)
         require(realtimeConfidence in 0.0..1.0)
+        require(geometry.all { it.lat.isFinite() && it.lon.isFinite() })
     }
     val durationSeconds: Int get() = (arrivalEpochSec - departureEpochSec).toInt()
+
+    fun mapPoints(): List<GeoPoint> {
+        if (geometry.size < 2) return listOf(from.point, to.point).distinct()
+        val result = ArrayList<GeoPoint>(geometry.size + 2)
+        appendDistinct(result, from.point)
+        geometry.forEach { appendDistinct(result, it) }
+        appendDistinct(result, to.point)
+        return result
+    }
 }
 
 data class RouteCandidate(
@@ -66,6 +78,14 @@ data class RouteCandidate(
     val transitLegCount: Int get() = legs.count { it.mode != TransportMode.WALK }
     val transferCount: Int get() = (transitLegCount - 1).coerceAtLeast(0)
     val uncertaintySeconds: Int get() = legs.sumOf { it.uncertaintySeconds }
+
+    fun mapPoints(): List<GeoPoint> = buildList {
+        legs.forEach { leg -> leg.mapPoints().forEach { appendDistinct(this, it) } }
+    }
+}
+
+private fun appendDistinct(points: MutableList<GeoPoint>, point: GeoPoint) {
+    if (points.lastOrNull() != point) points += point
 }
 
 data class RoutePreferences(

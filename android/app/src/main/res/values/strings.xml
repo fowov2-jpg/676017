@@ -24,8 +24,8 @@
     <string name="settings_map">Карта</string>
     <string name="settings_routes">Маршруты</string>
     <string name="settings_data">Данные</string>
-    <string name="show_stops">Показывать остановки</string>
-    <string name="show_transport">Показывать транспорт</string>
+    <string name="show_stops">Показывать остановки рядом</string>
+    <string name="show_transport">Показывать маршрут на карте</string>
     <string name="dark_theme">Тёмная тема</string>
     <string name="less_walking">Меньше ходьбы</string>
     <string name="avoid_transfers">Избегать пересадок</string>

@@ -213,7 +213,8 @@ internal class RailTimetableRouter private constructor(
                 arrivalEpochSec = accessArrival,
                 walkMeters = access.cost.meters,
                 uncertaintySeconds = if (walkGraph != null) 30 else 90,
-                realtimeConfidence = if (walkGraph != null) 0.95 else 0.72
+                realtimeConfidence = if (walkGraph != null) 0.95 else 0.72,
+                geometry = access.cost.geometry
             ),
             RouteLeg(
                 mode = trip.mode,
@@ -226,7 +227,10 @@ internal class RailTimetableRouter private constructor(
                 waitSeconds = (tripDeparture - accessArrival).toInt().coerceAtLeast(0),
                 uncertaintySeconds = PUBLISHED_TIMETABLE_UNCERTAINTY_SECONDS,
                 realtimeConfidence = PUBLISHED_TIMETABLE_CONFIDENCE,
-                stopCount = alightIndex - boardIndex
+                stopCount = alightIndex - boardIndex,
+                geometry = trip.stops
+                    .subList(boardIndex, alightIndex + 1)
+                    .mapNotNull { stop -> stations[stop.stationId]?.point }
             ),
             RouteLeg(
                 mode = TransportMode.WALK,
@@ -236,7 +240,8 @@ internal class RailTimetableRouter private constructor(
                 arrivalEpochSec = egressDeparture + egress.cost.seconds,
                 walkMeters = egress.cost.meters,
                 uncertaintySeconds = if (walkGraph != null) 30 else 90,
-                realtimeConfidence = if (walkGraph != null) 0.95 else 0.72
+                realtimeConfidence = if (walkGraph != null) 0.95 else 0.72,
+                geometry = egress.cost.geometry
             )
         )
         return RouteCandidate(

@@ -156,7 +156,8 @@ internal class RailGraphRouter private constructor(
             arrivalEpochSec = beforeEgress + terminal.egress.seconds,
             walkMeters = terminal.egress.meters,
             uncertaintySeconds = 75,
-            realtimeConfidence = 0.78
+            realtimeConfidence = 0.78,
+            geometry = terminal.egress.geometry
         )
         return RouteCandidate(
             id = buildRouteId(result),
@@ -184,7 +185,8 @@ internal class RailGraphRouter private constructor(
                         arrivalEpochSec = departureEpochSec + prev.walk.seconds,
                         walkMeters = prev.walk.meters,
                         uncertaintySeconds = 45,
-                        realtimeConfidence = 0.90
+                        realtimeConfidence = 0.90,
+                        geometry = prev.walk.geometry
                     )
                     break
                 }
@@ -208,7 +210,8 @@ internal class RailGraphRouter private constructor(
                         uncertaintySeconds = maxOf(45, (prev.edge.seconds * (1.0 - prev.edge.confidence)).toInt()) + boardingUncertainty,
                         realtimeConfidence = prev.edge.confidence,
                         transferBufferSeconds = if (prev.previous.insideSystem) expectedWaitSeconds(prev.edge.mode) else 0,
-                        stopCount = 1
+                        stopCount = 1,
+                        geometry = listOf(nodes[prev.edge.from].point, nodes[prev.edge.to].point)
                     )
                     state = prev.previous
                 }
@@ -222,7 +225,8 @@ internal class RailGraphRouter private constructor(
                         arrivalEpochSec = previousArrival + prev.seconds,
                         walkMeters = 0,
                         uncertaintySeconds = 60,
-                        realtimeConfidence = 0.72
+                        realtimeConfidence = 0.72,
+                        geometry = listOf(nodes[prev.previous.node].point, nodes[state.node].point)
                     )
                     state = prev.previous
                 }
@@ -283,11 +287,19 @@ internal class RailGraphRouter private constructor(
                 last = next
                 cursor++
             }
+            val mergedGeometry = buildList {
+                legs.subList(index, cursor).forEach { leg ->
+                    leg.mapPoints().forEach { point ->
+                        if (lastOrNull() != point) add(point)
+                    }
+                }
+            }
             result += first.copy(
                 to = last.to,
                 arrivalEpochSec = last.arrivalEpochSec,
                 uncertaintySeconds = legs.subList(index, cursor).sumOf { it.uncertaintySeconds },
-                stopCount = legs.subList(index, cursor).sumOf { it.stopCount }
+                stopCount = legs.subList(index, cursor).sumOf { it.stopCount },
+                geometry = mergedGeometry
             )
             index = cursor
         }

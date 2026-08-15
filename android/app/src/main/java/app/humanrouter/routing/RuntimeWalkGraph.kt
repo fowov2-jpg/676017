@@ -13,7 +13,11 @@ internal class RuntimeWalkGraph private constructor(
     private val root: File,
     private val preferences: RoutePreferences
 ) {
-    data class WalkCost(val seconds: Int, val meters: Int)
+    data class WalkCost(
+        val seconds: Int,
+        val meters: Int,
+        val geometry: List<GeoPoint> = emptyList()
+    )
 
     private data class Snap(val node: Int, val meters: Int, val seconds: Int)
     private data class QueueNode(val node: Int, val seconds: Int, val meters: Int)
@@ -41,6 +45,8 @@ internal class RuntimeWalkGraph private constructor(
     private val distSeconds = IntArray(latE7.size)
     private val distMeters = IntArray(latE7.size)
     private val generation = IntArray(latE7.size)
+    private val parentNode = IntArray(latE7.size)
+    private val parentGeneration = IntArray(latE7.size)
     private var currentGeneration = 0
     private val snapCache = LinkedHashMap<Long, Snap>(32, 0.75f, true)
 
@@ -146,6 +152,7 @@ internal class RuntimeWalkGraph private constructor(
         beginSearch()
         val queue = PriorityQueue(compareBy<QueueNode> { it.seconds }.thenBy { it.meters })
         setDistance(start.node, start.seconds, start.meters)
+        setParent(start.node, -1)
         queue += QueueNode(start.node, start.seconds, start.meters)
 
         while (queue.isNotEmpty()) {
@@ -156,12 +163,23 @@ internal class RuntimeWalkGraph private constructor(
                 val seconds = current.seconds + target.seconds
                 val meters = current.meters + target.meters
                 return if (seconds <= maxSeconds && meters <= maxMeters) {
-                    WalkCost(seconds, meters)
+                    WalkCost(
+                        seconds = seconds,
+                        meters = meters,
+                        geometry = reconstructGeometry(start.node, target.node, from, to)
+                    )
                 } else {
                     null
                 }
             }
-            relax(current, queue, reverse = false, maxSeconds = maxSeconds, maxMeters = maxMeters)
+            relax(
+                current,
+                queue,
+                reverse = false,
+                maxSeconds = maxSeconds,
+                maxMeters = maxMeters,
+                trackParents = true
+            )
         }
         return null
     }
@@ -251,7 +269,8 @@ internal class RuntimeWalkGraph private constructor(
         queue: PriorityQueue<QueueNode>,
         reverse: Boolean,
         maxSeconds: Int,
-        maxMeters: Int
+        maxMeters: Int,
+        trackParents: Boolean = false
     ) {
         val graphOffsets = if (reverse) revOffsets else offsets
         val graphTargets = if (reverse) revTargets else targets
@@ -270,6 +289,7 @@ internal class RuntimeWalkGraph private constructor(
             val oldMeters = distanceMeters(target)
             if (seconds < oldSeconds || (seconds == oldSeconds && meters < oldMeters)) {
                 setDistance(target, seconds, meters)
+                if (trackParents) setParent(target, current.node)
                 queue += QueueNode(target, seconds, meters)
             }
         }
@@ -294,6 +314,50 @@ internal class RuntimeWalkGraph private constructor(
         distSeconds[node] = seconds
         distMeters[node] = meters
     }
+
+    private fun setParent(node: Int, parent: Int) {
+        parentGeneration[node] = currentGeneration
+        parentNode[node] = parent
+    }
+
+    private fun reconstructGeometry(
+        startNode: Int,
+        targetNode: Int,
+        from: GeoPoint,
+        to: GeoPoint
+    ): List<GeoPoint> {
+        val reversed = ArrayList<Int>()
+        var cursor = targetNode
+        while (true) {
+            reversed += cursor
+            if (cursor == startNode) break
+            if (parentGeneration[cursor] != currentGeneration) return emptyList()
+            cursor = parentNode[cursor]
+            if (cursor < 0 || reversed.size > latE7.size) return emptyList()
+        }
+        reversed.reverse()
+
+        val result = ArrayList<GeoPoint>(min(reversed.size + 2, MAX_GEOMETRY_POINTS + 2))
+        fun append(point: GeoPoint) {
+            if (result.lastOrNull() != point) result += point
+        }
+        append(from)
+        val stride = ((reversed.size + MAX_GEOMETRY_POINTS - 1) / MAX_GEOMETRY_POINTS)
+            .coerceAtLeast(1)
+        var index = 0
+        while (index < reversed.size) {
+            append(nodePoint(reversed[index]))
+            index += stride
+        }
+        append(nodePoint(reversed.last()))
+        append(to)
+        return result
+    }
+
+    private fun nodePoint(node: Int): GeoPoint = GeoPoint(
+        lat = latE7[node] / 10_000_000.0,
+        lon = lonE7[node] / 10_000_000.0
+    )
 
     private fun isCurrent(item: QueueNode): Boolean =
         generation[item.node] == currentGeneration &&
@@ -472,6 +536,7 @@ internal class RuntimeWalkGraph private constructor(
         private const val GRID_CELL_E7 = 20_000
         private const val MAX_GRID_RING = 8
         private const val SNAP_CACHE_SIZE = 64
+        private const val MAX_GEOMETRY_POINTS = 700
 
         fun openOrNull(runtimeRoot: File, preferences: RoutePreferences): RuntimeWalkGraph? {
             val root = File(runtimeRoot, "walk_graph")

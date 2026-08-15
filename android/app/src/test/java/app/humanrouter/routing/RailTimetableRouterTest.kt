@@ -27,7 +27,9 @@ class RailTimetableRouterTest {
         val mcd = routes.first { route -> route.legs.any { it.mode == TransportMode.MCD } }
         val ride = mcd.legs.first { it.mode == TransportMode.MCD }
         assertEquals("D3 · 7201", ride.lineName)
-        assertEquals(1, ride.stopCount)
+        assertEquals(2, ride.stopCount)
+        assertEquals(3, ride.geometry.size)
+        assertEquals(GeoPoint(55.7550, 37.6150), ride.geometry[1])
         assertTrue(ride.waitSeconds > 0)
     }
 
@@ -76,11 +78,12 @@ class RailTimetableRouterTest {
           "limitations": "test",
           "stations": [
             {"id": 0, "name": "A", "lat": 55.7500, "lon": 37.6100},
-            {"id": 1, "name": "B", "lat": 55.7600, "lon": 37.6200}
+            {"id": 1, "name": "B", "lat": 55.7550, "lon": 37.6150},
+            {"id": 2, "name": "C", "lat": 55.7600, "lon": 37.6200}
           ],
           "trips": [
-            {"id": "mtppk:mcd", "mode": "MCD", "number": "7201", "service": "published_default", "stops": [[0,36000,1,1],[1,36600,1,1]]},
-            {"id": "mtppk:train", "mode": "TRAIN", "number": "6501", "service": "published_default", "stops": [[0,36300,1,1],[1,36900,1,1]]}
+            {"id": "mtppk:mcd", "mode": "MCD", "number": "7201", "service": "published_default", "stops": [[0,36000,1,1],[1,36300,1,1],[2,36600,1,1]]},
+            {"id": "mtppk:train", "mode": "TRAIN", "number": "6501", "service": "published_default", "stops": [[0,36300,1,1],[1,36600,1,1],[2,36900,1,1]]}
           ]
         }
     """.trimIndent()

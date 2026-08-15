@@ -67,6 +67,22 @@ class RoutingModesInstrumentationTest {
         assertTrue("MCD route label is missing", "D3" in station.routeLabels)
     }
 
+    @Test
+    fun returnedRoutesContainIntermediateMapGeometryAndExplicitWaiting() {
+        val bus = plan(ORIGIN, METRO_A)
+            .first { route -> route.legs.any { it.mode == TransportMode.BUS } }
+            .legs.first { it.mode == TransportMode.BUS }
+        assertTrue("surface leg collapsed to one straight chord", bus.geometry.size >= 3)
+        assertTrue("surface waiting time is hidden", bus.waitSeconds > 0)
+        assertTrue("intermediate bus stop missing from geometry", BUS_MID in bus.geometry)
+
+        val metro = plan(METRO_A, METRO_B)
+            .first { route -> route.legs.any { it.mode == TransportMode.METRO } }
+            .legs.first { it.mode == TransportMode.METRO }
+        assertTrue("rail leg collapsed to one straight chord", metro.geometry.size >= 3)
+        assertTrue("intermediate metro station missing from geometry", METRO_MID in metro.geometry)
+    }
+
     private fun plan(origin: GeoPoint, destination: GeoPoint): List<RouteCandidate> {
         val result = HumanRouterEngine(context, zoneId = zone)
             .planOptions(origin, destination, departure)
@@ -132,11 +148,13 @@ class RoutingModesInstrumentationTest {
 
             insertStop(db, 1, "Автобусная A", ORIGIN, "BUS")
             insertStop(db, 2, "Автобусная B", METRO_A, "BUS")
+            insertStop(db, 5, "Автобусная середина", BUS_MID, "BUS")
             insertStop(db, 3, "Трамвайная A", METRO_B, "TRAM")
             insertStop(db, 4, "Трамвайная B", DESTINATION, "TRAM")
             insertRoute(db, "bus-1", "Б1", "BUS")
             insertRoute(db, "tram-1", "Т1", "TRAM")
-            insertConnection(db, 36_120, 1, "bus-trip", 0, 2, 36_600, "bus-1")
+            insertConnection(db, 36_120, 1, "bus-trip", 0, 5, 36_300, "bus-1")
+            insertConnection(db, 36_320, 5, "bus-trip", 1, 2, 36_600, "bus-1")
             insertConnection(db, 36_120, 3, "tram-early", 0, 4, 36_480, "tram-1")
             insertConnection(db, 37_380, 3, "tram-late", 0, 4, 37_860, "tram-1")
         }
@@ -157,9 +175,10 @@ class RoutingModesInstrumentationTest {
                   "timing_confidence": 0.8,
                   "stops": [
                     {"osm_stop_id":"metro-a","name":"Метро A","lat":${METRO_A.lat},"lon":${METRO_A.lon}},
+                    {"osm_stop_id":"metro-mid","name":"Метро середина","lat":${METRO_MID.lat},"lon":${METRO_MID.lon}},
                     {"osm_stop_id":"metro-b","name":"Метро B","lat":${METRO_B.lat},"lon":${METRO_B.lon}}
                   ],
-                  "segment_seconds": [360]
+                  "segment_seconds": [180, 180]
                 },
                 {
                   "osm_relation_id": "mcc-1",
@@ -239,7 +258,9 @@ class RoutingModesInstrumentationTest {
 
     private companion object {
         val ORIGIN = GeoPoint(55.7000, 37.5000)
+        val BUS_MID = GeoPoint(55.7000, 37.5150)
         val METRO_A = GeoPoint(55.7000, 37.5300)
+        val METRO_MID = GeoPoint(55.7000, 37.5475)
         val METRO_B = GeoPoint(55.7000, 37.5650)
         val DESTINATION = GeoPoint(55.7000, 37.6000)
         val MCC_A = GeoPoint(55.8000, 37.5000)

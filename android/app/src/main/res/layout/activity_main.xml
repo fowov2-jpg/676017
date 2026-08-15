@@ -460,11 +460,11 @@
     <LinearLayout
         android:id="@+id/nearbyPanel"
         android:layout_width="match_parent"
-        android:layout_height="212dp"
+        android:layout_height="196dp"
         android:layout_gravity="bottom"
         android:layout_marginStart="12dp"
         android:layout_marginEnd="12dp"
-        android:layout_marginBottom="82dp"
+        android:layout_marginBottom="76dp"
         android:background="@drawable/bg_sheet"
         android:backgroundTint="@color/vh_surface_solid"
         android:elevation="16dp"
@@ -517,19 +517,19 @@
     <LinearLayout
         android:id="@+id/routeResultsContainer"
         android:layout_width="match_parent"
-        android:layout_height="360dp"
+        android:layout_height="300dp"
         android:layout_gravity="bottom"
         android:layout_marginStart="12dp"
         android:layout_marginEnd="12dp"
-        android:layout_marginBottom="82dp"
+        android:layout_marginBottom="76dp"
         android:background="@drawable/bg_sheet"
         android:backgroundTint="@color/vh_surface_solid"
         android:elevation="18dp"
         android:orientation="vertical"
-        android:paddingStart="16dp"
-        android:paddingTop="10dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="12dp"
+        android:paddingStart="14dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="10dp"
         android:visibility="gone">
 
         <View
@@ -541,13 +541,14 @@
         <HorizontalScrollView
             android:id="@+id/routeFiltersScroll"
             android:layout_width="match_parent"
-            android:layout_height="44dp"
-            android:layout_marginTop="4dp"
+            android:layout_height="40dp"
+            android:layout_marginTop="2dp"
+            android:fillViewport="true"
             android:scrollbars="none">
 
             <LinearLayout
                 android:id="@+id/routeFiltersPanel"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:gravity="center_vertical"
                 android:orientation="horizontal" />
@@ -575,7 +576,7 @@
         android:layout_gravity="bottom"
         android:layout_marginStart="12dp"
         android:layout_marginEnd="12dp"
-        android:layout_marginBottom="82dp"
+        android:layout_marginBottom="76dp"
         android:background="@drawable/bg_sheet"
         android:backgroundTint="@color/vh_surface_solid"
         android:elevation="16dp"
@@ -619,11 +620,11 @@
     <LinearLayout
         android:id="@+id/bottomNav"
         android:layout_width="match_parent"
-        android:layout_height="68dp"
+        android:layout_height="62dp"
         android:layout_gravity="bottom"
         android:layout_marginStart="12dp"
         android:layout_marginEnd="12dp"
-        android:layout_marginBottom="8dp"
+        android:layout_marginBottom="6dp"
         android:background="@drawable/bg_nav"
         android:backgroundTint="@color/vh_surface_solid"
         android:elevation="18dp"
@@ -642,7 +643,7 @@
             android:gravity="center"
             android:text="@string/nav_map"
             android:textColor="@color/vh_primary"
-            android:textSize="11sp"
+            android:textSize="10sp"
             android:textStyle="bold" />
 
         <TextView
@@ -655,7 +656,7 @@
             android:gravity="center"
             android:text="@string/nav_routes"
             android:textColor="@color/vh_text_tertiary"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
 
         <TextView
             android:id="@+id/transportNavButton"
@@ -667,7 +668,7 @@
             android:gravity="center"
             android:text="@string/nav_transport"
             android:textColor="@color/vh_text_tertiary"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
 
         <TextView
             android:id="@+id/favoritesNavButton"
@@ -679,7 +680,7 @@
             android:gravity="center"
             android:text="@string/nav_favorites"
             android:textColor="@color/vh_text_tertiary"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
     </LinearLayout>
 
     <FrameLayout
@@ -693,9 +694,10 @@
         android:visibility="gone">
 
         <ScrollView
-            android:layout_width="340dp"
+            android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:layout_gravity="end"
+            android:layout_marginStart="36dp"
             android:background="@color/vh_surface_solid"
             android:elevation="24dp"
             android:fillViewport="true">

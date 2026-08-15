@@ -90,7 +90,8 @@ internal class RailExternalTransferComposer private constructor(
                 arrivalEpochSec = walkArrival,
                 walkMeters = walk.meters,
                 uncertaintySeconds = if (walkGraph != null) 30 else 90,
-                realtimeConfidence = if (walkGraph != null) 0.94 else 0.68
+                realtimeConfidence = if (walkGraph != null) 0.94 else 0.68,
+                geometry = walk.geometry
             )
             combine(first, transferLeg, second)?.let { candidate ->
                 result.putIfAbsent(candidate.id, candidate)

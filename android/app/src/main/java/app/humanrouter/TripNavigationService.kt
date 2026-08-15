@@ -170,7 +170,7 @@ class TripNavigationService : Service(), LocationListener {
                     val route = fastest.route
                     val arrival = route.arrivalEpochSec
                     val approximate = route.legs.any { leg ->
-                        ((leg.mode == TransportMode.BUS || leg.mode == TransportMode.TRAM) && leg.realtimeConfidence <= 0.2) ||
+                        ((leg.mode == TransportMode.BUS || leg.mode == TransportMode.TRAM) && leg.realtimeConfidence < 0.8) ||
                             leg.mode == TransportMode.METRO || leg.mode == TransportMode.MCC
                     }
                     val etaText = (if (approximate) "≈ " else "") +

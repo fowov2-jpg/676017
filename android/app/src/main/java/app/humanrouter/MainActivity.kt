@@ -16,8 +16,11 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.text.Spannable
+import android.text.SpannableStringBuilder
 import android.text.Editable
 import android.text.TextWatcher
+import android.text.style.ForegroundColorSpan
 import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -29,6 +32,7 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
@@ -173,10 +177,14 @@ class MainActivity : AppCompatActivity() {
     private var map: MapLibreMap? = null
     private var routeSource: GeoJsonSource? = null
     private var routeStopsSource: GeoJsonSource? = null
+    private var routeOriginSource: GeoJsonSource? = null
+    private var routeDestinationSource: GeoJsonSource? = null
     private var nearbySource: GeoJsonSource? = null
     private var locationSource: GeoJsonSource? = null
     private var routeLayer: LineLayer? = null
     private var routeStopsLayer: CircleLayer? = null
+    private var routeOriginLayer: CircleLayer? = null
+    private var routeDestinationLayer: CircleLayer? = null
     private var nearbyLayer: CircleLayer? = null
     private var locationLayer: CircleLayer? = null
 
@@ -207,6 +215,8 @@ class MainActivity : AppCompatActivity() {
     private var surfaceScheduleDate: LocalDate? = null
     private var railTimetableEffectiveFrom: LocalDate? = null
     private var debugQaActive = false
+    private var systemTopInset = 0
+    private var systemBottomInset = 0
 
     private val journeyFrames by lazy {
         intArrayOf(
@@ -396,6 +406,8 @@ class MainActivity : AppCompatActivity() {
     private fun configureMapLayers(style: Style) {
         routeSource = GeoJsonSource(ROUTE_SOURCE_ID, emptyFeatures()).also { style.addSource(it) }
         routeStopsSource = GeoJsonSource(ROUTE_STOPS_SOURCE_ID, emptyFeatures()).also { style.addSource(it) }
+        routeOriginSource = GeoJsonSource(ROUTE_ORIGIN_SOURCE_ID, emptyFeatures()).also { style.addSource(it) }
+        routeDestinationSource = GeoJsonSource(ROUTE_DESTINATION_SOURCE_ID, emptyFeatures()).also { style.addSource(it) }
         nearbySource = GeoJsonSource(NEARBY_SOURCE_ID, emptyFeatures()).also { style.addSource(it) }
         locationSource = GeoJsonSource(LOCATION_SOURCE_ID, emptyFeatures()).also { style.addSource(it) }
 
@@ -410,8 +422,22 @@ class MainActivity : AppCompatActivity() {
         routeStopsLayer = CircleLayer(ROUTE_STOPS_LAYER_ID, ROUTE_STOPS_SOURCE_ID).withProperties(
             PropertyFactory.circleColor(ContextCompat.getColor(this, R.color.vh_surface_solid)),
             PropertyFactory.circleStrokeColor(ContextCompat.getColor(this, R.color.vh_primary)),
+            PropertyFactory.circleStrokeWidth(2f),
+            PropertyFactory.circleRadius(3.5f)
+        ).also { style.addLayer(it) }
+
+        routeOriginLayer = CircleLayer(ROUTE_ORIGIN_LAYER_ID, ROUTE_ORIGIN_SOURCE_ID).withProperties(
+            PropertyFactory.circleColor(ContextCompat.getColor(this, R.color.vh_success)),
+            PropertyFactory.circleStrokeColor(Color.WHITE),
             PropertyFactory.circleStrokeWidth(3f),
-            PropertyFactory.circleRadius(5f)
+            PropertyFactory.circleRadius(7f)
+        ).also { style.addLayer(it) }
+
+        routeDestinationLayer = CircleLayer(ROUTE_DESTINATION_LAYER_ID, ROUTE_DESTINATION_SOURCE_ID).withProperties(
+            PropertyFactory.circleColor(ContextCompat.getColor(this, R.color.vh_error)),
+            PropertyFactory.circleStrokeColor(Color.WHITE),
+            PropertyFactory.circleStrokeWidth(3f),
+            PropertyFactory.circleRadius(7f)
         ).also { style.addLayer(it) }
 
         nearbyLayer = CircleLayer(NEARBY_LAYER_ID, NEARBY_SOURCE_ID).withProperties(
@@ -619,13 +645,17 @@ class MainActivity : AppCompatActivity() {
         hideSuggestions()
         expandedSearchContent.visibility = View.GONE
         compactSearchRow.visibility = View.VISIBLE
-        quickActions.visibility = View.VISIBLE
+        updateQuickActionsVisibility()
         loadingPanel.translationY = 0f
         bottomNav.visibility = View.VISIBLE
         if (currentTab == Tab.MAP || currentTab == Tab.TRANSPORT) {
             nearbyPanel.visibility = View.VISIBLE
         }
         compactSearchButton.text = selectedTo?.title ?: toField.text.toString().trim()
+    }
+
+    private fun updateQuickActionsVisibility() {
+        quickActions.visibility = if (!searchExpanded && currentTab == Tab.MAP) View.VISIBLE else View.GONE
     }
 
     private fun configureQuickActions() {
@@ -788,13 +818,52 @@ class MainActivity : AppCompatActivity() {
                 add(RouteFilter.SURFACE)
             }
         }
-        for (filter in filters) {
+        val pinned = filters.filter { it == RouteFilter.FASTEST || it == RouteFilter.LESS_WALKING }
+            .take(2)
+        val overflow = filters.filterNot(pinned::contains)
+        for (filter in pinned) {
             routeFiltersPanel.addView(filterChip(filter).apply {
                 setOnClickListener {
                     routeFilter = filter
                     renderRouteFilters()
                     renderFilteredRoutes()
                 }
+                layoutParams = weightedFilterLayoutParams()
+            })
+        }
+        if (overflow.isNotEmpty()) {
+            val activeOverflow = routeFilter.takeIf(overflow::contains)
+            routeFiltersPanel.addView(TextView(this).apply {
+                text = activeOverflow?.let(::compactFilterLabel) ?: "Ещё"
+                gravity = Gravity.CENTER
+                textSize = 11.5f
+                setTextColor(
+                    ContextCompat.getColor(
+                        this@MainActivity,
+                        if (activeOverflow != null) R.color.vh_primary else R.color.vh_text_secondary
+                    )
+                )
+                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_chip)
+                backgroundTintList = ColorStateList.valueOf(
+                    ContextCompat.getColor(
+                        this@MainActivity,
+                        if (activeOverflow != null) R.color.vh_primary_soft else R.color.vh_surface_muted
+                    )
+                )
+                setOnClickListener { anchor ->
+                    PopupMenu(this@MainActivity, anchor).apply {
+                        overflow.forEach { filter ->
+                            menu.add(filter.label).setOnMenuItemClickListener {
+                                routeFilter = filter
+                                renderRouteFilters()
+                                renderFilteredRoutes()
+                                true
+                            }
+                        }
+                        show()
+                    }
+                }
+                layoutParams = weightedFilterLayoutParams()
             })
         }
     }
@@ -802,9 +871,9 @@ class MainActivity : AppCompatActivity() {
     private fun filterChip(filter: RouteFilter): TextView = TextView(this).apply {
         text = filter.label
         gravity = Gravity.CENTER
-        textSize = 13f
+        textSize = 11.5f
         minHeight = dp(36)
-        setPadding(dp(13), 0, dp(13), 0)
+        setPadding(dp(8), 0, dp(8), 0)
         setTextColor(
             ContextCompat.getColor(
                 this@MainActivity,
@@ -822,6 +891,21 @@ class MainActivity : AppCompatActivity() {
             LinearLayout.LayoutParams.WRAP_CONTENT,
             dp(36)
         ).apply { rightMargin = dp(7) }
+    }
+
+    private fun weightedFilterLayoutParams(): LinearLayout.LayoutParams = LinearLayout.LayoutParams(
+        0,
+        dp(34),
+        1f
+    ).apply {
+        leftMargin = dp(2)
+        rightMargin = dp(2)
+    }
+
+    private fun compactFilterLabel(filter: RouteFilter): String = when (filter) {
+        RouteFilter.NO_TRANSFERS -> "Без пересадок"
+        RouteFilter.SURFACE -> "Наземный"
+        else -> filter.label
     }
 
     private fun filteredRoutes(): List<RankedRoute> {
@@ -856,7 +940,9 @@ class MainActivity : AppCompatActivity() {
             setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_primary))
             setPadding(0, dp(2), 0, dp(4))
         })
-        for (ranked in routes) routeResultsPanel.addView(routeCard(ranked))
+        for ((index, ranked) in routes.withIndex()) {
+            routeResultsPanel.addView(routeCard(ranked, index))
+        }
         selectedRoute()?.let { route ->
             routeResultsPanel.addView(Button(this).apply {
                 val favoriteId = currentFavoriteId()
@@ -892,7 +978,7 @@ class MainActivity : AppCompatActivity() {
         routeResultsScroll.post { routeResultsScroll.scrollTo(0, 0) }
     }
 
-    private fun routeCard(ranked: RankedRoute): View {
+    private fun routeCard(ranked: RankedRoute, position: Int): View {
         val route = ranked.route
         val selected = route.id == selectedRouteId
         return LinearLayout(this).apply {
@@ -927,56 +1013,39 @@ class MainActivity : AppCompatActivity() {
             val durationMin = maxOf(1, ceil(route.totalSeconds / 60.0).toInt())
             top.addView(TextView(this@MainActivity).apply {
                 text = "$durationMin мин"
-                textSize = 24f
+                textSize = if (selected) 23f else 20f
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_primary))
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             top.addView(TextView(this@MainActivity).apply {
-                text = "${if (routeTimingIsApproximate(route)) "≈" else "к"} ${formatTime(route.arrivalEpochSec)}"
+                text = "${if (routeTimingIsApproximate(route)) "≈ " else ""}${formatTime(route.arrivalEpochSec)}"
                 gravity = Gravity.END
                 textSize = 13f
                 setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_secondary))
             })
             addView(top)
 
-            val badges = LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(8), 0, 0)
-            }
-            badges.addView(TextView(this@MainActivity).apply {
-                text = objectiveLabel(ranked.objective)
+            addView(TextView(this@MainActivity).apply {
+                text = routeCardLabel(ranked, position)
                 gravity = Gravity.CENTER
-                textSize = 11f
+                textSize = 10.5f
                 setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_primary))
                 background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_chip)
                 backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.vh_surface_solid))
                 setPadding(dp(8), dp(3), dp(8), dp(3))
-            })
-            badges.addView(TextView(this@MainActivity).apply {
-                text = "›"
-                textSize = 17f
-                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_tertiary))
-                setPadding(dp(4), 0, dp(4), 0)
-            })
-            route.legs.forEachIndexed { index, leg ->
-                badges.addView(modeBadge(leg))
-                if (index < route.legs.lastIndex) {
-                    badges.addView(TextView(this@MainActivity).apply {
-                        text = "›"
-                        textSize = 17f
-                        setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_tertiary))
-                        setPadding(dp(4), 0, dp(4), 0)
-                    })
-                }
-            }
-            addView(HorizontalScrollView(this@MainActivity).apply {
-                isHorizontalScrollBarEnabled = false
-                addView(badges)
             }, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ))
+            ).apply { topMargin = dp(6) })
+
+            addView(TextView(this@MainActivity).apply {
+                text = routeLegSummaryText(route)
+                maxLines = if (selected) 4 else 2
+                textSize = if (selected) 12.5f else 12f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_secondary))
+                setPadding(0, dp(7), 0, 0)
+            })
 
             addView(TextView(this@MainActivity).apply {
                 val transferText = when (route.transferCount) {
@@ -985,15 +1054,32 @@ class MainActivity : AppCompatActivity() {
                     else -> "${route.transferCount} пересадки"
                 }
                 val walkingMinutes = maxOf(1, ceil(route.legs.filter { it.mode == TransportMode.WALK }.sumOf { it.durationSeconds } / 60.0).toInt())
-                text = "Пешком ${formatDistance(route.walkMeters)} ($walkingMinutes мин) · $transferText"
+                val waitMinutes = ceil(route.legs.sumOf { it.waitSeconds } / 60.0).toInt()
+                text = buildList {
+                    add("Пешком ${formatDistance(route.walkMeters)} · $walkingMinutes мин")
+                    if (waitMinutes > 0) add("ожидание $waitMinutes мин")
+                    add(transferText)
+                }.joinToString(" · ")
+                maxLines = 2
                 textSize = 12f
                 setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_tertiary))
-                setPadding(0, dp(7), 0, 0)
+                setPadding(0, dp(5), 0, 0)
             })
-            routeTimingNotice(route)?.let { notice ->
+
+            if (selected) route.legs.forEach { leg ->
+                addView(TextView(this@MainActivity).apply {
+                    text = routeStepLabel(leg)
+                    maxLines = 3
+                    textSize = 11f
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_secondary))
+                    setPadding(0, dp(5), 0, 0)
+                })
+            }
+
+            if (selected) routeTimingNotice(route)?.let { notice ->
                 addView(TextView(this@MainActivity).apply {
                     text = notice
-                    textSize = 11f
+                    textSize = 10.5f
                     setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_tertiary))
                     setPadding(0, dp(6), 0, 0)
                 })
@@ -1001,20 +1087,50 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun modeBadge(leg: RouteLeg): TextView = TextView(this).apply {
-        text = when (leg.mode) {
-            TransportMode.WALK -> "Пешком"
+    private fun routeCardLabel(ranked: RankedRoute, position: Int): String = when {
+        position == 0 && routeFilter == RouteFilter.FASTEST -> "Рекомендуем"
+        position == 0 -> routeFilter.label
+        ranked.objective == RouteObjective.LESS_WALKING -> "Меньше пешком"
+        ranked.objective == RouteObjective.FEWER_TRANSFERS -> "Меньше пересадок"
+        ranked.objective == RouteObjective.RELIABLE -> "Надёжнее"
+        else -> "Альтернатива"
+    }
+
+    private fun routeLegSummary(leg: RouteLeg): String {
+        val minutes = maxOf(1, ceil(leg.durationSeconds / 60.0).toInt())
+        return when (leg.mode) {
+            TransportMode.WALK -> "Пешком $minutes мин"
             else -> listOf(modeLabel(leg.mode), leg.lineName ?: leg.lineId.orEmpty())
                 .filter(String::isNotBlank)
-                .joinToString(" ")
+                .joinToString(" ") + " · $minutes мин"
         }
-        maxLines = 1
-        textSize = 11f
-        setTypeface(typeface, Typeface.BOLD)
-        setTextColor(modeColor(leg.mode))
-        background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_chip)
-        backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.vh_surface_solid))
-        setPadding(dp(8), dp(4), dp(8), dp(4))
+    }
+
+    private fun routeLegSummaryText(route: RouteCandidate): CharSequence = SpannableStringBuilder().apply {
+        route.legs.forEachIndexed { index, leg ->
+            if (index > 0) append("  ›  ")
+            val start = length
+            append(routeLegSummary(leg))
+            setSpan(
+                ForegroundColorSpan(modeColor(leg.mode)),
+                start,
+                length,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+    }
+
+    private fun routeStepLabel(leg: RouteLeg): String {
+        val detail = when (leg.mode) {
+            TransportMode.WALK -> "Пешком ${formatDistance(leg.walkMeters)}"
+            else -> buildList {
+                add(listOf(modeLabel(leg.mode), leg.lineName ?: leg.lineId.orEmpty())
+                    .filter(String::isNotBlank)
+                    .joinToString(" "))
+                if (leg.stopCount > 0) add("${leg.stopCount} ост.")
+            }.joinToString(" · ")
+        }
+        return "${formatTime(leg.departureEpochSec)}–${formatTime(leg.arrivalEpochSec)}  $detail\n${leg.from.name} → ${leg.to.name}"
     }
 
     private fun showPlanError(
@@ -1063,15 +1179,28 @@ class MainActivity : AppCompatActivity() {
         ?.route
 
     private fun renderRouteOnMap(route: RouteCandidate, fit: Boolean) {
-        val points = route.legs
-            .flatMap { listOf(it.from.point, it.to.point) }
-            .distinct()
+        val points = route.mapPoints()
         if (points.size < 2) return
         val line = LineString.fromLngLats(points.map { Point.fromLngLat(it.lon, it.lat) })
         routeSource?.setGeoJson(FeatureCollection.fromFeature(Feature.fromGeometry(line)))
+        val waypoints = route.legs
+            .flatMap { listOf(it.from.point, it.to.point) }
+            .distinct()
+            .drop(1)
+            .dropLast(1)
         routeStopsSource?.setGeoJson(
             FeatureCollection.fromFeatures(
-                points.map { Feature.fromGeometry(Point.fromLngLat(it.lon, it.lat)) }.toTypedArray()
+                waypoints.map { Feature.fromGeometry(Point.fromLngLat(it.lon, it.lat)) }.toTypedArray()
+            )
+        )
+        routeOriginSource?.setGeoJson(
+            FeatureCollection.fromFeature(
+                Feature.fromGeometry(Point.fromLngLat(points.first().lon, points.first().lat))
+            )
+        )
+        routeDestinationSource?.setGeoJson(
+            FeatureCollection.fromFeature(
+                Feature.fromGeometry(Point.fromLngLat(points.last().lon, points.last().lat))
             )
         )
         applyLayerPreferences()
@@ -1080,10 +1209,20 @@ class MainActivity : AppCompatActivity() {
             points.forEach { builder.include(LatLng(it.lat, it.lon)) }
             runCatching {
                 val mapHeight = mapView.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
-                val topPadding = dp(138).coerceAtMost(mapHeight / 3)
-                val desiredBottomPadding = if (routeResultsContainer.visibility == View.VISIBLE) dp(420) else dp(112)
+                val topPadding = (
+                    systemTopInset + if (currentTab == Tab.ROUTES) dp(76) else dp(132)
+                    ).coerceAtMost(mapHeight / 3)
+                val sheetParams = routeResultsContainer.layoutParams as? FrameLayout.LayoutParams
+                val desiredBottomPadding = if (routeResultsContainer.visibility == View.VISIBLE) {
+                    routeResultsContainer.height.takeIf { it > 0 }
+                        ?.plus(sheetParams?.bottomMargin ?: (systemBottomInset + dp(76)))
+                        ?.plus(dp(12))
+                        ?: dp(388)
+                } else {
+                    systemBottomInset + dp(82)
+                }
                 val bottomPadding = desiredBottomPadding.coerceAtMost(
-                    (mapHeight - topPadding - dp(96)).coerceAtLeast(dp(72))
+                    (mapHeight - topPadding - dp(160)).coerceAtLeast(dp(72))
                 )
                 map?.animateCamera(
                     CameraUpdateFactory.newLatLngBounds(
@@ -1102,6 +1241,8 @@ class MainActivity : AppCompatActivity() {
     private fun clearRouteOnMap() {
         routeSource?.setGeoJson(emptyFeatures())
         routeStopsSource?.setGeoJson(emptyFeatures())
+        routeOriginSource?.setGeoJson(emptyFeatures())
+        routeDestinationSource?.setGeoJson(emptyFeatures())
     }
 
     private fun beginTrip(route: RouteCandidate) {
@@ -1350,6 +1491,7 @@ class MainActivity : AppCompatActivity() {
                 renderFavorites()
             }
         }
+        updateQuickActionsVisibility()
         renderNavigationState()
     }
 
@@ -1689,6 +1831,8 @@ class MainActivity : AppCompatActivity() {
         locationLayer?.setProperties(PropertyFactory.visibility(Property.VISIBLE))
         routeLayer?.setProperties(PropertyFactory.visibility(if (showTransport) Property.VISIBLE else Property.NONE))
         routeStopsLayer?.setProperties(PropertyFactory.visibility(if (showTransport) Property.VISIBLE else Property.NONE))
+        routeOriginLayer?.setProperties(PropertyFactory.visibility(if (showTransport) Property.VISIBLE else Property.NONE))
+        routeDestinationLayer?.setProperties(PropertyFactory.visibility(if (showTransport) Property.VISIBLE else Property.NONE))
     }
 
     private fun requestLocation(purpose: LocationPurpose) {
@@ -2097,16 +2241,28 @@ class MainActivity : AppCompatActivity() {
     private fun applySystemInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())
+            systemTopInset = bars.top
+            systemBottomInset = bars.bottom
 
             searchPanel.updateLayoutParams<FrameLayout.LayoutParams> { topMargin = bars.top + dp(12) }
             quickActions.updateLayoutParams<FrameLayout.LayoutParams> { topMargin = bars.top + dp(78) }
             loadingPanel.updateLayoutParams<FrameLayout.LayoutParams> { topMargin = bars.top + dp(130) }
-            bottomNav.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(8) }
-            nearbyPanel.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(82) }
-            routeResultsContainer.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(82) }
-            tabEmptyPanel.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(82) }
-            locationActionPanel.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(304) }
-            osmAttribution.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(84) }
+            bottomNav.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(6) }
+            nearbyPanel.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(76) }
+            routeResultsContainer.updateLayoutParams<FrameLayout.LayoutParams> {
+                bottomMargin = bars.bottom + dp(76)
+                height = dp(
+                    when {
+                        resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE -> 228
+                        resources.configuration.screenHeightDp <= 700 -> 276
+                        resources.configuration.screenHeightDp <= 840 -> 300
+                        else -> 324
+                    }
+                )
+            }
+            tabEmptyPanel.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(76) }
+            locationActionPanel.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(280) }
+            osmAttribution.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(70) }
             settingsPanel.updatePadding(top = bars.top + dp(16), bottom = bars.bottom + dp(24))
             insets
         }
@@ -2256,17 +2412,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun routeTimingIsApproximate(route: RouteCandidate): Boolean =
         route.legs.any { leg ->
-            (leg.mode == TransportMode.BUS || leg.mode == TransportMode.TRAM) && leg.realtimeConfidence <= 0.2
+            (leg.mode == TransportMode.BUS || leg.mode == TransportMode.TRAM) && leg.realtimeConfidence < 0.8
         } || route.legs.any { it.mode == TransportMode.METRO || it.mode == TransportMode.MCC }
 
     private fun routeTimingNotice(route: RouteCandidate): String? {
         val notes = buildList {
-            val staleSurface = route.legs.any { leg ->
-                (leg.mode == TransportMode.BUS || leg.mode == TransportMode.TRAM) && leg.realtimeConfidence <= 0.2
+            val surfaceLegs = route.legs.filter { leg ->
+                leg.mode == TransportMode.BUS || leg.mode == TransportMode.TRAM
             }
-            if (staleSurface) {
+            if (surfaceLegs.isNotEmpty()) {
                 val date = surfaceScheduleDate?.let(dateFormatter::format) ?: "предыдущую дату"
-                add("Наземный транспорт: ориентировочно по расписанию за $date.")
+                val stale = surfaceLegs.any { it.realtimeConfidence <= 0.2 }
+                add(
+                    if (stale) {
+                        "Наземный транспорт: ориентировочно по расписанию за $date, без live-изменений."
+                    } else {
+                        "Наземный транспорт: плановое расписание за $date, без live-изменений."
+                    }
+                )
             }
             if (route.legs.any { it.mode == TransportMode.METRO || it.mode == TransportMode.MCC }) {
                 add("Метро/МЦК: расчётное время без live-данных.")
@@ -2427,10 +2590,10 @@ class MainActivity : AppCompatActivity() {
             id = "qa-bus-metro",
             requestedDepartureEpochSec = now,
             legs = listOf(
-                RouteLeg(TransportMode.WALK, origin, stop, now, now + 5 * 60, walkMeters = 360, realtimeConfidence = 0.96),
-                RouteLeg(TransportMode.BUS, stop, metro, now + 7 * 60, now + 18 * 60, lineId = "qa:m2", lineName = "м2", waitSeconds = 2 * 60, realtimeConfidence = 0.78, stopCount = 5),
+                RouteLeg(TransportMode.WALK, origin, stop, now, now + 5 * 60, walkMeters = 360, realtimeConfidence = 0.96, geometry = listOf(origin.point, GeoPoint(55.7595, 37.6198), stop.point)),
+                RouteLeg(TransportMode.BUS, stop, metro, now + 7 * 60, now + 18 * 60, lineId = "qa:m2", lineName = "м2", waitSeconds = 2 * 60, realtimeConfidence = 0.78, stopCount = 5, geometry = listOf(stop.point, GeoPoint(55.7577, 37.6220), GeoPoint(55.7584, 37.6250), metro.point)),
                 RouteLeg(TransportMode.WALK, metro, metro, now + 18 * 60, now + 21 * 60, walkMeters = 170, realtimeConfidence = 0.9),
-                RouteLeg(TransportMode.METRO, metro, interchange, now + 23 * 60, now + 38 * 60, lineId = "qa:6", lineName = "6", waitSeconds = 2 * 60, realtimeConfidence = 0.72, stopCount = 7),
+                RouteLeg(TransportMode.METRO, metro, interchange, now + 23 * 60, now + 38 * 60, lineId = "qa:6", lineName = "6", waitSeconds = 2 * 60, realtimeConfidence = 0.72, stopCount = 7, geometry = listOf(metro.point, GeoPoint(55.7900, 37.6320), GeoPoint(55.8230, 37.6420), interchange.point)),
                 RouteLeg(TransportMode.WALK, interchange, destination, now + 38 * 60, now + 43 * 60, walkMeters = 390, realtimeConfidence = 0.96)
             )
         )
@@ -2439,8 +2602,8 @@ class MainActivity : AppCompatActivity() {
             requestedDepartureEpochSec = now,
             legs = listOf(
                 RouteLeg(TransportMode.WALK, origin, stop, now, now + 4 * 60, walkMeters = 290, realtimeConfidence = 0.96),
-                RouteLeg(TransportMode.TRAM, stop, metro, now + 8 * 60, now + 22 * 60, lineId = "qa:39", lineName = "39", waitSeconds = 4 * 60, realtimeConfidence = 0.78, stopCount = 6),
-                RouteLeg(TransportMode.MCC, metro, interchange, now + 26 * 60, now + 43 * 60, lineId = "qa:mcc", lineName = "МЦК", waitSeconds = 4 * 60, realtimeConfidence = 0.7, stopCount = 8),
+                RouteLeg(TransportMode.TRAM, stop, metro, now + 8 * 60, now + 22 * 60, lineId = "qa:39", lineName = "39", waitSeconds = 4 * 60, realtimeConfidence = 0.78, stopCount = 6, geometry = listOf(stop.point, GeoPoint(55.7620, 37.6230), GeoPoint(55.7630, 37.6290), metro.point)),
+                RouteLeg(TransportMode.MCC, metro, interchange, now + 26 * 60, now + 43 * 60, lineId = "qa:mcc", lineName = "МЦК", waitSeconds = 4 * 60, realtimeConfidence = 0.7, stopCount = 8, geometry = listOf(metro.point, GeoPoint(55.7900, 37.6600), GeoPoint(55.8250, 37.6700), interchange.point)),
                 RouteLeg(TransportMode.WALK, interchange, destination, now + 43 * 60, now + 49 * 60, walkMeters = 430, realtimeConfidence = 0.96)
             )
         )
@@ -2449,8 +2612,8 @@ class MainActivity : AppCompatActivity() {
             requestedDepartureEpochSec = now,
             legs = listOf(
                 RouteLeg(TransportMode.WALK, origin, metro, now, now + 8 * 60, walkMeters = 590, realtimeConfidence = 0.96),
-                RouteLeg(TransportMode.MCD, metro, interchange, now + 12 * 60, now + 35 * 60, lineId = "mtppk:qa-d3", lineName = "D3 · 7201", waitSeconds = 4 * 60, realtimeConfidence = 0.82, stopCount = 9),
-                RouteLeg(TransportMode.TRAIN, interchange, destination, now + 40 * 60, now + 51 * 60, lineId = "mtppk:qa-6501", lineName = "6501", waitSeconds = 5 * 60, realtimeConfidence = 0.82, stopCount = 3),
+                RouteLeg(TransportMode.MCD, metro, interchange, now + 12 * 60, now + 35 * 60, lineId = "mtppk:qa-d3", lineName = "D3 · 7201", waitSeconds = 4 * 60, realtimeConfidence = 0.82, stopCount = 9, geometry = listOf(metro.point, GeoPoint(55.7900, 37.6200), GeoPoint(55.8250, 37.6350), interchange.point)),
+                RouteLeg(TransportMode.TRAIN, interchange, destination, now + 40 * 60, now + 51 * 60, lineId = "mtppk:qa-6501", lineName = "6501", waitSeconds = 5 * 60, realtimeConfidence = 0.82, stopCount = 3, geometry = listOf(interchange.point, GeoPoint(55.8610, 37.6580), destination.point)),
                 RouteLeg(TransportMode.WALK, destination, destination, now + 51 * 60, now + 53 * 60, walkMeters = 140, realtimeConfidence = 0.96)
             )
         )
@@ -2560,6 +2723,10 @@ class MainActivity : AppCompatActivity() {
         private const val ROUTE_LAYER_ID = "vh-route-layer"
         private const val ROUTE_STOPS_SOURCE_ID = "vh-route-stops-source"
         private const val ROUTE_STOPS_LAYER_ID = "vh-route-stops-layer"
+        private const val ROUTE_ORIGIN_SOURCE_ID = "vh-route-origin-source"
+        private const val ROUTE_ORIGIN_LAYER_ID = "vh-route-origin-layer"
+        private const val ROUTE_DESTINATION_SOURCE_ID = "vh-route-destination-source"
+        private const val ROUTE_DESTINATION_LAYER_ID = "vh-route-destination-layer"
         private const val NEARBY_SOURCE_ID = "vh-nearby-source"
         private const val NEARBY_LAYER_ID = "vh-nearby-layer"
         private const val LOCATION_SOURCE_ID = "vh-location-source"

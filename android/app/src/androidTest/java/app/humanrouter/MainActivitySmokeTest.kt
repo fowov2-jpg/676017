@@ -28,6 +28,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.hamcrest.Matcher
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -111,7 +112,19 @@ class MainActivitySmokeTest {
     fun routeOptionsFiltersFavoritesAndTripFlowAreInteractive() {
         launch("routes")
         onView(withText("Варианты маршрута")).check(matches(isDisplayed()))
-        onView(withText("Наземный транспорт")).perform(scrollTo(), click())
+        onView(withSubstring("Автобус м2")).check(matches(isDisplayed()))
+        scenario!!.onActivity { activity ->
+            val root = activity.findViewById<View>(R.id.root)
+            val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
+            val quickActions = activity.findViewById<View>(R.id.quickActions)
+            val filterViewport = activity.findViewById<View>(R.id.routeFiltersScroll)
+            val filterPanel = activity.findViewById<View>(R.id.routeFiltersPanel)
+            assertEquals(View.GONE, quickActions.visibility)
+            assertTrue("route sheet still covers most of the map", sheet.height * 2 < root.height)
+            assertTrue("route filters overflow their viewport", filterPanel.width <= filterViewport.width)
+        }
+        onView(withText("Ещё")).perform(click())
+        onView(withText("Наземный транспорт")).perform(click())
         onView(withText("☆ Сохранить маршрут")).perform(scrollTo(), click())
         onView(withText("✓ Маршрут сохранён")).perform(scrollTo()).check(matches(isDisplayed()))
 

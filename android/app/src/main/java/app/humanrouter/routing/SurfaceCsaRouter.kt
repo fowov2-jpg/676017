@@ -137,8 +137,18 @@ internal class SurfaceCsaRouter(
                     boardingPath = boardingPath,
                     boardingStopIndex = fromIndex,
                     firstConnection = connection,
-                    boardingSequence = connection.sequence
+                    boardingSequence = connection.sequence,
+                    geometry = arrayListOf(stops[fromIndex].point()),
+                    lastGeometrySequence = connection.sequence - 1
                 ).also { tripStates[connection.tripId] = it }
+            }
+
+            if (connection.sequence > state.lastGeometrySequence) {
+                val fromPoint = stops[fromIndex].point()
+                val toPoint = stops[toIndex].point()
+                if (state.geometry.lastOrNull() != fromPoint) state.geometry += fromPoint
+                if (state.geometry.lastOrNull() != toPoint) state.geometry += toPoint
+                state.lastGeometrySequence = connection.sequence
             }
 
             if (connection.arrivalSec < earliest[toIndex]) {
@@ -148,7 +158,8 @@ internal class SurfaceCsaRouter(
                         from = stops[state.boardingStopIndex].place(),
                         to = stops[toIndex].place(),
                         firstConnection = state.firstConnection,
-                        lastConnection = connection
+                        lastConnection = connection,
+                        geometry = state.geometry.toList()
                     )
                 )
 
@@ -206,7 +217,8 @@ internal class SurfaceCsaRouter(
                             arrivalEpochSec = serviceMidnightEpochSec + departureServiceSec + walk.seconds,
                             walkMeters = walk.meters,
                             uncertaintySeconds = if (exactDirect != null) 15 else 90,
-                            realtimeConfidence = if (exactDirect != null) 0.98 else 0.70
+                            realtimeConfidence = if (exactDirect != null) 0.98 else 0.70,
+                            geometry = walk.geometry
                         )
                     )
                 ) },
@@ -230,7 +242,8 @@ internal class SurfaceCsaRouter(
                             arrivalEpochSec = serviceMidnightEpochSec + departureServiceSec + walk.seconds,
                             walkMeters = walk.meters,
                             uncertaintySeconds = if (exactDirect != null) 15 else 90,
-                            realtimeConfidence = if (exactDirect != null) 0.98 else 0.70
+                            realtimeConfidence = if (exactDirect != null) 0.98 else 0.70,
+                            geometry = walk.geometry
                         )
                     )
                 ) },
@@ -379,6 +392,12 @@ internal class SurfaceCsaRouter(
                     val route = routes[first.routeId] ?: continue
                     val mode = route.mode
                     val duration = (last.arrivalSec - first.departureSec).coerceAtLeast(0)
+                    val previousArrivalSec = result.lastOrNull()
+                        ?.arrivalEpochSec
+                        ?.minus(serviceMidnightEpochSec)
+                        ?.toInt()
+                        ?: first.departureSec
+                    val waitSeconds = (first.departureSec - previousArrivalSec).coerceAtLeast(0)
                     val transferBuffer = previousTransitArrival?.let { previousArrival ->
                         (
                             first.departureSec -
@@ -395,10 +414,12 @@ internal class SurfaceCsaRouter(
                         arrivalEpochSec = epoch(last.arrivalSec),
                         lineId = route.id,
                         lineName = route.shortName ?: route.longName,
+                        waitSeconds = waitSeconds,
                         uncertaintySeconds = (duration * 0.15).toInt().coerceIn(60, 300),
                         realtimeConfidence = 0.45,
                         transferBufferSeconds = transferBuffer,
-                        stopCount = (last.sequence - first.sequence + 1).coerceAtLeast(1)
+                        stopCount = (last.sequence - first.sequence + 1).coerceAtLeast(1),
+                        geometry = step.geometry
                     )
                     previousTransitArrival = last.arrivalSec
                     walkingSinceTransitSeconds = 0
@@ -420,6 +441,8 @@ internal class SurfaceCsaRouter(
         name = name,
         point = GeoPoint(lat, lon)
     )
+
+    private fun SurfaceStop.point(): GeoPoint = GeoPoint(lat, lon)
 
     private fun boardBufferSeconds(path: PathNode): Int = when {
         path.step is RawStep.Ride -> SAME_STOP_TRANSFER_BUFFER_SECONDS
@@ -489,7 +512,9 @@ internal class SurfaceCsaRouter(
         val boardingPath: PathNode,
         val boardingStopIndex: Int,
         val firstConnection: SurfaceConnection,
-        val boardingSequence: Int
+        val boardingSequence: Int,
+        val geometry: MutableList<GeoPoint>,
+        var lastGeometrySequence: Int
     )
 
     private sealed interface RawStep {
@@ -505,7 +530,8 @@ internal class SurfaceCsaRouter(
             val from: RoutePlace,
             val to: RoutePlace,
             val firstConnection: SurfaceConnection,
-            val lastConnection: SurfaceConnection
+            val lastConnection: SurfaceConnection,
+            val geometry: List<GeoPoint>
         ) : RawStep
     }
 

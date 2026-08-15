@@ -26,7 +26,8 @@ class ActiveTripStoreTest {
                         departureEpochSec = 10_000,
                         arrivalEpochSec = 10_300,
                         walkMeters = 360,
-                        realtimeConfidence = 0.95
+                        realtimeConfidence = 0.95,
+                        geometry = listOf(a.point, GeoPoint(55.755, 37.615), b.point)
                     ),
                     RouteLeg(
                         mode = TransportMode.MCD,

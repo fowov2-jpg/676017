@@ -87,6 +87,9 @@ internal object ActiveTripStore {
         .put("confidence", leg.realtimeConfidence)
         .put("transfer_buffer", leg.transferBufferSeconds)
         .put("stops", leg.stopCount)
+        .put("geometry", JSONArray().apply {
+            leg.geometry.forEach { point -> put(JSONArray().put(point.lat).put(point.lon)) }
+        })
 
     private fun decodeLeg(root: JSONObject): RouteLeg = RouteLeg(
         mode = TransportMode.fromRuntimeValue(root.getString("mode"))
@@ -102,8 +105,22 @@ internal object ActiveTripStore {
         uncertaintySeconds = root.optInt("uncertainty"),
         realtimeConfidence = root.optDouble("confidence", 0.5),
         transferBufferSeconds = root.optInt("transfer_buffer"),
-        stopCount = root.optInt("stops")
+        stopCount = root.optInt("stops"),
+        geometry = decodeGeometry(root.optJSONArray("geometry"))
     )
+
+    private fun decodeGeometry(items: JSONArray?): List<GeoPoint> {
+        if (items == null) return emptyList()
+        return buildList(items.length()) {
+            for (index in 0 until items.length()) {
+                val values = items.optJSONArray(index) ?: continue
+                if (values.length() < 2) continue
+                val lat = values.optDouble(0, Double.NaN)
+                val lon = values.optDouble(1, Double.NaN)
+                if (lat.isFinite() && lon.isFinite()) add(GeoPoint(lat, lon))
+            }
+        }
+    }
 
     private fun encodePlace(place: RoutePlace): JSONObject = JSONObject()
         .put("id", place.id)
