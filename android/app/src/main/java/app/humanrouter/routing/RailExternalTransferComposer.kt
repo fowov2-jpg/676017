@@ -100,12 +100,14 @@ internal class RailExternalTransferComposer private constructor(
     }
 
     private fun transferWalk(from: Stop, to: Stop, geometricMeters: Int): RuntimeWalkGraph.WalkCost? {
-        walkGraph?.shortestWalk(
-            from = from.point,
-            to = to.point,
-            maxSeconds = TRANSFER_MAX_SECONDS,
-            maxMeters = TRANSFER_MAX_WALK_METERS
-        )?.let { return it }
+        if (walkGraph != null) {
+            return walkGraph.shortestWalk(
+                from = from.point,
+                to = to.point,
+                maxSeconds = TRANSFER_MAX_SECONDS,
+                maxMeters = TRANSFER_MAX_WALK_METERS
+            )
+        }
 
         val meters = ceil(geometricMeters * WALK_DETOUR_FACTOR).toInt()
         if (meters > TRANSFER_MAX_WALK_METERS) return null
@@ -135,7 +137,7 @@ internal class RailExternalTransferComposer private constructor(
     }
 
     private fun usesRail(route: RouteCandidate): Boolean =
-        route.legs.any { it.mode == TransportMode.METRO || it.mode == TransportMode.MCC }
+        route.legs.any { it.mode in ROUTEABLE_RAIL_MODES }
 
     private fun loadPairs(root: JSONObject): List<TransferPair> {
         val stops = LinkedHashMap<String, Stop>()
@@ -143,10 +145,10 @@ internal class RailExternalTransferComposer private constructor(
         for (routeIndex in 0 until routes.length()) {
             val route = routes.getJSONObject(routeIndex)
             if (!route.optBoolean("routeable", false)) continue
-            val mode = route.optString("mode")
-            if (mode != "METRO" && mode != "MCC") continue
+            val mode = TransportMode.fromRuntimeValue(route.optString("mode")) ?: continue
+            if (mode !in ROUTEABLE_RAIL_MODES) continue
             val relationId = route.getString("osm_relation_id")
-            val lineKey = "$mode:$relationId"
+            val lineKey = "${mode.name}:$relationId"
             val routeStops = route.getJSONArray("stops")
             for (i in 0 until routeStops.length()) {
                 val item = routeStops.getJSONObject(i)
@@ -204,6 +206,10 @@ internal class RailExternalTransferComposer private constructor(
         private const val BROAD_PAIR_LIMIT = 12
         private const val MAX_RETURNED = 4
         private const val CLOCK_SKEW_SECONDS = 2L
+        private val ROUTEABLE_RAIL_MODES = setOf(
+            TransportMode.METRO,
+            TransportMode.MCC
+        )
 
         fun openOrNull(
             runtimeRoot: File,

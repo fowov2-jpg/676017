@@ -1,6 +1,11 @@
 <resources>
     <string name="app_name">ВремяХодом</string>
     <string name="search_destination">Куда едем?</string>
+    <string name="search_origin">Откуда</string>
+    <string name="search_action">Найти маршрут</string>
+    <string name="search_close">Свернуть поиск</string>
+    <string name="clear_origin">Очистить точку отправления</string>
+    <string name="clear_destination">Очистить место назначения</string>
     <string name="quick_home">Дом</string>
     <string name="quick_work">Работа</string>
     <string name="quick_nearby">Рядом</string>
@@ -9,4 +14,27 @@
     <string name="nav_transport">Транспорт</string>
     <string name="nav_favorites">Избранное</string>
     <string name="settings">Настройки</string>
+    <string name="my_location">Моё местоположение</string>
+    <string name="nearby_title">Рядом</string>
+    <string name="nearby_loading">Ищем остановки и станции…</string>
+    <string name="nearby_location_required">Разрешите геопозицию или переместите карту, чтобы увидеть транспорт рядом.</string>
+    <string name="permission_allow">Разрешить</string>
+    <string name="permission_choose_map">Выбрать на карте</string>
+    <string name="permission_settings">Открыть настройки</string>
+    <string name="settings_map">Карта</string>
+    <string name="settings_routes">Маршруты</string>
+    <string name="settings_data">Данные</string>
+    <string name="show_stops">Показывать остановки</string>
+    <string name="show_transport">Показывать транспорт</string>
+    <string name="dark_theme">Тёмная тема</string>
+    <string name="less_walking">Меньше ходьбы</string>
+    <string name="avoid_transfers">Избегать пересадок</string>
+    <string name="app_version">Версия приложения</string>
+    <string name="runtime_version">Версия данных</string>
+    <string name="runtime_version_unavailable">Версия данных: —</string>
+    <string name="check_updates">Проверить обновления</string>
+    <string name="close">Закрыть</string>
+    <string name="favorites_empty">Здесь появятся сохранённые маршруты.</string>
+    <string name="transport_hint">Выберите остановку или станцию поблизости.</string>
+    <string name="journey_progress">Собираем поездку</string>
 </resources>

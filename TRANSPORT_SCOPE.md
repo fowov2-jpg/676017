@@ -1,6 +1,6 @@
 # Transport scope
 
-Human Router plans pedestrian access/egress and public-transport journeys. Personal micromobility is intentionally outside the routing graph.
+«ВремяХодом» plans pedestrian access/egress and public-transport journeys. Personal micromobility is intentionally outside the routing graph.
 
 ## Included routing modes
 
@@ -9,8 +9,8 @@ Human Router plans pedestrian access/egress and public-transport journeys. Perso
 - TRAM — scheduled city tram routes, including tram-diameter services when present in the official timetable feed.
 - METRO — Moscow Metro.
 - MCC — Moscow Central Circle.
-- MCD — Moscow Central Diameters; must only be enabled when timetable/headway data is backed by a real source.
-- TRAIN — suburban/commuter rail outside the MCD abstraction; must use real timetable data.
+- MCD — currently enabled only for MCD-3 stops covered by the bundled published MTPPK timetable.
+- TRAIN — currently enabled only for published MTPPK commuter trips whose stops have verified coordinates.
 
 ## Explicitly excluded
 
@@ -28,6 +28,8 @@ Human Router plans pedestrian access/egress and public-transport journeys. Perso
 ## Data-quality rule
 
 A mode is not considered supported merely because its topology is known. A route can participate in fastest-path search only when the runtime contains enough real operational data to avoid inventing departures or waits. If a timetable/feed is missing, the mode remains unavailable rather than being represented with fabricated timing.
+
+The bundled rail timetable is effective from 2026-04-27 and covers the verified Moscow Passenger–Zelenograd-Kryukovo corridor. It contains planned departures, not live cancellations or operational changes. Other MCD corridors and commuter stations remain unavailable until equivalent audited timetable coverage is integrated.
 
 ## Integration goal
 

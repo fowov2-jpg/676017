@@ -1,15 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<app.humanrouter.VremyaHodomChromeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FFF5F7FA">
+    android:background="@color/vh_background">
 
     <org.maplibre.android.maps.MapView
         android:id="@+id/mapView"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:contentDescription="Карта Москвы" />
 
     <LinearLayout
         android:id="@+id/searchPanel"
@@ -17,24 +18,18 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top"
         android:layout_marginStart="16dp"
-        android:layout_marginTop="14dp"
+        android:layout_marginTop="12dp"
         android:layout_marginEnd="16dp"
         android:background="@drawable/bg_panel"
-        android:elevation="10dp"
+        android:backgroundTint="@color/vh_surface_solid"
+        android:elevation="8dp"
         android:orientation="vertical"
-        android:padding="7dp">
-
-        <EditText
-            android:id="@+id/fromField"
-            android:layout_width="1dp"
-            android:layout_height="1dp"
-            android:importantForAccessibility="no"
-            android:text="Москва"
-            android:visibility="gone" />
+        android:padding="6dp">
 
         <LinearLayout
+            android:id="@+id/compactSearchRow"
             android:layout_width="match_parent"
-            android:layout_height="58dp"
+            android:layout_height="52dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -42,57 +37,177 @@
                 android:layout_width="42dp"
                 android:layout_height="42dp"
                 android:contentDescription="@null"
-                android:padding="9dp"
+                android:padding="10dp"
                 android:src="@drawable/ic_search"
-                app:tint="#FF475467" />
+                app:tint="@color/vh_text_secondary" />
 
-            <EditText
-                android:id="@+id/toField"
+            <TextView
+                android:id="@+id/compactSearchButton"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:background="@android:color/transparent"
+                android:gravity="center_vertical"
                 android:hint="@string/search_destination"
-                android:imeOptions="actionDone"
-                android:inputType="textPostalAddress"
-                android:maxLines="1"
                 android:paddingStart="2dp"
-                android:paddingEnd="6dp"
-                android:textColor="#FF101828"
-                android:textColorHint="#FF98A2B3"
-                android:textSize="19sp" />
-
-            <Button
-                android:id="@+id/routeButton"
-                android:layout_width="104dp"
-                android:layout_height="48dp"
-                android:background="@drawable/bg_primary"
-                android:maxLines="1"
-                android:minWidth="0dp"
-                android:minHeight="0dp"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp"
-                android:text="Найти"
-                android:textAllCaps="false"
-                android:textColor="#FFFFFFFF"
-                android:textSize="13sp"
-                android:textStyle="bold" />
+                android:paddingEnd="12dp"
+                android:textColor="@color/vh_text_primary"
+                android:textColorHint="@color/vh_text_tertiary"
+                android:textSize="17sp" />
         </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/suggestionsPanel"
+            android:id="@+id/expandedSearchContent"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical" />
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:gravity="center"
+                    android:text="A"
+                    android:textColor="@color/vh_primary"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <EditText
+                    android:id="@+id/fromField"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="@android:color/transparent"
+                    android:hint="@string/search_origin"
+                    android:imeOptions="actionNext"
+                    android:inputType="textPostalAddress"
+                    android:maxLines="1"
+                    android:paddingStart="2dp"
+                    android:paddingEnd="2dp"
+                    android:textColor="@color/vh_text_primary"
+                    android:textColorHint="@color/vh_text_tertiary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:id="@+id/clearFromButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:contentDescription="@string/clear_origin"
+                    android:gravity="center"
+                    android:text="×"
+                    android:textColor="@color/vh_text_tertiary"
+                    android:textSize="24sp" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginStart="40dp"
+                android:background="@color/vh_border" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:gravity="center"
+                    android:text="Б"
+                    android:textColor="@color/vh_error"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <EditText
+                    android:id="@+id/toField"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="@android:color/transparent"
+                    android:hint="@string/search_destination"
+                    android:imeOptions="actionSearch"
+                    android:inputType="textPostalAddress"
+                    android:maxLines="1"
+                    android:paddingStart="2dp"
+                    android:paddingEnd="2dp"
+                    android:textColor="@color/vh_text_primary"
+                    android:textColorHint="@color/vh_text_tertiary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:id="@+id/clearToButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:contentDescription="@string/clear_destination"
+                    android:gravity="center"
+                    android:text="×"
+                    android:textColor="@color/vh_text_tertiary"
+                    android:textSize="24sp" />
+            </LinearLayout>
+
+            <ScrollView
+                android:id="@+id/suggestionsScroll"
+                android:layout_width="match_parent"
+                android:layout_height="120dp"
+                android:fillViewport="true"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:id="@+id/suggestionsPanel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+            </ScrollView>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="4dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/closeSearchButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:contentDescription="@string/search_close"
+                    android:gravity="center"
+                    android:text="⌃"
+                    android:textColor="@color/vh_text_secondary"
+                    android:textSize="22sp" />
+
+                <Button
+                    android:id="@+id/routeButton"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="4dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_primary"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:text="@string/search_action"
+                    android:textAllCaps="false"
+                    android:textColor="@android:color/white"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
     </LinearLayout>
 
     <LinearLayout
         android:id="@+id/quickActions"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
+        android:layout_height="44dp"
         android:layout_gravity="top"
         android:layout_marginStart="20dp"
-        android:layout_marginTop="90dp"
+        android:layout_marginTop="78dp"
         android:layout_marginEnd="20dp"
         android:gravity="center"
         android:orientation="horizontal">
@@ -100,57 +215,51 @@
         <TextView
             android:id="@+id/homeQuickButton"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="44dp"
             android:layout_weight="1"
             android:background="@drawable/bg_chip"
+            android:backgroundTint="@color/vh_surface_solid"
             android:drawableStart="@drawable/ic_home"
-            android:drawablePadding="8dp"
-            android:elevation="7dp"
+            android:drawablePadding="6dp"
+            android:elevation="5dp"
             android:gravity="center"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
             android:text="@string/quick_home"
-            android:textColor="#FF1D2939"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+            android:textColor="@color/vh_text_primary"
+            android:textSize="13sp" />
 
         <Space android:layout_width="8dp" android:layout_height="1dp" />
 
         <TextView
             android:id="@+id/workQuickButton"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="44dp"
             android:layout_weight="1"
             android:background="@drawable/bg_chip"
+            android:backgroundTint="@color/vh_surface_solid"
             android:drawableStart="@drawable/ic_work"
-            android:drawablePadding="8dp"
-            android:elevation="7dp"
+            android:drawablePadding="6dp"
+            android:elevation="5dp"
             android:gravity="center"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
             android:text="@string/quick_work"
-            android:textColor="#FF1D2939"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+            android:textColor="@color/vh_text_primary"
+            android:textSize="13sp" />
 
         <Space android:layout_width="8dp" android:layout_height="1dp" />
 
         <TextView
             android:id="@+id/nearbyQuickButton"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="44dp"
             android:layout_weight="1"
             android:background="@drawable/bg_chip"
+            android:backgroundTint="@color/vh_surface_solid"
             android:drawableStart="@drawable/ic_nearby"
-            android:drawablePadding="8dp"
-            android:elevation="7dp"
+            android:drawablePadding="6dp"
+            android:elevation="5dp"
             android:gravity="center"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
             android:text="@string/quick_nearby"
-            android:textColor="#FF1D2939"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+            android:textColor="@color/vh_text_primary"
+            android:textSize="13sp" />
     </LinearLayout>
 
     <LinearLayout
@@ -159,9 +268,10 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top"
         android:layout_marginStart="20dp"
-        android:layout_marginTop="146dp"
+        android:layout_marginTop="130dp"
         android:layout_marginEnd="20dp"
         android:background="@drawable/bg_status"
+        android:backgroundTint="@color/vh_surface_solid"
         android:elevation="6dp"
         android:orientation="vertical"
         android:paddingStart="14dp"
@@ -170,30 +280,74 @@
         android:paddingBottom="8dp">
 
         <LinearLayout
+            android:id="@+id/journeyRow"
+            android:layout_width="match_parent"
+            android:layout_height="82dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/journeyImage"
+                android:layout_width="76dp"
+                android:layout_height="76dp"
+                android:contentDescription="@string/journey_progress"
+                android:importantForAccessibility="no"
+                android:scaleType="fitCenter" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/journey_progress"
+                    android:textColor="@color/vh_text_tertiary"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/journeyStageText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textColor="@color/vh_text_primary"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal">
+
             <TextView
                 android:id="@+id/status"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:ellipsize="end"
-                android:maxLines="1"
+                android:maxLines="2"
                 android:text="Подготавливаем данные…"
-                android:textColor="#FF667085"
+                android:textColor="@color/vh_text_tertiary"
                 android:textSize="12sp" />
+
             <TextView
                 android:id="@+id/progressText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:text="0%"
-                android:textColor="#FF344054"
+                android:textColor="@color/vh_text_secondary"
                 android:textSize="12sp"
                 android:textStyle="bold" />
         </LinearLayout>
+
         <ProgressBar
             android:id="@+id/progress"
             style="?android:attr/progressBarStyleHorizontal"
@@ -202,15 +356,16 @@
             android:layout_marginTop="7dp"
             android:max="100"
             android:progress="0" />
+
         <Button
             android:id="@+id/retryButton"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
+            android:layout_height="38dp"
             android:layout_gravity="end"
             android:layout_marginTop="5dp"
             android:minWidth="0dp"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
             android:text="Повторить"
             android:textAllCaps="false"
             android:visibility="gone" />
@@ -218,46 +373,105 @@
 
     <ImageButton
         android:id="@+id/locationButton"
-        android:layout_width="54dp"
-        android:layout_height="54dp"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
         android:layout_gravity="center_vertical|end"
         android:layout_marginEnd="16dp"
         android:background="@drawable/bg_round_button"
-        android:contentDescription="Моё местоположение"
-        android:elevation="10dp"
+        android:backgroundTint="@color/vh_surface_solid"
+        android:contentDescription="@string/my_location"
+        android:elevation="8dp"
         android:padding="14dp"
         android:src="@drawable/ic_my_location"
         android:translationY="-34dp"
-        app:tint="#FF287BFF" />
+        app:tint="@color/vh_primary" />
 
     <ImageButton
-        android:id="@+id/settingsHandle"
-        android:layout_width="54dp"
-        android:layout_height="54dp"
+        android:id="@+id/settingsButton"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
         android:layout_gravity="center_vertical|end"
         android:layout_marginEnd="16dp"
         android:background="@drawable/bg_round_button"
+        android:backgroundTint="@color/vh_surface_solid"
         android:contentDescription="@string/settings"
-        android:elevation="10dp"
+        android:elevation="8dp"
         android:padding="14dp"
         android:src="@drawable/ic_tune"
-        android:translationY="32dp"
-        app:tint="#FF287BFF" />
+        android:translationY="28dp"
+        app:tint="@color/vh_primary" />
+
+    <LinearLayout
+        android:id="@+id/locationActionPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="304dp"
+        android:background="@drawable/bg_status"
+        android:backgroundTint="@color/vh_surface_solid"
+        android:elevation="10dp"
+        android:orientation="vertical"
+        android:padding="14dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/locationActionMessage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/vh_text_primary"
+            android:textSize="14sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:gravity="end|center_vertical"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/locationSecondaryAction"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:background="@drawable/bg_chip"
+                android:minWidth="0dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="@string/permission_choose_map"
+                android:textAllCaps="false"
+                android:textColor="@color/vh_primary" />
+
+            <Button
+                android:id="@+id/locationPrimaryAction"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_primary"
+                android:minWidth="0dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:text="@string/permission_allow"
+                android:textAllCaps="false"
+                android:textColor="@android:color/white" />
+        </LinearLayout>
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/nearbyPanel"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="212dp"
         android:layout_gravity="bottom"
         android:layout_marginStart="12dp"
         android:layout_marginEnd="12dp"
-        android:layout_marginBottom="86dp"
+        android:layout_marginBottom="82dp"
         android:background="@drawable/bg_sheet"
-        android:elevation="18dp"
+        android:backgroundTint="@color/vh_surface_solid"
+        android:elevation="16dp"
         android:orientation="vertical"
-        android:paddingStart="18dp"
+        android:paddingStart="16dp"
         android:paddingTop="10dp"
-        android:paddingEnd="18dp"
+        android:paddingEnd="16dp"
         android:paddingBottom="10dp">
 
         <View
@@ -269,123 +483,119 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="Рядом"
-            android:textColor="#FF101828"
-            android:textSize="21sp"
+            android:layout_marginTop="8dp"
+            android:text="@string/nearby_title"
+            android:textColor="@color/vh_text_primary"
+            android:textSize="19sp"
             android:textStyle="bold" />
 
-        <LinearLayout
-            android:id="@+id/nearbyBusRow"
+        <TextView
+            android:id="@+id/nearbyStateText"
             android:layout_width="match_parent"
-            android:layout_height="62dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-            <FrameLayout
-                android:layout_width="46dp"
-                android:layout_height="46dp"
-                android:background="@drawable/bg_bus_badge">
-                <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:layout_gravity="center"
-                    android:contentDescription="@null"
-                    android:src="@drawable/ic_bus"
-                    app:tint="#FF287BFF" />
-            </FrameLayout>
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/nearby_loading"
+            android:textColor="@color/vh_text_tertiary"
+            android:textSize="13sp" />
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="4dp"
+            android:layout_weight="1"
+            android:fillViewport="true">
+
             <LinearLayout
-                android:layout_width="0dp"
+                android:id="@+id/nearbyList"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:layout_weight="1"
-                android:orientation="vertical">
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Автобус"
-                    android:textColor="#FF101828"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="Ближайшие остановки по геопозиции"
-                    android:textColor="#FF667085"
-                    android:textSize="12sp" />
-            </LinearLayout>
-            <TextView
+                android:orientation="vertical" />
+        </ScrollView>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/routeResultsContainer"
+        android:layout_width="match_parent"
+        android:layout_height="360dp"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="82dp"
+        android:background="@drawable/bg_sheet"
+        android:backgroundTint="@color/vh_surface_solid"
+        android:elevation="18dp"
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="12dp"
+        android:visibility="gone">
+
+        <View
+            android:layout_width="38dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:background="@drawable/bg_handle" />
+
+        <HorizontalScrollView
+            android:id="@+id/routeFiltersScroll"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginTop="4dp"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/routeFiltersPanel"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="рядом"
-                android:textColor="#FF287BFF"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+                android:layout_height="match_parent"
+                android:gravity="center_vertical"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
 
-        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#FFF0F2F5" />
-
-        <LinearLayout
-            android:id="@+id/nearbyTramRow"
+        <ScrollView
             android:layout_width="match_parent"
-            android:layout_height="62dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-            <FrameLayout
-                android:layout_width="46dp"
-                android:layout_height="46dp"
-                android:background="@drawable/bg_tram_badge">
-                <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:layout_gravity="center"
-                    android:contentDescription="@null"
-                    android:src="@drawable/ic_tram"
-                    app:tint="#FF8657D9" />
-            </FrameLayout>
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true">
+
             <LinearLayout
-                android:layout_width="0dp"
+                android:id="@+id/routeResultsPanel"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:layout_weight="1"
-                android:orientation="vertical">
-                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Трамвай" android:textColor="#FF101828" android:textSize="16sp" android:textStyle="bold" />
-                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="Маршруты и остановки поблизости" android:textColor="#FF667085" android:textSize="12sp" />
-            </LinearLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="рядом" android:textColor="#FF8657D9" android:textSize="12sp" android:textStyle="bold" />
-        </LinearLayout>
+                android:orientation="vertical" />
+        </ScrollView>
+    </LinearLayout>
 
-        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#FFF0F2F5" />
+    <LinearLayout
+        android:id="@+id/tabEmptyPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="82dp"
+        android:background="@drawable/bg_sheet"
+        android:backgroundTint="@color/vh_surface_solid"
+        android:elevation="16dp"
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:visibility="gone">
 
-        <LinearLayout
-            android:id="@+id/nearbyMetroRow"
+        <TextView
+            android:id="@+id/tabEmptyTitle"
             android:layout_width="match_parent"
-            android:layout_height="62dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-            <FrameLayout
-                android:layout_width="46dp"
-                android:layout_height="46dp"
-                android:background="@drawable/bg_metro_badge">
-                <ImageView
-                    android:layout_width="25dp"
-                    android:layout_height="25dp"
-                    android:layout_gravity="center"
-                    android:contentDescription="@null"
-                    android:src="@drawable/ic_metro"
-                    app:tint="#FFE52B3D" />
-            </FrameLayout>
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:layout_weight="1"
-                android:orientation="vertical">
-                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Метро и МЦК" android:textColor="#FF101828" android:textSize="16sp" android:textStyle="bold" />
-                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="Станции и пересадки поблизости" android:textColor="#FF667085" android:textSize="12sp" />
-            </LinearLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="рядом" android:textColor="#FFE52B3D" android:textSize="12sp" android:textStyle="bold" />
-        </LinearLayout>
+            android:layout_height="wrap_content"
+            android:textColor="@color/vh_text_primary"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tabEmptyMessage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="@color/vh_text_secondary"
+            android:textSize="14sp" />
     </LinearLayout>
 
     <TextView
@@ -393,49 +603,32 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
-        android:layout_marginEnd="12dp"
-        android:layout_marginBottom="82dp"
-        android:background="#D9FFFFFF"
+        android:layout_marginEnd="14dp"
+        android:layout_marginBottom="84dp"
+        android:background="@color/vh_surface"
         android:paddingStart="5dp"
         android:paddingTop="2dp"
         android:paddingEnd="5dp"
         android:paddingBottom="2dp"
         android:text="© OpenStreetMap contributors"
-        android:textColor="#FF667085"
+        android:textColor="@color/vh_text_tertiary"
         android:textSize="9sp" />
-
-    <app.humanrouter.TripResultsLayout
-        android:id="@+id/routeResultsPanel"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="12dp"
-        android:layout_marginBottom="86dp"
-        android:background="@drawable/bg_sheet"
-        android:elevation="20dp"
-        android:orientation="vertical"
-        android:paddingStart="16dp"
-        android:paddingTop="12dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="14dp"
-        android:visibility="gone" />
 
     <LinearLayout
         android:id="@+id/bottomNav"
         android:layout_width="match_parent"
-        android:layout_height="70dp"
+        android:layout_height="68dp"
         android:layout_gravity="bottom"
         android:layout_marginStart="12dp"
         android:layout_marginEnd="12dp"
         android:layout_marginBottom="8dp"
         android:background="@drawable/bg_nav"
-        android:elevation="20dp"
+        android:backgroundTint="@color/vh_surface_solid"
+        android:elevation="18dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="4dp"
-        android:paddingEnd="4dp"
-        android:visibility="visible">
+        android:paddingEnd="4dp">
 
         <TextView
             android:id="@+id/mapNavButton"
@@ -443,113 +636,200 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:drawableTop="@drawable/ic_map"
-            android:drawablePadding="4dp"
+            android:drawablePadding="3dp"
             android:gravity="center"
             android:text="@string/nav_map"
-            android:textColor="#FF287BFF"
+            android:textColor="@color/vh_primary"
             android:textSize="11sp"
             android:textStyle="bold" />
+
         <TextView
             android:id="@+id/routesNavButton"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:drawableTop="@drawable/ic_routes"
-            android:drawablePadding="4dp"
+            android:drawablePadding="3dp"
             android:gravity="center"
             android:text="@string/nav_routes"
-            android:textColor="#FF667085"
+            android:textColor="@color/vh_text_tertiary"
             android:textSize="11sp" />
+
         <TextView
             android:id="@+id/transportNavButton"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:drawableTop="@drawable/ic_transport"
-            android:drawablePadding="4dp"
+            android:drawablePadding="3dp"
             android:gravity="center"
             android:text="@string/nav_transport"
-            android:textColor="#FF667085"
+            android:textColor="@color/vh_text_tertiary"
             android:textSize="11sp" />
+
         <TextView
             android:id="@+id/favoritesNavButton"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:drawableTop="@drawable/ic_star"
-            android:drawablePadding="4dp"
+            android:drawablePadding="3dp"
             android:gravity="center"
             android:text="@string/nav_favorites"
-            android:textColor="#FF667085"
+            android:textColor="@color/vh_text_tertiary"
             android:textSize="11sp" />
     </LinearLayout>
 
-    <LinearLayout
-        android:id="@+id/settingsPanel"
-        android:layout_width="330dp"
+    <FrameLayout
+        android:id="@+id/settingsScrim"
+        android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_gravity="end"
-        android:background="#FFFFFFFF"
-        android:elevation="28dp"
-        android:orientation="vertical"
-        android:paddingStart="20dp"
-        android:paddingTop="18dp"
-        android:paddingEnd="20dp"
-        android:paddingBottom="18dp"
-        android:visibility="invisible">
+        android:background="@color/vh_scrim"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-            <TextView
-                android:layout_width="0dp"
+        <ScrollView
+            android:layout_width="340dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="end"
+            android:background="@color/vh_surface_solid"
+            android:elevation="24dp"
+            android:fillViewport="true">
+
+            <LinearLayout
+                android:id="@+id/settingsPanel"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Настройки"
-                android:textColor="#FF101828"
-                android:textSize="23sp"
-                android:textStyle="bold" />
-            <TextView
-                android:id="@+id/closeSettingsButton"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:gravity="center"
-                android:text="×"
-                android:textColor="#FF475467"
-                android:textSize="30sp" />
-        </LinearLayout>
+                android:orientation="vertical"
+                android:paddingStart="20dp"
+                android:paddingTop="16dp"
+                android:paddingEnd="20dp"
+                android:paddingBottom="24dp">
 
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Карта" android:textColor="#FF667085" android:textSize="12sp" android:textStyle="bold" />
-        <androidx.appcompat.widget.SwitchCompat android:id="@+id/showStopsSwitch" android:layout_width="match_parent" android:layout_height="52dp" android:text="Показывать остановки" android:textColor="#FF1D2939" android:textSize="15sp" />
-        <androidx.appcompat.widget.SwitchCompat android:id="@+id/showTransportSwitch" android:layout_width="match_parent" android:layout_height="52dp" android:text="Показывать транспорт" android:textColor="#FF1D2939" android:textSize="15sp" />
-        <androidx.appcompat.widget.SwitchCompat android:id="@+id/rotateMapSwitch" android:layout_width="match_parent" android:layout_height="52dp" android:text="Вращение карты" android:textColor="#FF1D2939" android:textSize="15sp" />
-        <androidx.appcompat.widget.SwitchCompat android:id="@+id/tiltMapSwitch" android:layout_width="match_parent" android:layout_height="52dp" android:text="Наклон карты" android:textColor="#FF1D2939" android:textSize="15sp" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
 
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Маршруты" android:textColor="#FF667085" android:textSize="12sp" android:textStyle="bold" />
-        <androidx.appcompat.widget.SwitchCompat android:id="@+id/lessWalkingSwitch" android:layout_width="match_parent" android:layout_height="52dp" android:text="Меньше ходьбы" android:textColor="#FF1D2939" android:textSize="15sp" />
-        <androidx.appcompat.widget.SwitchCompat android:id="@+id/avoidTransfersSwitch" android:layout_width="match_parent" android:layout_height="52dp" android:text="Избегать пересадок" android:textColor="#FF1D2939" android:textSize="15sp" />
-        <androidx.appcompat.widget.SwitchCompat android:id="@+id/darkThemeSwitch" android:layout_width="match_parent" android:layout_height="52dp" android:text="Тёмная тема" android:textColor="#FF1D2939" android:textSize="15sp" />
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/settings"
+                        android:textColor="@color/vh_text_primary"
+                        android:textSize="22sp"
+                        android:textStyle="bold" />
 
-        <Space android:layout_width="match_parent" android:layout_height="16dp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Данные" android:textColor="#FF667085" android:textSize="12sp" android:textStyle="bold" />
-        <TextView android:id="@+id/runtimeVersionText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Runtime: —" android:textColor="#FF475467" android:textSize="13sp" />
-        <Button
-            android:id="@+id/checkDataButton"
-            android:layout_width="match_parent"
-            android:layout_height="46dp"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/bg_input"
-            android:text="Проверить обновления"
-            android:textAllCaps="false"
-            android:textColor="#FF287BFF"
-            android:textStyle="bold" />
-    </LinearLayout>
+                    <TextView
+                        android:id="@+id/closeSettingsButton"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:contentDescription="@string/close"
+                        android:gravity="center"
+                        android:text="×"
+                        android:textColor="@color/vh_text_secondary"
+                        android:textSize="28sp" />
+                </LinearLayout>
 
-    <ImageButton android:id="@+id/searchHandle" android:layout_width="1dp" android:layout_height="1dp" android:visibility="gone" android:contentDescription="@null" />
-    <ImageButton android:id="@+id/navHandle" android:layout_width="1dp" android:layout_height="1dp" android:visibility="gone" android:contentDescription="@null" />
-    <View android:id="@+id/leftEdgeZone" android:layout_width="1dp" android:layout_height="1dp" android:visibility="gone" />
-    <View android:id="@+id/rightEdgeZone" android:layout_width="1dp" android:layout_height="1dp" android:visibility="gone" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/settings_map"
+                    android:textColor="@color/vh_text_tertiary"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
 
-</app.humanrouter.VremyaHodomChromeLayout>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/showStopsSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="@string/show_stops"
+                    android:textColor="@color/vh_text_primary"
+                    android:textSize="15sp" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/showTransportSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="@string/show_transport"
+                    android:textColor="@color/vh_text_primary"
+                    android:textSize="15sp" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/darkThemeSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="@string/dark_theme"
+                    android:textColor="@color/vh_text_primary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/settings_routes"
+                    android:textColor="@color/vh_text_tertiary"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/lessWalkingSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="@string/less_walking"
+                    android:textColor="@color/vh_text_primary"
+                    android:textSize="15sp" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/avoidTransfersSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="@string/avoid_transfers"
+                    android:textColor="@color/vh_text_primary"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/settings_data"
+                    android:textColor="@color/vh_text_tertiary"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/appVersionText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:textColor="@color/vh_text_secondary"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/runtimeVersionText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="@string/runtime_version_unavailable"
+                    android:textColor="@color/vh_text_secondary"
+                    android:textSize="13sp" />
+
+                <Button
+                    android:id="@+id/checkDataButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="14dp"
+                    android:background="@drawable/bg_input"
+                    android:backgroundTint="@color/vh_surface_muted"
+                    android:text="@string/check_updates"
+                    android:textAllCaps="false"
+                    android:textColor="@color/vh_primary"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </ScrollView>
+    </FrameLayout>
+
+</FrameLayout>

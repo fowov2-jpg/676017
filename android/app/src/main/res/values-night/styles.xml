@@ -1,0 +1,13 @@
+<resources>
+    <style name="Theme.VremyaHodom" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">@color/vh_background</item>
+        <item name="android:navigationBarColor">@color/vh_surface_solid</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@color/vh_background</item>
+        <item name="colorAccent">@color/vh_primary</item>
+        <item name="colorControlActivated">@color/vh_primary</item>
+    </style>
+</resources>

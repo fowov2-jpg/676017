@@ -1,0 +1,36 @@
+{
+  "version": 8,
+  "name": "VremyaHodom Dark Base Map",
+  "sources": {
+    "osm": {
+      "type": "raster",
+      "tiles": [
+        "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+      ],
+      "tileSize": 256,
+      "attribution": "© OpenStreetMap contributors"
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": {
+        "background-color": "#0E1622"
+      }
+    },
+    {
+      "id": "osm",
+      "type": "raster",
+      "source": "osm",
+      "minzoom": 0,
+      "maxzoom": 19,
+      "paint": {
+        "raster-brightness-max": 0.48,
+        "raster-brightness-min": 0.08,
+        "raster-contrast": 0.24,
+        "raster-saturation": -0.62
+      }
+    }
+  ]
+}

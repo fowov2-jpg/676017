@@ -1,0 +1,13 @@
+<resources>
+    <dimen name="space_4">4dp</dimen>
+    <dimen name="space_8">8dp</dimen>
+    <dimen name="space_12">12dp</dimen>
+    <dimen name="space_16">16dp</dimen>
+    <dimen name="space_20">20dp</dimen>
+    <dimen name="space_24">24dp</dimen>
+    <dimen name="space_32">32dp</dimen>
+    <dimen name="radius_small">12dp</dimen>
+    <dimen name="radius_medium">18dp</dimen>
+    <dimen name="radius_large">24dp</dimen>
+    <dimen name="touch_target">48dp</dimen>
+</resources>

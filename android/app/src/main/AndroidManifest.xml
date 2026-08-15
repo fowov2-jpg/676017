@@ -10,12 +10,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <application
-        android:name=".HumanRouterApp"
-        android:theme="@style/Theme.HumanRouter"
+        android:name=".VremyaHodomApp"
+        android:theme="@style/Theme.VremyaHodom"
         android:label="@string/app_name"
-        android:icon="@mipmap/ic_vremyahodom_logo"
-        android:roundIcon="@mipmap/ic_vremyahodom_logo"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="false"
+        android:usesCleartextTraffic="false"
         android:supportsRtl="true">
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
@@ -29,8 +30,7 @@
 
         <activity
             android:name=".MainActivity"
-            android:exported="true"
-            android:label="@string/app_name">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

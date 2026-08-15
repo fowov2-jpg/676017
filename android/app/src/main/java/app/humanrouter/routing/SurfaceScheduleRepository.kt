@@ -31,6 +31,12 @@ internal data class SurfaceConnection(
     val routeId: String
 )
 
+internal data class SurfaceDeparture(
+    val stopId: Int,
+    val departureSec: Int,
+    val route: SurfaceRoute
+)
+
 internal class SurfaceScheduleRepository(
     context: Context
 ) : Closeable {
@@ -45,6 +51,11 @@ internal class SurfaceScheduleRepository(
     )
 
     val serviceDate: String = manifest.optString("service_date", "")
+    val cacheToken: String = listOf(
+        serviceDate,
+        databaseFile.length().toString(),
+        databaseFile.lastModified().toString()
+    ).joinToString(":")
 
     fun loadStops(): List<SurfaceStop> {
         val result = ArrayList<SurfaceStop>(18_000)
@@ -74,11 +85,9 @@ internal class SurfaceScheduleRepository(
             while (cursor.moveToNext()) {
                 val id = cursor.getString(0)
                 val rawMode = if (cursor.isNull(3)) null else cursor.getString(3)?.trim()?.uppercase()
-                val mode = when (rawMode) {
-                    "BUS" -> TransportMode.BUS
-                    "TRAM" -> TransportMode.TRAM
-                    else -> error("Unsupported surface route_mode=$rawMode for route_id=$id")
-                }
+                val mode = TransportMode.fromRuntimeValue(rawMode)
+                    ?.takeIf { it == TransportMode.BUS || it == TransportMode.TRAM }
+                    ?: error("Unsupported surface route_mode=$rawMode for route_id=$id")
                 result[id] = SurfaceRoute(
                     id = id,
                     shortName = if (cursor.isNull(1)) null else cursor.getString(1),
@@ -88,6 +97,61 @@ internal class SurfaceScheduleRepository(
             }
         }
         return result
+    }
+
+    /**
+     * Returns actual published departures for a small set of nearby stops. The query starts with
+     * the indexed departure-time prefix and only then filters stop ids, avoiding an unbounded
+     * per-stop scan of the complete timetable.
+     */
+    fun loadDepartures(
+        stopIds: Collection<Int>,
+        fromDepartureSec: Int,
+        toDepartureSec: Int,
+        maxPerStop: Int = 8
+    ): Map<Int, List<SurfaceDeparture>> {
+        if (stopIds.isEmpty() || toDepartureSec < fromDepartureSec) return emptyMap()
+        val ids = stopIds.distinct()
+        val placeholders = ids.joinToString(",") { "?" }
+        val args = ArrayList<String>(ids.size + 2).apply {
+            add(fromDepartureSec.toString())
+            add(toDepartureSec.toString())
+            addAll(ids.map(Int::toString))
+        }
+        val result = ids.associateWith { ArrayList<SurfaceDeparture>(maxPerStop) }.toMutableMap()
+        database.rawQuery(
+            """
+            SELECT c.from_stop,c.dep,r.route_id,r.short_name,r.long_name,r.route_mode
+            FROM connections c
+            JOIN routes r ON r.route_id=c.route_id
+            WHERE c.dep>=? AND c.dep<=? AND c.from_stop IN ($placeholders)
+            ORDER BY c.dep,c.from_stop
+            """.trimIndent(),
+            args.toTypedArray()
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val stopId = cursor.getInt(0)
+                val bucket = result[stopId] ?: continue
+                if (bucket.size >= maxPerStop) continue
+                val routeId = cursor.getString(2)
+                val rawMode = cursor.getString(5)?.trim()?.uppercase()
+                val mode = TransportMode.fromRuntimeValue(rawMode)
+                    ?.takeIf { it == TransportMode.BUS || it == TransportMode.TRAM }
+                    ?: continue
+                if (bucket.any { it.route.id == routeId }) continue
+                bucket += SurfaceDeparture(
+                    stopId = stopId,
+                    departureSec = cursor.getInt(1),
+                    route = SurfaceRoute(
+                        id = routeId,
+                        shortName = if (cursor.isNull(3)) null else cursor.getString(3),
+                        longName = if (cursor.isNull(4)) null else cursor.getString(4),
+                        mode = mode
+                    )
+                )
+            }
+        }
+        return result.filterValues { it.isNotEmpty() }
     }
 
     /**

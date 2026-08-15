@@ -43,6 +43,9 @@ class TripNavigationService : Service(), LocationListener {
     private var destination: GeoPoint? = null
     private var baselineArrivalEpochSec: Long = 0L
     private var currentRouteId: String = ""
+    private var routeSummary: String = ""
+    private var nextStop: String = ""
+    private var stopsRemaining: Int = 0
     private var lastSuggestedRouteId: String? = null
     private var lastSuggestionEpochSec: Long = 0L
 
@@ -79,16 +82,28 @@ class TripNavigationService : Service(), LocationListener {
                 if (lat.isFinite() && lon.isFinite()) destination = GeoPoint(lat, lon)
                 baselineArrivalEpochSec = intent.getLongExtra(EXTRA_BASELINE_ARRIVAL, baselineArrivalEpochSec)
                 currentRouteId = intent.getStringExtra(EXTRA_ROUTE_ID).orEmpty()
+                routeSummary = intent.getStringExtra(EXTRA_ROUTE_SUMMARY).orEmpty()
+                nextStop = intent.getStringExtra(EXTRA_NEXT_STOP).orEmpty()
+                stopsRemaining = intent.getIntExtra(EXTRA_STOPS_REMAINING, 0).coerceAtLeast(0)
                 persistState()
             }
         }
 
         if (destination == null || baselineArrivalEpochSec <= 0L) {
+            ActiveTripStore.clear(this)
             stopSelf()
             return START_NOT_STICKY
         }
 
-        startForeground(NOTIFICATION_ID_ACTIVE, buildActiveNotification("Запускаем навигацию…"))
+        val initialStatus = buildString {
+            if (nextStop.isNotBlank()) append("Следующая: ").append(nextStop)
+            if (stopsRemaining > 0) {
+                if (isNotEmpty()) append(" · ")
+                append(stopsRemaining).append(' ').append(stopWord(stopsRemaining))
+            }
+            if (isEmpty()) append(routeSummary.ifBlank { "Запускаем навигацию…" })
+        }
+        startForeground(NOTIFICATION_ID_ACTIVE, buildActiveNotification(initialStatus))
         startLocationTracking()
         handler.removeCallbacks(replanRunnable)
         handler.post(replanRunnable)
@@ -154,7 +169,12 @@ class TripNavigationService : Service(), LocationListener {
                     val fastest = result.fastest
                     val route = fastest.route
                     val arrival = route.arrivalEpochSec
-                    val etaText = Instant.ofEpochSecond(arrival).atZone(zoneId).format(timeFormatter)
+                    val approximate = route.legs.any { leg ->
+                        ((leg.mode == TransportMode.BUS || leg.mode == TransportMode.TRAM) && leg.realtimeConfidence <= 0.2) ||
+                            leg.mode == TransportMode.METRO || leg.mode == TransportMode.MCC
+                    }
+                    val etaText = (if (approximate) "≈ " else "") +
+                        Instant.ofEpochSecond(arrival).atZone(zoneId).format(timeFormatter)
                     val remainingMin = maxOf(1, ceil((arrival - Instant.now().epochSecond).coerceAtLeast(60L) / 60.0).toInt())
                     val summary = route.legs.joinToString(" → ") { leg ->
                         when (leg.mode) {
@@ -207,7 +227,7 @@ class TripNavigationService : Service(), LocationListener {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_map)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Есть маршрут быстрее на $minutes мин")
             .setContentText(summary)
             .setStyle(NotificationCompat.BigTextStyle().bigText("$summary\nЭкономия примерно $minutes мин."))
@@ -220,8 +240,8 @@ class TripNavigationService : Service(), LocationListener {
     }
 
     private fun buildActiveNotification(text: String) = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setSmallIcon(android.R.drawable.ic_dialog_map)
-        .setContentTitle("Маршрут активен")
+        .setSmallIcon(R.drawable.ic_notification)
+        .setContentTitle("ВремяХодом · маршрут активен")
         .setContentText(text)
         .setStyle(NotificationCompat.BigTextStyle().bigText(text))
         .setOnlyAlertOnce(true)
@@ -256,7 +276,7 @@ class TripNavigationService : Service(), LocationListener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Навигация",
+                "ВремяХодом · навигация",
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = "Активный маршрут и предложения более быстрого пути"
@@ -277,6 +297,9 @@ class TripNavigationService : Service(), LocationListener {
             .putString(KEY_DEST_LON, target.lon.toString())
             .putLong(KEY_BASELINE_ARRIVAL, baselineArrivalEpochSec)
             .putString(KEY_ROUTE_ID, currentRouteId)
+            .putString(KEY_ROUTE_SUMMARY, routeSummary)
+            .putString(KEY_NEXT_STOP, nextStop)
+            .putInt(KEY_STOPS_REMAINING, stopsRemaining)
             .apply()
     }
 
@@ -288,6 +311,20 @@ class TripNavigationService : Service(), LocationListener {
         if (lat != null && lon != null) destination = GeoPoint(lat, lon)
         baselineArrivalEpochSec = prefs.getLong(KEY_BASELINE_ARRIVAL, 0L)
         currentRouteId = prefs.getString(KEY_ROUTE_ID, "").orEmpty()
+        routeSummary = prefs.getString(KEY_ROUTE_SUMMARY, "").orEmpty()
+        nextStop = prefs.getString(KEY_NEXT_STOP, "").orEmpty()
+        stopsRemaining = prefs.getInt(KEY_STOPS_REMAINING, 0).coerceAtLeast(0)
+    }
+
+    private fun stopWord(value: Int): String {
+        val mod100 = value % 100
+        val mod10 = value % 10
+        return when {
+            mod100 in 11..14 -> "остановок"
+            mod10 == 1 -> "остановка"
+            mod10 in 2..4 -> "остановки"
+            else -> "остановок"
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -295,6 +332,7 @@ class TripNavigationService : Service(), LocationListener {
         handler.removeCallbacks(replanRunnable)
         if (hasLocationPermission()) runCatching { locationManager.removeUpdates(this) }
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().apply()
+        ActiveTripStore.clear(this)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -314,6 +352,9 @@ class TripNavigationService : Service(), LocationListener {
         const val EXTRA_DEST_LON = "dest_lon"
         const val EXTRA_BASELINE_ARRIVAL = "baseline_arrival"
         const val EXTRA_ROUTE_ID = "route_id"
+        const val EXTRA_ROUTE_SUMMARY = "route_summary"
+        const val EXTRA_NEXT_STOP = "next_stop"
+        const val EXTRA_STOPS_REMAINING = "stops_remaining"
 
         private const val CHANNEL_ID = "trip_navigation"
         private const val NOTIFICATION_ID_ACTIVE = 2200
@@ -328,5 +369,8 @@ class TripNavigationService : Service(), LocationListener {
         private const val KEY_DEST_LON = "dest_lon"
         private const val KEY_BASELINE_ARRIVAL = "baseline_arrival"
         private const val KEY_ROUTE_ID = "route_id"
+        private const val KEY_ROUTE_SUMMARY = "route_summary"
+        private const val KEY_NEXT_STOP = "next_stop"
+        private const val KEY_STOPS_REMAINING = "stops_remaining"
     }
 }
