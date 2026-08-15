@@ -287,14 +287,16 @@ jobs:
           This release is retained in GitHub Releases so a previously shared APK version can be found later.
           EOF
 
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK_OUT" "$SHA_OUT" --clobber
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_OUT" "$SHA_OUT" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
               --title "VremyaHodom ${VERSION} · QA" \
               --notes-file release-notes.txt \
               --prerelease
           else
             gh release create "$TAG" "$APK_OUT" "$SHA_OUT" \
+              --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "VremyaHodom ${VERSION} · QA" \
               --notes-file release-notes.txt \
