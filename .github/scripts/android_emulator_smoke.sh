@@ -111,6 +111,7 @@ capture_fixture() {
 
 capture_fixture home home 'Куда едем?'
 capture_fixture nearby nearby 'Театральная площадь'
+capture_fixture error plan-error 'Проверьте адрес'
 capture_fixture routes route-options 'Варианты маршрута'
 capture_fixture route_map selected-route-map 'Бабушкинская'
 capture_fixture trip active-trip 'В пути'

@@ -18,6 +18,7 @@ import androidx.test.espresso.ViewAction
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.isRoot
 import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
@@ -132,10 +133,16 @@ class MainActivitySmokeTest {
 
         relaunch("trip")
         onView(withText("В пути")).check(matches(isDisplayed()))
+        onView(withText("Пешком 0 м")).check(doesNotExist())
+        onView(withText("Откуда")).check(doesNotExist())
+        onView(withText("Куда")).check(doesNotExist())
+        onView(withContentDescription(containsString("Этап маршрута: Переход")))
+            .perform(scrollTo())
+            .check(matches(isDisplayed()))
         onView(withId(R.id.favoritesNavButton)).perform(click())
         onView(withId(R.id.routesNavButton)).perform(click())
         onView(withText("В пути")).check(matches(isDisplayed()))
-        onView(withText("Завершить поездку")).perform(scrollTo(), click())
+        onView(withText("Завершить поездку")).perform(click())
         onView(withText("Варианты маршрута")).check(matches(isDisplayed()))
     }
 
@@ -158,6 +165,17 @@ class MainActivitySmokeTest {
         onView(withId(R.id.compactSearchButton)).check(matches(isDisplayed()))
         scenario!!.recreate()
         onView(withId(R.id.bottomNav)).check(matches(isDisplayed()))
+    }
+
+    @Test
+    fun addressErrorUsesACompactSheet() {
+        launch("error")
+        onView(withText("Проверьте адрес")).check(matches(isDisplayed()))
+        scenario!!.onActivity { activity ->
+            val root = activity.findViewById<View>(R.id.root)
+            val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
+            assertTrue("address error sheet is still oversized", sheet.height * 2 < root.height)
+        }
     }
 
     private fun launch(screen: String, dark: Boolean = false) {

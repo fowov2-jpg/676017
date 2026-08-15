@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -61,17 +62,22 @@ import app.humanrouter.routing.HumanRouterEngine
 import app.humanrouter.routing.LastPlanStore
 import app.humanrouter.routing.RankedRoute
 import app.humanrouter.routing.RouteCandidate
+import app.humanrouter.routing.RouteDisplayKind
+import app.humanrouter.routing.RouteDisplayStep
 import app.humanrouter.routing.RouteFilter
 import app.humanrouter.routing.RouteFilters
 import app.humanrouter.routing.RouteLeg
 import app.humanrouter.routing.RouteObjective
 import app.humanrouter.routing.RoutePlace
+import app.humanrouter.routing.RoutePresentation
 import app.humanrouter.routing.RouteRanker
 import app.humanrouter.routing.TransportMode
 import app.humanrouter.search.PhotonGeocoder
 import app.humanrouter.search.SearchPlace
 import app.humanrouter.transit.NearbyRepository
 import app.humanrouter.transit.NearbyTransitPlace
+import app.humanrouter.transit.TransitPlaceSource
+import app.humanrouter.transit.TransitSearchMatch
 import org.json.JSONObject
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
@@ -141,6 +147,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var routeFiltersPanel: LinearLayout
     private lateinit var routeResultsScroll: ScrollView
     private lateinit var routeResultsPanel: LinearLayout
+    private lateinit var routePrimaryAction: Button
     private lateinit var tabEmptyPanel: LinearLayout
     private lateinit var tabEmptyTitle: TextView
     private lateinit var tabEmptyMessage: TextView
@@ -217,6 +224,7 @@ class MainActivity : AppCompatActivity() {
     private var debugQaActive = false
     private var systemTopInset = 0
     private var systemBottomInset = 0
+    private var routeSheetMode = RouteSheetMode.OPTIONS
 
     private val journeyFrames by lazy {
         intArrayOf(
@@ -346,6 +354,7 @@ class MainActivity : AppCompatActivity() {
         routeFiltersPanel = findViewById(R.id.routeFiltersPanel)
         routeResultsScroll = findViewById(R.id.routeResultsScroll)
         routeResultsPanel = findViewById(R.id.routeResultsPanel)
+        routePrimaryAction = findViewById(R.id.routePrimaryAction)
         tabEmptyPanel = findViewById(R.id.tabEmptyPanel)
         tabEmptyTitle = findViewById(R.id.tabEmptyTitle)
         tabEmptyMessage = findViewById(R.id.tabEmptyMessage)
@@ -519,7 +528,7 @@ class MainActivity : AppCompatActivity() {
                 mainHandler.postDelayed({
                     if (token != searchSerial || !field.hasFocus()) return@postDelayed
                     executor.execute {
-                        val result = runCatching { PhotonGeocoder.search(query, currentLocation) }
+                        val result = runCatching { searchPlaces(query, MAX_SEARCH_RESULTS) }
                         runOnUiThread {
                             if (token != searchSerial || !field.hasFocus() || field.text.toString().trim() != query) {
                                 return@runOnUiThread
@@ -758,13 +767,36 @@ class MainActivity : AppCompatActivity() {
         if (text.isBlank() || text.equals(CURRENT_LOCATION_LABEL, ignoreCase = true)) {
             return currentLocation?.let { SearchPlace(CURRENT_LOCATION_LABEL, "GPS", it) }
         }
-        return runCatching { PhotonGeocoder.search(text, currentLocation, 1).firstOrNull() }.getOrNull()
+        return runCatching { searchPlaces(text, 1).firstOrNull() }.getOrNull()
     }
 
     private fun resolveDestination(text: String): SearchPlace? {
         selectedTo?.let { return it }
         if (text.isBlank()) return null
-        return runCatching { PhotonGeocoder.search(text, currentLocation, 1).firstOrNull() }.getOrNull()
+        return runCatching { searchPlaces(text, 1).firstOrNull() }.getOrNull()
+    }
+
+    private fun searchPlaces(query: String, limit: Int): List<SearchPlace> {
+        val cleanQuery = query.trim()
+        val localMatches = if (cleanQuery.none(Char::isDigit)) {
+            nearbyRepository.searchByName(cleanQuery, currentLocation, limit)
+        } else {
+            emptyList()
+        }
+        if (localMatches.isNotEmpty()) {
+            return localMatches.map { match ->
+                SearchPlace(match.name, transitSearchSubtitle(match), match.point)
+            }
+        }
+        return PhotonGeocoder.search(cleanQuery, currentLocation, limit)
+    }
+
+    private fun transitSearchSubtitle(match: TransitSearchMatch): String {
+        val modes = match.modes
+            .sortedBy(TransportMode::ordinal)
+            .joinToString(" · ") { modeLabel(it) }
+        val type = if (match.source == TransitPlaceSource.SURFACE) "остановка" else "станция"
+        return listOf(modes, type).filter(String::isNotBlank).joinToString(" · ")
     }
 
     private fun engineForCurrentPreferences(): HumanRouterEngine {
@@ -915,6 +947,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderFilteredRoutes() {
+        setRouteSheetMode(RouteSheetMode.OPTIONS)
+        routeFiltersScroll.visibility = View.VISIBLE
+        hideRoutePrimaryAction()
         routeResultsPanel.removeAllViews()
         val routes = filteredRoutes()
         if (routes.none { it.route.id == selectedRouteId }) {
@@ -963,19 +998,7 @@ class MainActivity : AppCompatActivity() {
                     dp(48)
                 ).apply { topMargin = dp(10) }
             })
-            routeResultsPanel.addView(Button(this).apply {
-                text = "Поехали"
-                isAllCaps = false
-                textSize = 16f
-                setTypeface(typeface, Typeface.BOLD)
-                setTextColor(Color.WHITE)
-                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_primary)
-                setOnClickListener { beginTrip(route) }
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(50)
-                ).apply { topMargin = dp(10) }
-            })
+            showRoutePrimaryAction("В путь") { beginTrip(route) }
         }
         routeResultsScroll.post { routeResultsScroll.scrollTo(0, 0) }
     }
@@ -1068,9 +1091,9 @@ class MainActivity : AppCompatActivity() {
                 setPadding(0, dp(5), 0, 0)
             })
 
-            if (selected) route.legs.forEach { leg ->
+            if (selected) presentationSteps(route).forEach { step ->
                 addView(TextView(this@MainActivity).apply {
-                    text = routeStepLabel(leg)
+                    text = routeStepLabel(step)
                     maxLines = 3
                     textSize = 11f
                     setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_secondary))
@@ -1098,23 +1121,24 @@ class MainActivity : AppCompatActivity() {
         else -> "Альтернатива"
     }
 
-    private fun routeLegSummary(leg: RouteLeg): String {
-        val minutes = maxOf(1, ceil(leg.durationSeconds / 60.0).toInt())
-        return when (leg.mode) {
-            TransportMode.WALK -> "Пешком $minutes мин"
-            else -> listOf(modeLabel(leg.mode), leg.lineName ?: leg.lineId.orEmpty())
+    private fun routeLegSummary(step: RouteDisplayStep): String {
+        val minutes = maxOf(1, ceil(step.durationSeconds / 60.0).toInt())
+        return when (step.kind) {
+            RouteDisplayKind.WALK -> "Пешком $minutes мин"
+            RouteDisplayKind.TRANSFER -> "Переход $minutes мин"
+            RouteDisplayKind.TRANSIT -> listOf(modeLabel(requireNotNull(step.mode)), step.lineName ?: step.lineId.orEmpty())
                 .filter(String::isNotBlank)
                 .joinToString(" ") + " · $minutes мин"
         }
     }
 
     private fun routeLegSummaryText(route: RouteCandidate): CharSequence = SpannableStringBuilder().apply {
-        route.legs.forEachIndexed { index, leg ->
+        presentationSteps(route).forEachIndexed { index, step ->
             if (index > 0) append("  ›  ")
             val start = length
-            append(routeLegSummary(leg))
+            append(routeLegSummary(step))
             setSpan(
-                ForegroundColorSpan(modeColor(leg.mode)),
+                ForegroundColorSpan(displayStepColor(step)),
                 start,
                 length,
                 Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
@@ -1122,17 +1146,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun routeStepLabel(leg: RouteLeg): String {
-        val detail = when (leg.mode) {
-            TransportMode.WALK -> "Пешком ${formatDistance(leg.walkMeters)}"
-            else -> buildList {
-                add(listOf(modeLabel(leg.mode), leg.lineName ?: leg.lineId.orEmpty())
+    private fun routeStepLabel(step: RouteDisplayStep): String {
+        val detail = when (step.kind) {
+            RouteDisplayKind.WALK -> buildString {
+                append("Пешком")
+                if (step.walkMeters > 0) append(" ").append(formatDistance(step.walkMeters))
+            }
+            RouteDisplayKind.TRANSFER -> buildString {
+                append("Переход")
+                if (step.walkMeters > 0) append(" ").append(formatDistance(step.walkMeters))
+            }
+            RouteDisplayKind.TRANSIT -> buildList {
+                add(listOf(modeLabel(requireNotNull(step.mode)), step.lineName ?: step.lineId.orEmpty())
                     .filter(String::isNotBlank)
                     .joinToString(" "))
-                if (leg.stopCount > 0) add("${leg.stopCount} ост.")
+                if (step.stopCount > 0) add("${step.stopCount} ост.")
             }.joinToString(" · ")
         }
-        return "${formatTime(leg.departureEpochSec)}–${formatTime(leg.arrivalEpochSec)}  $detail\n${leg.from.name} → ${leg.to.name}"
+        return "${formatTime(step.departureEpochSec)}–${formatTime(step.arrivalEpochSec)}  $detail\n${displayStepPlaces(step)}"
     }
 
     private fun showPlanError(
@@ -1144,6 +1175,8 @@ class MainActivity : AppCompatActivity() {
         allRoutes = emptyList()
         selectedRouteId = null
         clearRouteOnMap()
+        setRouteSheetMode(RouteSheetMode.ERROR)
+        hideRoutePrimaryAction()
         routeFiltersScroll.visibility = View.GONE
         routeResultsPanel.removeAllViews()
         routeResultsPanel.addView(TextView(this).apply {
@@ -1329,35 +1362,74 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderActiveTrip(route: RouteCandidate) {
         activeTripRoute = route
+        setRouteSheetMode(RouteSheetMode.ACTIVE_TRIP)
         routeFiltersScroll.visibility = View.GONE
+        hideRoutePrimaryAction()
         routeResultsPanel.removeAllViews()
-        routeResultsPanel.addView(TextView(this).apply {
-            text = "В пути"
-            textSize = 22f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_primary))
-        })
-        routeResultsPanel.addView(TextView(this).apply {
-            text = "● Поездка активна · ${formatTime(route.arrivalEpochSec)} прибытие"
-            textSize = 12f
-            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_success))
-            setPadding(0, dp(4), 0, 0)
-        })
-
+        val steps = presentationSteps(route)
+        if (steps.isEmpty()) {
+            activeTripRoute = null
+            ActiveTripStore.clear(this)
+            showPlanError("Поездка завершена", "В маршруте не осталось этапов.")
+            return
+        }
         val nowEpochSec = Instant.now().epochSecond
-        val currentLegIndex = route.legs.indexOfFirst { nowEpochSec < it.arrivalEpochSec }
+        val currentStepIndex = steps.indexOfFirst { nowEpochSec < it.arrivalEpochSec }
             .takeIf { it >= 0 }
-            ?: route.legs.lastIndex
-        val currentLeg = route.legs[currentLegIndex]
-        val nextLeg = route.legs.getOrNull(currentLegIndex + 1)
-        val plannedStopsRemaining = if (currentLeg.stopCount > 0) {
-            val elapsed = (nowEpochSec - currentLeg.departureEpochSec).coerceAtLeast(0L)
-            val fraction = (elapsed.toDouble() / currentLeg.durationSeconds.coerceAtLeast(1))
+            ?: steps.lastIndex
+        val currentStep = steps[currentStepIndex]
+        val nextStep = steps.getOrNull(currentStepIndex + 1)
+        val plannedStopsRemaining = if (currentStep.stopCount > 0) {
+            val elapsed = (nowEpochSec - currentStep.departureEpochSec).coerceAtLeast(0L)
+            val fraction = (elapsed.toDouble() / currentStep.durationSeconds.coerceAtLeast(1))
                 .coerceIn(0.0, 1.0)
-            (currentLeg.stopCount - floor(currentLeg.stopCount * fraction).toInt()).coerceAtLeast(0)
+            (currentStep.stopCount - floor(currentStep.stopCount * fraction).toInt()).coerceAtLeast(0)
         } else {
             0
         }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(this@MainActivity).apply {
+                text = "В пути"
+                textSize = 21f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_primary))
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "● Маршрут активен · по расписанию · ${formatTime(route.arrivalEpochSec)}"
+                textSize = 12f
+                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_success))
+                setPadding(0, dp(2), 0, 0)
+            })
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        val remainingMinutes = ceil((route.arrivalEpochSec - nowEpochSec).coerceAtLeast(0L) / 60.0).toInt()
+        header.addView(TextView(this).apply {
+            text = if (remainingMinutes > 0) "$remainingMinutes мин" else "сейчас"
+            textSize = 18f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_primary))
+            gravity = Gravity.END
+        })
+        routeResultsPanel.addView(header)
+
+        routeResultsPanel.addView(TextView(this).apply {
+            val transfers = when (route.transferCount) {
+                0 -> "без пересадок"
+                1 -> "1 пересадка"
+                else -> "${route.transferCount} пересадки"
+            }
+            text = "$transfers · пешком ${formatDistance(route.walkMeters)}"
+            textSize = 12f
+            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_tertiary))
+            setPadding(0, dp(6), 0, dp(2))
+        })
+
+        routeResultsPanel.addView(routeModeChain(steps))
         routeResultsPanel.addView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_route_card)
@@ -1369,45 +1441,45 @@ class MainActivity : AppCompatActivity() {
             ).apply { topMargin = dp(8) }
 
             addView(TextView(this@MainActivity).apply {
-                text = compactLegLabel(currentLeg)
-                textSize = 18f
-                setTypeface(typeface, Typeface.BOLD)
-                setTextColor(modeColor(currentLeg.mode))
+                text = "Текущий этап по расписанию"
+                textSize = 11f
+                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_tertiary))
             })
             addView(TextView(this@MainActivity).apply {
-                text = "Направление: ${currentLeg.to.name}"
+                text = displayStepTitle(currentStep)
+                textSize = 18f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(displayStepColor(currentStep))
+                setPadding(0, dp(4), 0, 0)
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = displayStepPlaces(currentStep)
                 textSize = 14f
                 setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_secondary))
                 setPadding(0, dp(5), 0, 0)
             })
             addView(TextView(this@MainActivity).apply {
-                text = "Сейчас: ${currentLeg.from.name}\nДалее: ${currentLeg.to.name}"
-                textSize = 13f
-                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_secondary))
-                setPadding(0, dp(7), 0, 0)
-            })
-            addView(TextView(this@MainActivity).apply {
                 text = if (plannedStopsRemaining > 0) {
-                    "По плану: выходите через $plannedStopsRemaining ${stopWord(plannedStopsRemaining)} · ${currentLeg.to.name}"
-                } else if (nextLeg != null) {
-                    "Затем: ${compactLegLabel(nextLeg)} · ${nextLeg.to.name}"
+                    "До ${currentStep.to.name}: $plannedStopsRemaining ${stopWord(plannedStopsRemaining)}"
+                } else if (nextStep != null) {
+                    "Затем: ${displayStepTitle(nextStep)}"
                 } else {
-                    "Финиш: ${currentLeg.to.name}"
+                    "Затем — финиш: ${currentStep.to.name}"
                 }
-                textSize = 15f
+                textSize = 14f
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_primary))
                 setPadding(0, dp(8), 0, 0)
             })
             addView(ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
-                max = route.legs.size.coerceAtLeast(1)
-                progress = currentLegIndex + 1
+                max = steps.size.coerceAtLeast(1)
+                progress = currentStepIndex + 1
                 progressTintList = ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.vh_primary))
             }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(5)).apply { topMargin = dp(10) })
             addView(TextView(this@MainActivity).apply {
-                val minutes = ceil((currentLeg.arrivalEpochSec - nowEpochSec).coerceAtLeast(0L) / 60.0).toInt()
+                val minutes = ceil((currentStep.arrivalEpochSec - nowEpochSec).coerceAtLeast(0L) / 60.0).toInt()
                 val untilNext = if (minutes == 0) "сейчас" else "$minutes мин"
-                text = "Этап ${currentLegIndex + 1} из ${route.legs.size} · до следующего этапа $untilNext"
+                text = "Этап ${currentStepIndex + 1} из ${steps.size} · до следующего $untilNext"
                 textSize = 11f
                 setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_tertiary))
                 setPadding(0, dp(5), 0, 0)
@@ -1415,43 +1487,135 @@ class MainActivity : AppCompatActivity() {
         })
 
         routeResultsPanel.addView(TextView(this).apply {
-            text = "Маршрут поездки"
+            text = "Этапы поездки"
             textSize = 13f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_tertiary))
             setPadding(0, dp(12), 0, dp(3))
         })
-        route.legs.forEach { leg ->
-            routeResultsPanel.addView(TextView(this).apply {
-                text = "${formatTime(leg.departureEpochSec)}  ${compactLegLabel(leg)}\n${leg.from.name} → ${leg.to.name}"
-                textSize = 13f
-                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_secondary))
-                setPadding(dp(8), dp(7), dp(8), dp(7))
-            })
+        steps.forEachIndexed { index, step ->
+            routeResultsPanel.addView(routeTimelineRow(step, index, steps.size))
         }
-        routeResultsPanel.addView(Button(this).apply {
-            text = "Завершить поездку"
-            isAllCaps = false
-            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_primary))
-            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_chip)
-            setOnClickListener {
-                activeTripRoute = null
-                ActiveTripStore.clear(this@MainActivity)
-                startService(Intent(this@MainActivity, TripNavigationService::class.java).setAction(TripNavigationService.ACTION_STOP))
-                renderRouteFilters()
-                renderFilteredRoutes()
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(48)
-            ).apply { topMargin = dp(10) }
-        })
+        showRoutePrimaryAction("Завершить поездку") { finishActiveTrip() }
         routeResultsContainer.visibility = View.VISIBLE
         nearbyPanel.visibility = View.GONE
         currentTab = Tab.ROUTES
         renderNavigationState()
         routeResultsScroll.post { routeResultsScroll.scrollTo(0, 0) }
     }
+
+    private fun finishActiveTrip() {
+        activeTripRoute = null
+        ActiveTripStore.clear(this)
+        startService(Intent(this, TripNavigationService::class.java).setAction(TripNavigationService.ACTION_STOP))
+        renderRouteFilters()
+        renderFilteredRoutes()
+    }
+
+    private fun routeModeChain(steps: List<RouteDisplayStep>): View = HorizontalScrollView(this).apply {
+        isHorizontalScrollBarEnabled = false
+        val row = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(4), 0, dp(2))
+        }
+        steps.forEachIndexed { index, step ->
+            if (index > 0) {
+                row.addView(TextView(this@MainActivity).apply {
+                    text = "›"
+                    textSize = 18f
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_tertiary))
+                    setPadding(dp(5), 0, dp(5), 0)
+                })
+            }
+            row.addView(TextView(this@MainActivity).apply {
+                text = displayStepChip(step)
+                textSize = 12f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(displayStepColor(step))
+                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_chip)
+                backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.vh_surface_muted))
+                setPadding(dp(9), dp(5), dp(9), dp(5))
+            })
+        }
+        addView(row)
+    }
+
+    private fun routeTimelineRow(step: RouteDisplayStep, index: Int, total: Int): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.TOP
+            minimumHeight = dp(72)
+            contentDescription = "Этап маршрута: ${displayStepTitle(step)}. ${displayStepPlaces(step)}"
+
+            addView(FrameLayout(this@MainActivity).apply {
+                addView(View(this@MainActivity).apply {
+                    setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.vh_border))
+                }, FrameLayout.LayoutParams(dp(2), FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER_HORIZONTAL).apply {
+                    topMargin = if (index == 0) dp(20) else 0
+                    bottomMargin = if (index == total - 1) dp(44) else 0
+                })
+                addView(View(this@MainActivity).apply {
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(displayStepColor(step))
+                        setStroke(dp(2), ContextCompat.getColor(this@MainActivity, R.color.vh_surface_solid))
+                    }
+                }, FrameLayout.LayoutParams(dp(13), dp(13), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+                    topMargin = dp(15)
+                })
+            }, LinearLayout.LayoutParams(dp(28), LinearLayout.LayoutParams.MATCH_PARENT))
+
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_route_card)
+                backgroundTintList = ColorStateList.valueOf(
+                    ContextCompat.getColor(
+                        this@MainActivity,
+                        if (step.kind == RouteDisplayKind.TRANSIT) R.color.vh_surface_muted else R.color.vh_surface_solid
+                    )
+                )
+                setPadding(dp(11), dp(9), dp(11), dp(9))
+
+                val titleRow = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                titleRow.addView(TextView(this@MainActivity).apply {
+                    text = formatTime(step.departureEpochSec)
+                    textSize = 12f
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_tertiary))
+                })
+                titleRow.addView(TextView(this@MainActivity).apply {
+                    text = displayStepTitle(step)
+                    textSize = 14f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(displayStepColor(step))
+                    setPadding(dp(9), 0, 0, 0)
+                }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                titleRow.addView(TextView(this@MainActivity).apply {
+                    text = formatTime(step.arrivalEpochSec)
+                    textSize = 12f
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_tertiary))
+                })
+                addView(titleRow)
+                addView(TextView(this@MainActivity).apply {
+                    text = displayStepPlaces(step)
+                    textSize = 13f
+                    maxLines = 2
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_secondary))
+                    setPadding(0, dp(4), 0, 0)
+                })
+                addView(TextView(this@MainActivity).apply {
+                    text = displayStepMeta(step)
+                    textSize = 11f
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_tertiary))
+                    setPadding(0, dp(3), 0, 0)
+                })
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                bottomMargin = dp(7)
+            })
+        }
 
     private fun configureNavigation() {
         mapNavButton.setOnClickListener { selectTab(Tab.MAP) }
@@ -2258,14 +2422,7 @@ class MainActivity : AppCompatActivity() {
             nearbyPanel.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(76) }
             routeResultsContainer.updateLayoutParams<FrameLayout.LayoutParams> {
                 bottomMargin = bars.bottom + dp(76)
-                height = dp(
-                    when {
-                        resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE -> 228
-                        resources.configuration.screenHeightDp <= 700 -> 276
-                        resources.configuration.screenHeightDp <= 840 -> 300
-                        else -> 324
-                    }
-                )
+                height = dp(routeSheetHeightDp())
             }
             tabEmptyPanel.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(76) }
             locationActionPanel.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(280) }
@@ -2274,6 +2431,46 @@ class MainActivity : AppCompatActivity() {
             insets
         }
         ViewCompat.requestApplyInsets(root)
+    }
+
+    private fun setRouteSheetMode(mode: RouteSheetMode) {
+        routeSheetMode = mode
+        if (::routeResultsContainer.isInitialized) {
+            routeResultsContainer.updateLayoutParams<FrameLayout.LayoutParams> {
+                height = dp(routeSheetHeightDp())
+            }
+        }
+    }
+
+    private fun routeSheetHeightDp(): Int {
+        val landscape = resources.configuration.orientation ==
+            android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val screenHeight = resources.configuration.screenHeightDp
+        return when (routeSheetMode) {
+            RouteSheetMode.ERROR -> if (landscape) 190 else 214
+            RouteSheetMode.ACTIVE_TRIP -> if (landscape) {
+                270
+            } else {
+                (screenHeight * 62 / 100).coerceIn(390, 560)
+            }
+            RouteSheetMode.OPTIONS -> when {
+                landscape -> 228
+                screenHeight <= 700 -> 276
+                screenHeight <= 840 -> 300
+                else -> 324
+            }
+        }
+    }
+
+    private fun showRoutePrimaryAction(label: String, action: () -> Unit) {
+        routePrimaryAction.text = label
+        routePrimaryAction.visibility = View.VISIBLE
+        routePrimaryAction.setOnClickListener { action() }
+    }
+
+    private fun hideRoutePrimaryAction() {
+        routePrimaryAction.visibility = View.GONE
+        routePrimaryAction.setOnClickListener(null)
     }
 
     private fun setPlanBusy(busy: Boolean) {
@@ -2377,6 +2574,57 @@ class MainActivity : AppCompatActivity() {
             .joinToString(" ")
     }
 
+    private fun presentationSteps(route: RouteCandidate): List<RouteDisplayStep> = RoutePresentation.steps(
+        route = route,
+        originTitle = selectedFrom?.title,
+        destinationTitle = selectedTo?.title
+    )
+
+    private fun displayStepTitle(step: RouteDisplayStep): String = when (step.kind) {
+        RouteDisplayKind.WALK -> buildString {
+            append("Пешком")
+            if (step.walkMeters > 0) append(" ").append(formatDistance(step.walkMeters))
+        }
+        RouteDisplayKind.TRANSFER -> buildString {
+            append("Переход")
+            if (step.walkMeters > 0) append(" ").append(formatDistance(step.walkMeters))
+        }
+        RouteDisplayKind.TRANSIT -> listOf(
+            modeLabel(requireNotNull(step.mode)),
+            step.lineName ?: step.lineId.orEmpty()
+        ).filter(String::isNotBlank).joinToString(" ")
+    }
+
+    private fun displayStepChip(step: RouteDisplayStep): String = when (step.kind) {
+        RouteDisplayKind.WALK -> "Пешком"
+        RouteDisplayKind.TRANSFER -> "Переход"
+        RouteDisplayKind.TRANSIT -> listOf(
+            modeShortLabel(requireNotNull(step.mode)),
+            step.lineName ?: step.lineId.orEmpty()
+        ).filter(String::isNotBlank).joinToString(" ")
+    }
+
+    private fun displayStepPlaces(step: RouteDisplayStep): String {
+        val samePlace = RoutePresentation.normalizedPlaceName(step.from.name) ==
+            RoutePresentation.normalizedPlaceName(step.to.name)
+        return if (samePlace) step.to.name else "${step.from.name} → ${step.to.name}"
+    }
+
+    private fun displayStepMeta(step: RouteDisplayStep): String {
+        val minutes = maxOf(1, ceil(step.durationSeconds / 60.0).toInt())
+        return buildList {
+            if (step.stopCount > 0) add("${step.stopCount} ${stopWord(step.stopCount)}")
+            add("$minutes мин")
+        }.joinToString(" · ")
+    }
+
+    private fun displayStepColor(step: RouteDisplayStep): Int =
+        step.mode?.let(::modeColor)
+            ?: ContextCompat.getColor(
+                this,
+                if (step.kind == RouteDisplayKind.TRANSFER) R.color.vh_primary else R.color.vh_text_secondary
+            )
+
     private fun modeLabel(mode: TransportMode): String = when (mode) {
         TransportMode.WALK -> "Пешком"
         TransportMode.BUS -> "Автобус"
@@ -2414,7 +2662,7 @@ class MainActivity : AppCompatActivity() {
         val duration = maxOf(1, ceil(route.totalSeconds / 60.0).toInt())
         val arrival = if (routeTimingIsApproximate(route)) "ориентировочное прибытие" else "прибытие"
         return "$duration минут, $arrival ${formatTime(route.arrivalEpochSec)}, " +
-            route.legs.joinToString(", ", transform = ::compactLegLabel)
+            presentationSteps(route).joinToString(", ", transform = ::displayStepTitle)
     }
 
     private fun routeTimingIsApproximate(route: RouteCandidate): Boolean =
@@ -2553,6 +2801,12 @@ class MainActivity : AppCompatActivity() {
                     )
                 )
             }
+            "error" -> {
+                showPlanError(
+                    "Проверьте адрес",
+                    "Не удалось найти точку. Выберите подсказку или точку на карте."
+                )
+            }
             "routes", "route_map", "trip" -> {
                 val routes = debugQaRoutes()
                 selectedFrom = SearchPlace("Большой театр", "Театральная площадь", routes.first().legs.first().from.point)
@@ -2587,19 +2841,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun debugQaRoutes(): List<RouteCandidate> {
         val now = Instant.now().epochSecond
-        val origin = RoutePlace("qa:origin", "Большой театр", GeoPoint(55.7601, 37.6187))
+        val origin = RoutePlace("qa:origin", "Откуда", GeoPoint(55.7601, 37.6187))
+        val approach = RoutePlace("qa:approach", "Театральный проезд", GeoPoint(55.7593, 37.6192))
         val stop = RoutePlace("qa:stop", "Театральная площадь", GeoPoint(55.7588, 37.6194))
         val metro = RoutePlace("qa:metro", "Лубянка", GeoPoint(55.7598, 37.6270))
         val interchange = RoutePlace("qa:interchange", "Свиблово", GeoPoint(55.8552, 37.6527))
-        val destination = RoutePlace("qa:destination", "Бабушкинская", GeoPoint(55.8694, 37.6644))
+        val destination = RoutePlace("qa:destination", "Куда", GeoPoint(55.8694, 37.6644))
 
         val busMetro = RouteCandidate(
             id = "qa-bus-metro",
             requestedDepartureEpochSec = now,
             legs = listOf(
-                RouteLeg(TransportMode.WALK, origin, stop, now, now + 5 * 60, walkMeters = 360, realtimeConfidence = 0.96, geometry = listOf(origin.point, GeoPoint(55.7595, 37.6198), stop.point)),
+                RouteLeg(TransportMode.WALK, origin, approach, now, now + 4 * 60, walkMeters = 330, realtimeConfidence = 0.96, geometry = listOf(origin.point, GeoPoint(55.7595, 37.6198), approach.point)),
+                RouteLeg(TransportMode.WALK, approach, stop, now + 4 * 60, now + 5 * 60, walkMeters = 30, realtimeConfidence = 0.96, geometry = listOf(approach.point, stop.point)),
                 RouteLeg(TransportMode.BUS, stop, metro, now + 7 * 60, now + 18 * 60, lineId = "qa:m2", lineName = "м2", waitSeconds = 2 * 60, realtimeConfidence = 0.78, stopCount = 5, geometry = listOf(stop.point, GeoPoint(55.7577, 37.6220), GeoPoint(55.7584, 37.6250), metro.point)),
-                RouteLeg(TransportMode.WALK, metro, metro, now + 18 * 60, now + 21 * 60, walkMeters = 170, realtimeConfidence = 0.9),
+                RouteLeg(TransportMode.WALK, metro, metro, now + 18 * 60, now + 21 * 60, walkMeters = 0, realtimeConfidence = 0.9),
                 RouteLeg(TransportMode.METRO, metro, interchange, now + 23 * 60, now + 38 * 60, lineId = "qa:6", lineName = "6", waitSeconds = 2 * 60, realtimeConfidence = 0.72, stopCount = 7, geometry = listOf(metro.point, GeoPoint(55.7900, 37.6320), GeoPoint(55.8230, 37.6420), interchange.point)),
                 RouteLeg(TransportMode.WALK, interchange, destination, now + 38 * 60, now + 43 * 60, walkMeters = 390, realtimeConfidence = 0.96)
             )
@@ -2707,6 +2963,12 @@ class MainActivity : AppCompatActivity() {
         TRIP;
 
         fun coerceUseful(): LocationPurpose = if (this == NONE) ORIGIN else this
+    }
+
+    private enum class RouteSheetMode {
+        OPTIONS,
+        ACTIVE_TRIP,
+        ERROR
     }
 
     companion object {

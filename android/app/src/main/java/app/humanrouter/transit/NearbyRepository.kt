@@ -30,6 +30,14 @@ internal data class NearbyTransitPlace(
     val nextDepartureEpochSec: Long?
 )
 
+internal data class TransitSearchMatch(
+    val id: String,
+    val name: String,
+    val point: GeoPoint,
+    val modes: Set<TransportMode>,
+    val source: TransitPlaceSource
+)
+
 internal class NearbyRepository(
     private val context: Context,
     private val zoneId: ZoneId = ZoneId.of("Europe/Moscow")
@@ -38,6 +46,7 @@ internal class NearbyRepository(
     private var surfaceCache: SurfaceCache? = null
     private var railCache: RailCache? = null
     private var timetableCache: TimetableCache? = null
+    private var nameSearchCache: NameSearchCache? = null
 
     fun findNearby(center: GeoPoint, nowEpochSec: Long, limit: Int = 6): List<NearbyTransitPlace> {
         val surface = loadSurface(center, nowEpochSec, limit * 2)
@@ -45,6 +54,75 @@ internal class NearbyRepository(
         return (surface + rail)
             .sortedWith(compareBy<NearbyTransitPlace> { it.distanceMeters }.thenBy { it.name })
             .take(limit)
+    }
+
+    /** Searches the installed transport data before an online address geocoder is needed. */
+    fun searchByName(query: String, focus: GeoPoint?, limit: Int = 6): List<TransitSearchMatch> {
+        val token = searchDataToken()
+        val cached = synchronized(cacheLock) {
+            nameSearchCache?.takeIf { it.token == token }?.places
+        }
+        val indexed = cached ?: buildSearchIndex().also { places ->
+            synchronized(cacheLock) { nameSearchCache = NameSearchCache(token, places) }
+        }
+        return TransitNameMatcher.search(query, indexed, focus, limit).map { place ->
+            TransitSearchMatch(place.id, place.name, place.point, place.modes, place.source)
+        }
+    }
+
+    private fun buildSearchIndex(): List<IndexedTransitPlace> {
+        val indexed = ArrayList<IndexedTransitPlace>()
+        runCatching {
+            SurfaceScheduleRepository(context).use { repository ->
+                surfaceIndex(repository).all().forEach { stop ->
+                    indexed += IndexedTransitPlace(
+                        id = "surface:${stop.id}",
+                        name = stop.name,
+                        point = GeoPoint(stop.lat, stop.lon),
+                        modes = setOf(surfaceMode(stop.transportType)),
+                        source = TransitPlaceSource.SURFACE
+                    )
+                }
+            }
+        }
+        val graph = File(context.filesDir, "runtime/rail/graph.json")
+        if (graph.exists()) {
+            runCatching {
+                railIndex(graph).all().forEach { station ->
+                    indexed += IndexedTransitPlace(
+                        id = "rail:${station.id}",
+                        name = station.name,
+                        point = station.point,
+                        modes = station.modes,
+                        source = TransitPlaceSource.RAIL_GRAPH
+                    )
+                }
+            }
+        }
+        runCatching {
+            timetableIndex().index.all().forEach { station ->
+                indexed += IndexedTransitPlace(
+                    id = "rail-timetable:${station.id}",
+                    name = station.name,
+                    point = station.point,
+                    modes = station.departures.mapTo(LinkedHashSet()) { it.mode },
+                    source = TransitPlaceSource.RAIL_TIMETABLE
+                )
+            }
+        }
+        return indexed
+    }
+
+    private fun searchDataToken(): String {
+        val runtime = File(context.filesDir, "runtime")
+        val surfaceParts = File(runtime, "surface").listFiles().orEmpty()
+            .sortedBy { it.name }
+            .joinToString("|") { "${it.name}:${it.length()}:${it.lastModified()}" }
+        val railParts = listOf(
+            File(runtime, "rail/graph.json"),
+            File(runtime, "rail/timetable.json")
+        ).joinToString("|") { "${it.name}:${it.length()}:${it.lastModified()}" }
+        return "$surfaceParts|$railParts"
     }
 
     private fun loadSurface(center: GeoPoint, nowEpochSec: Long, limit: Int): List<NearbyTransitPlace> {
@@ -324,6 +402,11 @@ internal class NearbyRepository(
         .replace('ё', 'е')
         .replace(Regex("[^а-яa-z0-9]+"), "")
 
+    private fun surfaceMode(value: String?): TransportMode = when {
+        value?.contains("tram", ignoreCase = true) == true -> TransportMode.TRAM
+        else -> TransportMode.BUS
+    }
+
     private fun haversineMeters(a: GeoPoint, b: GeoPoint): Double {
         val p1 = a.lat * PI / 180.0
         val p2 = b.lat * PI / 180.0
@@ -370,6 +453,11 @@ internal class NearbyRepository(
         val index: SpatialBuckets<TimetableStation>
     )
 
+    private data class NameSearchCache(
+        val token: String,
+        val places: List<IndexedTransitPlace>
+    )
+
     private data class RailStation(
         val id: String,
         val name: String,
@@ -394,10 +482,12 @@ internal class NearbyRepository(
 
     /** In-memory spatial buckets are rebuilt only when the installed runtime files change. */
     private class SpatialBuckets<T>(
-        entries: List<T>,
+        private val entries: List<T>,
         private val pointOf: (T) -> GeoPoint
     ) {
         private val buckets = entries.groupBy { entry -> cellKey(pointOf(entry)) }
+
+        fun all(): List<T> = entries
 
         fun around(center: GeoPoint, radiusMeters: Int): List<T> {
             val latitudeDegrees = radiusMeters / METERS_PER_LATITUDE_DEGREE
