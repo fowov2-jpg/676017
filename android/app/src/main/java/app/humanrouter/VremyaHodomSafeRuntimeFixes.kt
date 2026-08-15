@@ -38,6 +38,8 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
             VremyaHodomRuntimeFixes.onActivityCreated(activity, null)
         }
         VremyaHodomRuntimeFixes.onActivityResumed(activity)
+        TransitVisualPolish.install(activity)
+        TransitVisualPolish.refresh(activity)
 
         val state = watches.getOrPut(activity) {
             WatchState().also { watch ->
@@ -50,6 +52,7 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
                         if (routeId != null && routeId != watch.lastRouteId) {
                             watch.lastRouteId = routeId
                             VremyaHodomRuntimeFixes.onActivityResumed(activity)
+                            TransitVisualPolish.refresh(activity)
                         }
                         handler.postDelayed(this, ROUTE_WATCH_INTERVAL_MS)
                     }
@@ -74,6 +77,7 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
     override fun onActivityDestroyed(activity: Activity) {
         if (activity is MainActivity) {
             StartupLoadingController.destroy(activity)
+            TransitVisualPolish.destroy(activity)
             watches.remove(activity)?.let { state ->
                 state.resumed = false
                 handler.removeCallbacks(state.runnable)
