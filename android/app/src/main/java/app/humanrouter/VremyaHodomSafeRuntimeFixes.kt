@@ -42,6 +42,8 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
         TransitVisualPolish.refresh(activity)
         TransitJourneyUiV2.install(activity)
         TransitJourneyUiV2.refresh(activity)
+        TransitJourneyVisibilityGuard.install(activity)
+        TransitJourneyVisibilityGuard.enforce(activity)
         TransitStopOverlay.install(activity)
         TransitStopOverlay.refresh(activity)
 
@@ -58,6 +60,7 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
                             VremyaHodomRuntimeFixes.onActivityResumed(activity)
                             TransitVisualPolish.refresh(activity)
                             TransitJourneyUiV2.refresh(activity)
+                            TransitJourneyVisibilityGuard.enforce(activity)
                             TransitStopOverlay.refresh(activity)
                         }
                         handler.postDelayed(this, ROUTE_WATCH_INTERVAL_MS)
@@ -85,6 +88,7 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
             StartupExperienceV2.destroy(activity)
             TransitVisualPolish.destroy(activity)
             TransitJourneyUiV2.destroy(activity)
+            TransitJourneyVisibilityGuard.destroy(activity)
             TransitStopOverlay.destroy(activity)
             watches.remove(activity)?.let { state ->
                 state.resumed = false
