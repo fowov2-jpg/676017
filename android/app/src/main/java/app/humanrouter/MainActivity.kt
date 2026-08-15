@@ -1210,17 +1210,22 @@ class MainActivity : AppCompatActivity() {
             runCatching {
                 val mapHeight = mapView.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
                 val topPadding = (
-                    systemTopInset + if (currentTab == Tab.ROUTES) dp(76) else dp(132)
+                    systemTopInset + if (currentTab == Tab.ROUTES) dp(96) else dp(132)
                     ).coerceAtMost(mapHeight / 3)
-                val sheetParams = routeResultsContainer.layoutParams as? FrameLayout.LayoutParams
-                val desiredBottomPadding = if (routeResultsContainer.visibility == View.VISIBLE) {
-                    routeResultsContainer.height.takeIf { it > 0 }
-                        ?.plus(sheetParams?.bottomMargin ?: (systemBottomInset + dp(76)))
-                        ?.plus(dp(12))
-                        ?: dp(388)
-                } else {
-                    systemBottomInset + dp(82)
+                val visibleBottomPanel = when {
+                    routeResultsContainer.visibility == View.VISIBLE -> routeResultsContainer
+                    nearbyPanel.visibility == View.VISIBLE -> nearbyPanel
+                    else -> null
                 }
+                val panelParams = visibleBottomPanel?.layoutParams as? FrameLayout.LayoutParams
+                val desiredBottomPadding = visibleBottomPanel?.let { panel ->
+                    val panelHeight = panel.height.takeIf { it > 0 }
+                        ?: panel.layoutParams.height.takeIf { it > 0 }
+                        ?: dp(196)
+                    panelHeight +
+                        (panelParams?.bottomMargin ?: (systemBottomInset + dp(76))) +
+                        dp(12)
+                } ?: (systemBottomInset + dp(82))
                 val bottomPadding = desiredBottomPadding.coerceAtMost(
                     (mapHeight - topPadding - dp(160)).coerceAtLeast(dp(72))
                 )
