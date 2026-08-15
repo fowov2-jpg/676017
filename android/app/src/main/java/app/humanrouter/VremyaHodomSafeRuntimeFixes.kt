@@ -30,6 +30,7 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
 
     override fun onActivityResumed(activity: Activity) {
         if (activity !is MainActivity) return
+        FastRoutePlanner.install(activity)
         if (initialized.put(activity, true) != true) {
             VremyaHodomRuntimeFixes.onActivityCreated(activity, null)
         }
