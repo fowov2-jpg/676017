@@ -603,6 +603,8 @@ class MainActivity : AppCompatActivity() {
         expandedSearchContent.visibility = View.VISIBLE
         quickActions.visibility = View.GONE
         loadingPanel.translationY = dp(118).toFloat()
+        bottomNav.visibility = View.GONE
+        nearbyPanel.visibility = View.GONE
         routeResultsContainer.visibility = View.GONE
         tabEmptyPanel.visibility = View.GONE
         if (focusDestination) {
@@ -619,6 +621,10 @@ class MainActivity : AppCompatActivity() {
         compactSearchRow.visibility = View.VISIBLE
         quickActions.visibility = View.VISIBLE
         loadingPanel.translationY = 0f
+        bottomNav.visibility = View.VISIBLE
+        if (currentTab == Tab.MAP || currentTab == Tab.TRANSPORT) {
+            nearbyPanel.visibility = View.VISIBLE
+        }
         compactSearchButton.text = selectedTo?.title ?: toField.text.toString().trim()
     }
 
@@ -2091,7 +2097,6 @@ class MainActivity : AppCompatActivity() {
     private fun applySystemInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
 
             searchPanel.updateLayoutParams<FrameLayout.LayoutParams> { topMargin = bars.top + dp(12) }
             quickActions.updateLayoutParams<FrameLayout.LayoutParams> { topMargin = bars.top + dp(78) }
@@ -2103,13 +2108,6 @@ class MainActivity : AppCompatActivity() {
             locationActionPanel.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(304) }
             osmAttribution.updateLayoutParams<FrameLayout.LayoutParams> { bottomMargin = bars.bottom + dp(84) }
             settingsPanel.updatePadding(top = bars.top + dp(16), bottom = bars.bottom + dp(24))
-
-            bottomNav.visibility = if (imeVisible) View.GONE else View.VISIBLE
-            if (imeVisible) {
-                nearbyPanel.visibility = View.GONE
-                routeResultsContainer.visibility = View.GONE
-                tabEmptyPanel.visibility = View.GONE
-            }
             insets
         }
         ViewCompat.requestApplyInsets(root)
@@ -2165,9 +2163,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun hideKeyboard() {
+        val focusedView = currentFocus
+        WindowCompat.getInsetsController(window, root).hide(WindowInsetsCompat.Type.ime())
         (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
-            .hideSoftInputFromWindow(currentFocus?.windowToken, 0)
-        currentFocus?.clearFocus()
+            .hideSoftInputFromWindow((focusedView ?: root).windowToken, 0)
+        focusedView?.clearFocus()
     }
 
     private fun activeMapCenter(): GeoPoint? {
