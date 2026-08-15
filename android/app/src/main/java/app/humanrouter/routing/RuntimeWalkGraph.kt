@@ -556,7 +556,7 @@ internal class RuntimeWalkGraph private constructor(
     private fun bruteForceNearestNode(targetLat: Int, targetLon: Int, lonScale: Double): Int {
         var bestNode = 0
         var bestSquared = Double.POSITIVE_INFINITY
-        for (node in latE7.indices) {
+        for (node in 0 until latE7.size) {
             val dLat = (latE7[node] - targetLat).toDouble()
             val dLon = (lonE7[node] - targetLon).toDouble() * lonScale
             val squared = dLat * dLat + dLon * dLon
