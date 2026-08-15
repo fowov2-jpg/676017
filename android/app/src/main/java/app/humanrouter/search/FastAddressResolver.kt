@@ -124,9 +124,15 @@ internal object FastAddressResolver {
         val lower = normalize(compact)
         val hasMoscow = lower.contains("москва") || lower.contains("московская область")
         val hasStreetType = STREET_WORDS.any(lower::contains)
-        val hasHouse = extractHouseToken(compact) != null
+        val house = extractHouseToken(compact)
         return buildList {
-            if (!hasMoscow && hasHouse && !hasStreetType) add("Москва, улица $compact")
+            if (!hasMoscow && house != null && !hasStreetType) {
+                val streetPart = compact.substringBeforeLast(house).trim().trim(',', '.', ' ')
+                if (streetPart.isNotBlank()) {
+                    add("Москва, улица $streetPart, дом $house")
+                    add("Москва, улица $compact")
+                }
+            }
             if (!hasMoscow) add("Москва, $compact")
             add(compact)
         }.distinct()
@@ -141,7 +147,12 @@ internal object FastAddressResolver {
         var result = 0
         val house = extractHouseToken(query)
         if (house != null) {
-            val houseRegex = Regex("(^|\\D)${Regex.escape(house)}([а-яa-z]?)(\\D|$)")
+            // A base-house query such as "13" must match real Moscow addresses "13к1" and
+            // "13 корпус 2". Those are distinct suggestions, not a reason to drop the result.
+            val houseRegex = Regex(
+                "(^|\\D)${Regex.escape(house)}(?:[а-яa-z]\\d*|\\s*(?:к|корпус|стр|строение)\\s*\\d+)?(\\D|$)",
+                RegexOption.IGNORE_CASE
+            )
             if (houseRegex.containsMatchIn(address)) result += 90 else result -= 35
         }
         val words = q.split(' ')
@@ -155,12 +166,22 @@ internal object FastAddressResolver {
         return result
     }
 
-    private fun extractHouseToken(query: String): String? =
-        Regex("(?:^|[\\s,])(?:д(?:ом)?\\.?\\s*)?(\\d+[а-яa-z]?)", RegexOption.IGNORE_CASE)
-            .find(normalize(query))
+    private fun extractHouseToken(query: String): String? {
+        val normalized = normalize(query)
+        val explicit = Regex("(?:^|\\s)(?:д|дом)\\s*(\\d+[а-яa-z]?)", RegexOption.IGNORE_CASE)
+            .find(normalized)
             ?.groupValues
             ?.getOrNull(1)
             ?.takeIf(String::isNotBlank)
+        if (explicit != null) return explicit
+
+        // Use the last numeric token. This correctly treats the 13 in "1-я Тверская-Ямская 13"
+        // as the house number instead of mistaking the street ordinal for the house.
+        return Regex("(?:^|\\s)(\\d+[а-яa-z]?)", RegexOption.IGNORE_CASE)
+            .findAll(normalized)
+            .mapNotNull { it.groupValues.getOrNull(1)?.takeIf(String::isNotBlank) }
+            .lastOrNull()
+    }
 
     private fun normalize(value: String): String = value
         .lowercase(Locale("ru", "RU"))
@@ -188,6 +209,10 @@ internal object FastAddressResolver {
         ).distinct().take(4).joinToString(", ")
         return SearchPlace(title, subtitle, GeoPoint(lat, lon))
     }
+
+    internal fun queryVariantsForTest(query: String): List<String> = queryVariants(query)
+
+    internal fun rankForTest(query: String, places: Collection<SearchPlace>): List<SearchPlace> = rank(query, places)
 
     private val STREET_WORDS = listOf("улица", "ул ", "проспект", "пр т", "переулок", "шоссе", "бульвар", "набережная")
     private val STOP_WORDS = setOf("москва", "улица", "дом", "корпус", "строение")
