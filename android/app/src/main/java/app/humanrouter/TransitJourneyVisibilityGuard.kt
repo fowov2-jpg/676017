@@ -98,28 +98,42 @@ internal object TransitJourneyVisibilityGuard {
 
         private fun isolateV2(scroll: HorizontalScrollView) {
             if (scroll.parent !== panel) return
-            val index = panel.indexOfChild(scroll).coerceAtLeast(0)
-            panel.removeView(scroll)
-            val wrapper = FrameLayout(activity).apply {
-                tag = V2_WRAPPER_TAG
-                clipChildren = false
-                clipToPadding = false
-                addView(
+            val index = panel.indexOfChild(scroll)
+            if (index < 0) return
+
+            // UiPolish installs LayoutTransition on routeResultsPanel. During an animated removal
+            // Android can keep the disappearing child attached, so immediately adding it to the
+            // wrapper throws "child already has a parent". Re-parent atomically with transitions
+            // disabled, then restore the existing transition for normal UI changes.
+            val transition = panel.layoutTransition
+            panel.layoutTransition = null
+            try {
+                panel.removeViewAt(index)
+                if (scroll.parent != null) return
+
+                val wrapper = FrameLayout(activity).apply {
+                    tag = V2_WRAPPER_TAG
+                    clipChildren = false
+                    clipToPadding = false
+                }
+                panel.addView(
+                    wrapper,
+                    index.coerceAtMost(panel.childCount),
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                )
+                wrapper.addView(
                     scroll,
                     FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT
                     )
                 )
+            } finally {
+                panel.layoutTransition = transition
             }
-            panel.addView(
-                wrapper,
-                index.coerceAtMost(panel.childCount),
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-            )
         }
 
         private fun hasDuplicateSecondary(root: View): Boolean =
