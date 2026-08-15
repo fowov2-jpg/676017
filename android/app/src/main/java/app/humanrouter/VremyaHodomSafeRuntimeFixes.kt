@@ -40,6 +40,8 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
         VremyaHodomRuntimeFixes.onActivityResumed(activity)
         TransitVisualPolish.install(activity)
         TransitVisualPolish.refresh(activity)
+        TransitStopOverlay.install(activity)
+        TransitStopOverlay.refresh(activity)
 
         val state = watches.getOrPut(activity) {
             WatchState().also { watch ->
@@ -53,6 +55,7 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
                             watch.lastRouteId = routeId
                             VremyaHodomRuntimeFixes.onActivityResumed(activity)
                             TransitVisualPolish.refresh(activity)
+                            TransitStopOverlay.refresh(activity)
                         }
                         handler.postDelayed(this, ROUTE_WATCH_INTERVAL_MS)
                     }
@@ -78,6 +81,7 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
         if (activity is MainActivity) {
             StartupLoadingController.destroy(activity)
             TransitVisualPolish.destroy(activity)
+            TransitStopOverlay.destroy(activity)
             watches.remove(activity)?.let { state ->
                 state.resumed = false
                 handler.removeCallbacks(state.runnable)
