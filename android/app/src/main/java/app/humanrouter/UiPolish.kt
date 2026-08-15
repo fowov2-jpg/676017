@@ -31,11 +31,11 @@ internal object UiPolish {
         private val root = activity.findViewById<ViewGroup>(R.id.root)
         private val density = activity.resources.displayMetrics.density
         private val visibility = LinkedHashMap<View, Int>()
+        private val pressStyled = WeakHashMap<View, Boolean>()
 
         private val appearanceTargets = listOfNotNull(
             activity.findViewById<View?>(R.id.expandedSearchContent),
             activity.findViewById<View?>(R.id.quickActions),
-            activity.findViewById<View?>(R.id.loadingPanel),
             activity.findViewById<View?>(R.id.nearbyPanel),
             activity.findViewById<View?>(R.id.routeResultsContainer),
             activity.findViewById<View?>(R.id.tabEmptyPanel),
@@ -196,8 +196,7 @@ internal object UiPolish {
         }
 
         private fun installPressMotion(view: View) {
-            if (view is EditText || view.tag == PRESS_TAG) return
-            view.tag = PRESS_TAG
+            if (view is EditText || pressStyled.put(view, true) == true) return
             val pressed = AnimatorSet().apply {
                 playTogether(
                     ObjectAnimator.ofFloat(view, View.SCALE_X, 1f, 0.975f),
@@ -241,6 +240,4 @@ internal object UiPolish {
 
         private fun dp(value: Int): Int = (value * density + 0.5f).toInt()
     }
-
-    private const val PRESS_TAG = "vh-ui-polished"
 }
