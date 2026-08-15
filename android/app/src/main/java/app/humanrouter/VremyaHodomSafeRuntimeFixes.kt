@@ -30,7 +30,7 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
 
     override fun onActivityResumed(activity: Activity) {
         if (activity !is MainActivity) return
-        StartupLoadingController.install(activity)
+        StartupExperienceV2.install(activity)
         UiPolish.install(activity)
         FastRoutePlanner.install(activity)
         FastSearchController.install(activity)
@@ -79,7 +79,7 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
 
     override fun onActivityDestroyed(activity: Activity) {
         if (activity is MainActivity) {
-            StartupLoadingController.destroy(activity)
+            StartupExperienceV2.destroy(activity)
             TransitVisualPolish.destroy(activity)
             TransitStopOverlay.destroy(activity)
             watches.remove(activity)?.let { state ->
