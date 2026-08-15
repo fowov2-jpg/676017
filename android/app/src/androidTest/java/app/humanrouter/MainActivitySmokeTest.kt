@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.view.View
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.UiController
 import androidx.test.espresso.ViewAction
@@ -54,6 +55,8 @@ class MainActivitySmokeTest {
         onView(withSubstring("Использовать центр карты как место назначения")).perform(click())
         onView(withId(R.id.toField)).check(matches(withSubstring("Точка на карте")))
         onView(withId(R.id.closeSearchButton)).perform(click())
+        closeSoftKeyboard()
+        onView(isRoot()).perform(waitForUi(250L))
         onView(withId(R.id.settingsButton)).perform(click())
         onView(withText(R.string.settings)).check(matches(isDisplayed()))
         onView(withId(R.id.darkThemeSwitch)).check(matches(isDisplayed()))

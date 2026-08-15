@@ -135,6 +135,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var routeResultsContainer: LinearLayout
     private lateinit var routeFiltersScroll: HorizontalScrollView
     private lateinit var routeFiltersPanel: LinearLayout
+    private lateinit var routeResultsScroll: ScrollView
     private lateinit var routeResultsPanel: LinearLayout
     private lateinit var tabEmptyPanel: LinearLayout
     private lateinit var tabEmptyTitle: TextView
@@ -333,6 +334,7 @@ class MainActivity : AppCompatActivity() {
         routeResultsContainer = findViewById(R.id.routeResultsContainer)
         routeFiltersScroll = findViewById(R.id.routeFiltersScroll)
         routeFiltersPanel = findViewById(R.id.routeFiltersPanel)
+        routeResultsScroll = findViewById(R.id.routeResultsScroll)
         routeResultsPanel = findViewById(R.id.routeResultsPanel)
         tabEmptyPanel = findViewById(R.id.tabEmptyPanel)
         tabEmptyTitle = findViewById(R.id.tabEmptyTitle)
@@ -881,6 +883,7 @@ class MainActivity : AppCompatActivity() {
                 ).apply { topMargin = dp(10) }
             })
         }
+        routeResultsScroll.post { routeResultsScroll.scrollTo(0, 0) }
     }
 
     private fun routeCard(ranked: RankedRoute): View {
@@ -1293,6 +1296,7 @@ class MainActivity : AppCompatActivity() {
         nearbyPanel.visibility = View.GONE
         currentTab = Tab.ROUTES
         renderNavigationState()
+        routeResultsScroll.post { routeResultsScroll.scrollTo(0, 0) }
     }
 
     private fun configureNavigation() {
