@@ -30,6 +30,7 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
 
     override fun onActivityResumed(activity: Activity) {
         if (activity !is MainActivity) return
+        StartupLoadingController.install(activity)
         UiPolish.install(activity)
         FastRoutePlanner.install(activity)
         FastSearchController.install(activity)
@@ -72,6 +73,7 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
 
     override fun onActivityDestroyed(activity: Activity) {
         if (activity is MainActivity) {
+            StartupLoadingController.destroy(activity)
             watches.remove(activity)?.let { state ->
                 state.resumed = false
                 handler.removeCallbacks(state.runnable)
