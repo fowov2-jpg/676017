@@ -1,0 +1,15 @@
+android/.gradle/
+android/.kotlin/
+android/**/build/
+android/local.properties
+android/ci-debug.keystore
+tools/__pycache__/
+*.pyc
+
+# Local audit downloads and runtime probes are reproducible and are not source artifacts.
+actions-runs.json
+audit/
+mtppk-schedule-probe.zip
+runtime-current-manifest.json
+runtime-rail-graph.json.gz
+runtime-surface-manifest.json.gz

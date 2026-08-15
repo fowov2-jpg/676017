@@ -7,6 +7,20 @@ on:
       - android/**
       - tools/build_surface_runtime.py
       - tools/test_build_surface_runtime.py
+      - tools/parse_mtppk_xlsx.py
+      - tools/test_parse_mtppk_xlsx.py
+      - tools/build_android_rail_timetable.py
+      - .github/scripts/android_emulator_smoke.sh
+      - .github/workflows/build-android.yml
+  pull_request:
+    paths:
+      - android/**
+      - tools/build_surface_runtime.py
+      - tools/test_build_surface_runtime.py
+      - tools/parse_mtppk_xlsx.py
+      - tools/test_parse_mtppk_xlsx.py
+      - tools/build_android_rail_timetable.py
+      - .github/scripts/android_emulator_smoke.sh
       - .github/workflows/build-android.yml
 
 jobs:
@@ -22,6 +36,32 @@ jobs:
 
       - name: Surface runtime integration smoke test
         run: python tools/test_build_surface_runtime.py
+
+      - name: Rail timetable parser and Android asset checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/test_parse_mtppk_xlsx.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('android/app/src/main/assets/rail_timetable_mtppk_2026-04-27.json')
+          data = json.loads(path.read_text(encoding='utf-8'))
+          assert data['schema'] == 1
+          assert data['source']['url'] == 'https://mtppk.ru/download.php?id=15765'
+          assert data['source']['sha256']
+          assert data['effective_from'] == '2026-04-27'
+          assert len(data['stations']) == 15
+          assert len(data['trips']) >= 500
+          assert {trip['mode'] for trip in data['trips']} == {'MCD', 'TRAIN'}
+          for trip in data['trips']:
+              times = [stop[1] for stop in trip['stops']]
+              assert len(times) >= 2
+              assert times == sorted(times)
+              assert max(times) < 48 * 60 * 60
+          print(f"rail timetable asset OK: stations={len(data['stations'])} trips={len(data['trips'])}")
+          PY
 
       - name: Smoke-check published runtime-current
         shell: bash
@@ -110,9 +150,9 @@ jobs:
         shell: bash
         run: base64 --decode ci-debug.keystore.b64 > ci-debug.keystore
 
-      - name: Test, build debug APK and run Android Lint
+      - name: Test, build app and instrumentation APKs, and run Android Lint
         working-directory: android
-        run: gradle --no-daemon testDebugUnitTest assembleDebug lintDebug
+        run: gradle --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest lintDebug
 
       - name: Verify built APK
         shell: bash
@@ -131,6 +171,16 @@ jobs:
           "$AAPT" dump badging "$APK" | tee /tmp/vremyahodom-badging.txt
           grep -F "application-label:'ВремяХодом'" /tmp/vremyahodom-badging.txt
           grep -F "launchable-activity:" /tmp/vremyahodom-badging.txt
+          grep -F "application: label='ВремяХодом'" /tmp/vremyahodom-badging.txt
+
+          "$AAPT" dump resources "$APK" > /tmp/vremyahodom-resources.txt
+          grep -F 'mipmap/ic_launcher' /tmp/vremyahodom-resources.txt
+          grep -F 'drawable/ic_launcher_foreground' /tmp/vremyahodom-resources.txt
+          unzip -l "$APK" | grep -E 'res/mipmap[^/]*/ic_vremyahodom_logo[^/]*\.webp'
+
+          TEST_APK='android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk'
+          test -s "$TEST_APK"
+          unzip -tq "$TEST_APK" >/dev/null
 
           sha256sum "$APK" | tee android/app/build/outputs/apk/debug/app-debug.apk.sha256
 
@@ -140,6 +190,7 @@ jobs:
           path: |
             android/app/build/outputs/apk/debug/app-debug.apk
             android/app/build/outputs/apk/debug/app-debug.apk.sha256
+            android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
@@ -148,3 +199,45 @@ jobs:
           name: vremyahodom-lint-report
           path: android/app/build/reports/lint-results-debug.html
           if-no-files-found: ignore
+
+  emulator-smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [26, 35]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: vremyahodom-debug-apk
+          path: android-ci
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run API ${{ matrix.api }} instrumentation, smoke and screenshot suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash .github/scripts/android_emulator_smoke.sh android-ci ${{ matrix.api }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vremyahodom-emulator-api-${{ matrix.api }}
+          path: android/emulator-artifacts/api-${{ matrix.api }}
+          if-no-files-found: error

@@ -9,7 +9,7 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/** Cheap spatial index over routeable METRO/MCC stop positions in rail/graph.json. */
+/** Cheap spatial index over routeable urban-rail stop positions in rail/graph.json. */
 internal class RailWaypointIndex private constructor(graphFile: File) {
     data class Waypoint(
         val id: String,
@@ -25,7 +25,8 @@ internal class RailWaypointIndex private constructor(graphFile: File) {
         for (routeIndex in 0 until routes.length()) {
             val route = routes.getJSONObject(routeIndex)
             if (!route.optBoolean("routeable", false)) continue
-            if (route.optString("mode") !in setOf("METRO", "MCC")) continue
+            val mode = TransportMode.fromRuntimeValue(route.optString("mode"))
+            if (mode !in ROUTEABLE_RAIL_MODES) continue
             val stops = route.getJSONArray("stops")
             for (i in 0 until stops.length()) {
                 val stop = stops.getJSONObject(i)
@@ -74,6 +75,10 @@ internal class RailWaypointIndex private constructor(graphFile: File) {
 
     companion object {
         private const val EARTH_RADIUS_METERS = 6_371_000.0
+        private val ROUTEABLE_RAIL_MODES = setOf(
+            TransportMode.METRO,
+            TransportMode.MCC
+        )
 
         fun openOrNull(runtimeRoot: File): RailWaypointIndex? {
             val graph = File(runtimeRoot, "rail/graph.json")

@@ -163,7 +163,7 @@ internal class MultimodalComposer(
         route.legs.any { it.mode == TransportMode.BUS || it.mode == TransportMode.TRAM }
 
     private fun usesRail(route: RouteCandidate): Boolean =
-        route.legs.any { it.mode == TransportMode.METRO || it.mode == TransportMode.MCC }
+        route.legs.any { it.mode in RAIL_MODES }
 
     private fun estimatedWalkSeconds(from: GeoPoint, to: GeoPoint): Int {
         val meters = haversineMeters(from, to) * WALK_DETOUR_FACTOR
@@ -193,5 +193,6 @@ internal class MultimodalComposer(
         private const val EARTH_RADIUS_METERS = 6_371_000.0
         private const val WALK_DETOUR_FACTOR = 1.20
         private const val WALK_SPEED_MPS = 1.35
+        private val RAIL_MODES = setOf(TransportMode.METRO, TransportMode.MCC)
     }
 }

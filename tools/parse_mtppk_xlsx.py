@@ -196,17 +196,17 @@ def monotonic_stops(
 ) -> list[dict]:
     stops = []
     previous_seconds: Optional[int] = None
-    day_offset = 0
     for row_number, station in station_rows:
         cell_type, raw_value = rows.get(row_number, {}).get(column, (None, None))
         seconds = parse_time_seconds(cell_type, raw_value)
         if seconds is None:
             continue
-        absolute = seconds + day_offset * 86400
+        absolute = seconds
         # A large backwards jump is a midnight rollover. A small backwards jump is usually a matrix
-        # branch/rejoin artifact; do not invent a chronology for it.
-        if previous_seconds is not None and absolute < previous_seconds - 6 * 3600:
-            day_offset += 1
+        # branch/rejoin artifact; do not invent a chronology for it. Some Excel cells already store
+        # a value above 1.0 for times after midnight, while others restart at a sub-1.0 fraction.
+        # Advance only the current value so an already absolute 24:xx value is never shifted twice.
+        while previous_seconds is not None and absolute < previous_seconds - 6 * 3600:
             absolute += 86400
         if previous_seconds is not None and absolute < previous_seconds:
             continue

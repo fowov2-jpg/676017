@@ -1,0 +1,22 @@
+<resources>
+    <color name="vh_primary">#287BFF</color>
+    <color name="vh_primary_soft">#EAF3FF</color>
+    <color name="vh_surface">#FAFFFFFF</color>
+    <color name="vh_surface_solid">#FFFFFFFF</color>
+    <color name="vh_surface_muted">#FFF8FAFC</color>
+    <color name="vh_background">#FFF5F7FA</color>
+    <color name="vh_text_primary">#FF101828</color>
+    <color name="vh_text_secondary">#FF475467</color>
+    <color name="vh_text_tertiary">#FF667085</color>
+    <color name="vh_border">#FFE4E7EC</color>
+    <color name="vh_scrim">#520B1220</color>
+    <color name="vh_error">#FFD92D20</color>
+    <color name="vh_success">#FF12B76A</color>
+    <color name="vh_bus">#FF287BFF</color>
+    <color name="vh_tram">#FF8657D9</color>
+    <color name="vh_metro">#FFE52B3D</color>
+    <color name="vh_mcc">#FFE68A00</color>
+    <color name="vh_mcd">#FF28A6A6</color>
+    <color name="vh_train">#FF344054</color>
+    <color name="vh_launcher_background">#FF071B38</color>
+</resources>

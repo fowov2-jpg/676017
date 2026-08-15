@@ -3,6 +3,7 @@ package app.humanrouter.search
 import app.humanrouter.routing.GeoPoint
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import java.io.IOException
 import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -35,11 +36,13 @@ internal object PhotonGeocoder {
             requestMethod = "GET"
             setRequestProperty("Accept", "application/geo+json, application/json")
             setRequestProperty("Accept-Language", "ru")
-            setRequestProperty("User-Agent", "HumanRouter-Android/0.1")
+            setRequestProperty("User-Agent", "VremyaHodom-Android/0.1")
         }
 
         return try {
-            if (connection.responseCode !in 200..299) return emptyList()
+            val code = connection.responseCode
+            if (code !in 200..299) throw IOException("Search HTTP $code")
+            check(connection.url.protocol.equals("https", ignoreCase = true)) { "Search redirected outside HTTPS" }
             val json = connection.inputStream.bufferedReader().use { it.readText() }
             parse(json)
         } finally {

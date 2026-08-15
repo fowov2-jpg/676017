@@ -1,15 +1,14 @@
-# Human Router UI rules
+# ВремяХодом UI rules
 
-1. The map is the primary surface and must remain visible at all times on the main screen.
-2. No modal or persistent panel may permanently cover more than 25% of the map height.
-3. Route search is a compact bottom-left drawer. It is hidden by default, opens from the left edge/handle, and closes with a left swipe.
-4. Runtime download state uses a compact bottom status strip. It occupies the lowest layer while active and disappears when complete.
-5. Settings always open as a separate screen, never as a large overlay over the map.
-6. Main navigation is an independent compact bottom-left drawer. It is hidden by default, opens separately from the left, and closes with a left swipe.
-7. Search drawer and navigation drawer must not remain open at the same time.
-8. Route details may expand only after explicit user action and must be dismissible/collapsible.
-9. Errors are shown inside compact status cards with a retry action, never as full-screen blank states.
-10. Main map actions: From, To, Build, Settings. Everything else goes to dedicated screens or drawers.
-11. Keep system status/navigation insets clear so controls are not hidden under cutouts or system bars.
-12. The left-edge gesture zone must stay narrow and must not block normal map pan gestures.
-13. Every drawer must remain reachable by a visible compact handle even if edge-swipe detection fails on a device.
+1. The MapLibre map is the primary full-screen surface and remains visible behind the main controls.
+2. A compact floating search card sits at the top. It expands to explicit origin and destination fields only while editing.
+3. The small Home, Work and Nearby actions sit directly below search and never dominate the map.
+4. Current-location and settings actions are independent 48dp floating controls.
+5. Nearby content uses a compact interactive bottom sheet with real stops/stations, routes and schedule or distance data.
+6. Bottom navigation is always stateful: Map, Routes, Transport and Favorites each open a working state and preserve selection.
+7. Route results show alternatives, effective filters and synchronized map selection; an active trip replaces them with its timeline until the trip is finished.
+8. Runtime, map, location, search and routing errors use compact Russian-language status cards with a useful next action.
+9. Both origin and destination can be selected manually from the current map center; location permission is never required for a manual route.
+10. System bars, cutouts, gesture navigation and the IME must not cover controls. Route fit padding accounts for top overlays and bottom sheets.
+11. Settings use the same surfaces, spacing, colors and rounded geometry as the map UI; every visible switch persists and changes behavior.
+12. No production screen may contain fabricated stops, routes or ETAs. Deterministic fixtures are debug-build-only and exist solely for UI automation.

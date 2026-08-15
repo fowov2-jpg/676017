@@ -35,7 +35,7 @@ internal class SurfaceCsaRouter(
     }
 
     data class Result(
-        val fastest: RouteCandidate,
+        val fastest: RouteCandidate?,
         val serviceDate: String,
         val usedTransit: Boolean,
         val usedOsmWalkingGraph: Boolean
@@ -64,10 +64,16 @@ internal class SurfaceCsaRouter(
         } else {
             null
         }
-        val directMeters = exactDirect?.meters ?: geometricDirectMeters
-        val directWalkSeconds = exactDirect?.seconds ?: walkingSeconds(directMeters)
+        val directCost = if (walkGraph != null) {
+            exactDirect
+        } else {
+            RuntimeWalkGraph.WalkCost(
+                seconds = walkingSeconds(geometricDirectMeters),
+                meters = geometricDirectMeters
+            )
+        }
 
-        var bestArrivalSec = departureServiceSec + directWalkSeconds
+        var bestArrivalSec = directCost?.let { departureServiceSec + it.seconds } ?: INF
         var bestStopIndex = -1
 
         val earliest = IntArray(stops.size) { INF }
@@ -131,8 +137,18 @@ internal class SurfaceCsaRouter(
                     boardingPath = boardingPath,
                     boardingStopIndex = fromIndex,
                     firstConnection = connection,
-                    boardingSequence = connection.sequence
+                    boardingSequence = connection.sequence,
+                    geometry = arrayListOf(stops[fromIndex].point()),
+                    lastGeometrySequence = connection.sequence - 1
                 ).also { tripStates[connection.tripId] = it }
+            }
+
+            if (connection.sequence > state.lastGeometrySequence) {
+                val fromPoint = stops[fromIndex].point()
+                val toPoint = stops[toIndex].point()
+                if (state.geometry.lastOrNull() != fromPoint) state.geometry += fromPoint
+                if (state.geometry.lastOrNull() != toPoint) state.geometry += toPoint
+                state.lastGeometrySequence = connection.sequence
             }
 
             if (connection.arrivalSec < earliest[toIndex]) {
@@ -142,7 +158,8 @@ internal class SurfaceCsaRouter(
                         from = stops[state.boardingStopIndex].place(),
                         to = stops[toIndex].place(),
                         firstConnection = state.firstConnection,
-                        lastConnection = connection
+                        lastConnection = connection,
+                        geometry = state.geometry.toList()
                     )
                 )
 
@@ -188,7 +205,7 @@ internal class SurfaceCsaRouter(
 
         if (bestStopIndex < 0) {
             return Result(
-                fastest = RouteCandidate(
+                fastest = directCost?.let { walk -> RouteCandidate(
                     id = "walk-$departureServiceSec",
                     requestedDepartureEpochSec = serviceMidnightEpochSec + departureServiceSec,
                     legs = listOf(
@@ -197,13 +214,14 @@ internal class SurfaceCsaRouter(
                             from = originPlace,
                             to = destinationPlace,
                             departureEpochSec = serviceMidnightEpochSec + departureServiceSec,
-                            arrivalEpochSec = serviceMidnightEpochSec + departureServiceSec + directWalkSeconds,
-                            walkMeters = directMeters,
+                            arrivalEpochSec = serviceMidnightEpochSec + departureServiceSec + walk.seconds,
+                            walkMeters = walk.meters,
                             uncertaintySeconds = if (exactDirect != null) 15 else 90,
-                            realtimeConfidence = if (exactDirect != null) 0.98 else 0.70
+                            realtimeConfidence = if (exactDirect != null) 0.98 else 0.70,
+                            geometry = walk.geometry
                         )
                     )
-                ),
+                ) },
                 serviceDate = repository.serviceDate,
                 usedTransit = false,
                 usedOsmWalkingGraph = walkGraph != null
@@ -212,7 +230,7 @@ internal class SurfaceCsaRouter(
 
         val terminalPath = paths[bestStopIndex]
             ?: return Result(
-                fastest = RouteCandidate(
+                fastest = directCost?.let { walk -> RouteCandidate(
                     id = "walk-$departureServiceSec",
                     requestedDepartureEpochSec = serviceMidnightEpochSec + departureServiceSec,
                     legs = listOf(
@@ -221,13 +239,14 @@ internal class SurfaceCsaRouter(
                             from = originPlace,
                             to = destinationPlace,
                             departureEpochSec = serviceMidnightEpochSec + departureServiceSec,
-                            arrivalEpochSec = serviceMidnightEpochSec + departureServiceSec + directWalkSeconds,
-                            walkMeters = directMeters,
+                            arrivalEpochSec = serviceMidnightEpochSec + departureServiceSec + walk.seconds,
+                            walkMeters = walk.meters,
                             uncertaintySeconds = if (exactDirect != null) 15 else 90,
-                            realtimeConfidence = if (exactDirect != null) 0.98 else 0.70
+                            realtimeConfidence = if (exactDirect != null) 0.98 else 0.70,
+                            geometry = walk.geometry
                         )
                     )
-                ),
+                ) },
                 serviceDate = repository.serviceDate,
                 usedTransit = false,
                 usedOsmWalkingGraph = walkGraph != null
@@ -254,14 +273,13 @@ internal class SurfaceCsaRouter(
     }
 
     private fun accessLinks(point: GeoPoint): List<WalkLink> {
-        val exact = walkGraph?.stopCostsFrom(
-            point = point,
-            maxSeconds = ACCESS_MAX_SECONDS,
-            maxMeters = ACCESS_RADIUS_METERS,
-            limit = MAX_ACCESS_STOPS
-        )
-        if (exact != null && exact.isNotEmpty()) {
-            return exact.entries.mapNotNull { (stopId, cost) ->
+        if (walkGraph != null) {
+            return walkGraph.stopCostsFrom(
+                point = point,
+                maxSeconds = ACCESS_MAX_SECONDS,
+                maxMeters = ACCESS_RADIUS_METERS,
+                limit = MAX_ACCESS_STOPS
+            ).orEmpty().entries.mapNotNull { (stopId, cost) ->
                 stopIndexById[stopId]?.let { WalkLink(it, cost.meters, cost.seconds) }
             }.sortedBy { it.seconds }.take(MAX_ACCESS_STOPS)
         }
@@ -269,14 +287,13 @@ internal class SurfaceCsaRouter(
     }
 
     private fun egressLinks(point: GeoPoint): List<WalkLink> {
-        val exact = walkGraph?.stopCostsTo(
-            point = point,
-            maxSeconds = EGRESS_MAX_SECONDS,
-            maxMeters = EGRESS_RADIUS_METERS,
-            limit = MAX_EGRESS_STOPS
-        )
-        if (exact != null && exact.isNotEmpty()) {
-            return exact.entries.mapNotNull { (stopId, cost) ->
+        if (walkGraph != null) {
+            return walkGraph.stopCostsTo(
+                point = point,
+                maxSeconds = EGRESS_MAX_SECONDS,
+                maxMeters = EGRESS_RADIUS_METERS,
+                limit = MAX_EGRESS_STOPS
+            ).orEmpty().entries.mapNotNull { (stopId, cost) ->
                 stopIndexById[stopId]?.let { WalkLink(it, cost.meters, cost.seconds) }
             }.sortedBy { it.seconds }.take(MAX_EGRESS_STOPS)
         }
@@ -287,15 +304,13 @@ internal class SurfaceCsaRouter(
         transferCache[stopIndex]?.let { return it }
 
         val stop = stops[stopIndex]
-        val exact = walkGraph?.stopCostsFromStop(
-            stopId = stop.id,
-            maxSeconds = TRANSFER_MAX_SECONDS,
-            maxMeters = TRANSFER_MAX_METERS,
-            limit = MAX_TRANSFER_NEIGHBORS
-        )
-
-        val links = if (exact != null && exact.isNotEmpty()) {
-            exact.entries.mapNotNull { (stopId, cost) ->
+        val links = if (walkGraph != null) {
+            walkGraph.stopCostsFromStop(
+                stopId = stop.id,
+                maxSeconds = TRANSFER_MAX_SECONDS,
+                maxMeters = TRANSFER_MAX_METERS,
+                limit = MAX_TRANSFER_NEIGHBORS
+            ).orEmpty().entries.mapNotNull { (stopId, cost) ->
                 val index = stopIndexById[stopId] ?: return@mapNotNull null
                 if (index == stopIndex) null else WalkLink(index, cost.meters, cost.seconds)
             }.sortedBy { it.seconds }.take(MAX_TRANSFER_NEIGHBORS)
@@ -374,9 +389,15 @@ internal class SurfaceCsaRouter(
                 is RawStep.Ride -> {
                     val first = step.firstConnection
                     val last = step.lastConnection
-                    val route = routes[first.routeId]
-                    val mode = route?.mode ?: TransportMode.BUS
+                    val route = routes[first.routeId] ?: continue
+                    val mode = route.mode
                     val duration = (last.arrivalSec - first.departureSec).coerceAtLeast(0)
+                    val previousArrivalSec = result.lastOrNull()
+                        ?.arrivalEpochSec
+                        ?.minus(serviceMidnightEpochSec)
+                        ?.toInt()
+                        ?: first.departureSec
+                    val waitSeconds = (first.departureSec - previousArrivalSec).coerceAtLeast(0)
                     val transferBuffer = previousTransitArrival?.let { previousArrival ->
                         (
                             first.departureSec -
@@ -391,11 +412,14 @@ internal class SurfaceCsaRouter(
                         to = step.to,
                         departureEpochSec = epoch(first.departureSec),
                         arrivalEpochSec = epoch(last.arrivalSec),
-                        lineId = route?.id ?: first.routeId,
-                        lineName = route?.shortName ?: route?.longName,
+                        lineId = route.id,
+                        lineName = route.shortName ?: route.longName,
+                        waitSeconds = waitSeconds,
                         uncertaintySeconds = (duration * 0.15).toInt().coerceIn(60, 300),
                         realtimeConfidence = 0.45,
-                        transferBufferSeconds = transferBuffer
+                        transferBufferSeconds = transferBuffer,
+                        stopCount = (last.sequence - first.sequence + 1).coerceAtLeast(1),
+                        geometry = step.geometry
                     )
                     previousTransitArrival = last.arrivalSec
                     walkingSinceTransitSeconds = 0
@@ -417,6 +441,8 @@ internal class SurfaceCsaRouter(
         name = name,
         point = GeoPoint(lat, lon)
     )
+
+    private fun SurfaceStop.point(): GeoPoint = GeoPoint(lat, lon)
 
     private fun boardBufferSeconds(path: PathNode): Int = when {
         path.step is RawStep.Ride -> SAME_STOP_TRANSFER_BUFFER_SECONDS
@@ -486,7 +512,9 @@ internal class SurfaceCsaRouter(
         val boardingPath: PathNode,
         val boardingStopIndex: Int,
         val firstConnection: SurfaceConnection,
-        val boardingSequence: Int
+        val boardingSequence: Int,
+        val geometry: MutableList<GeoPoint>,
+        var lastGeometrySequence: Int
     )
 
     private sealed interface RawStep {
@@ -502,7 +530,8 @@ internal class SurfaceCsaRouter(
             val from: RoutePlace,
             val to: RoutePlace,
             val firstConnection: SurfaceConnection,
-            val lastConnection: SurfaceConnection
+            val lastConnection: SurfaceConnection,
+            val geometry: List<GeoPoint>
         ) : RawStep
     }
 
