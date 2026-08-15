@@ -5,6 +5,7 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Rect
+import android.os.SystemClock
 import android.view.View
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -72,7 +73,7 @@ class MainActivitySmokeTest {
 
         captureNavigationDiagnostics()
         onView(withId(R.id.transportNavButton)).perform(click())
-        onView(withText(R.string.nearby_title)).check(matches(isDisplayed()))
+        onView(withId(R.id.nearbyTitle)).check(matches(isDisplayed()))
         onView(withId(R.id.favoritesNavButton)).perform(click())
         onView(withText(R.string.favorites_empty)).check(matches(isDisplayed()))
         onView(withId(R.id.mapNavButton)).perform(click())
@@ -133,10 +134,12 @@ class MainActivitySmokeTest {
             )
             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }
+        waitForOrientation(Configuration.ORIENTATION_LANDSCAPE)
         onView(withId(R.id.mapView)).check(matches(isDisplayed()))
         scenario!!.onActivity { activity ->
             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
+        waitForOrientation(Configuration.ORIENTATION_PORTRAIT)
         onView(withId(R.id.compactSearchButton)).check(matches(isDisplayed()))
         scenario!!.recreate()
         onView(withId(R.id.bottomNav)).check(matches(isDisplayed()))
@@ -165,6 +168,29 @@ class MainActivitySmokeTest {
 
         override fun perform(uiController: UiController, view: View) {
             uiController.loopMainThreadForAtLeast(milliseconds)
+        }
+    }
+
+    private fun waitForOrientation(expectedOrientation: Int) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val deadline = SystemClock.uptimeMillis() + 10_000L
+        var actualOrientation = Configuration.ORIENTATION_UNDEFINED
+        var windowReady = false
+        while (SystemClock.uptimeMillis() < deadline) {
+            instrumentation.waitForIdleSync()
+            runCatching {
+                scenario!!.onActivity { activity ->
+                    actualOrientation = activity.resources.configuration.orientation
+                    val decor = activity.window.decorView
+                    windowReady = decor.hasWindowFocus() && !decor.isLayoutRequested
+                }
+            }
+            if (actualOrientation == expectedOrientation && windowReady) return
+            SystemClock.sleep(50L)
+        }
+        check(actualOrientation == expectedOrientation && windowReady) {
+            "Orientation did not settle: expected=$expectedOrientation, actual=$actualOrientation, " +
+                "windowReady=$windowReady"
         }
     }
 
