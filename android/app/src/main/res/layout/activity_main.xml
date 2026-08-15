@@ -687,6 +687,7 @@
         android:layout_height="match_parent"
         android:background="@color/vh_scrim"
         android:clickable="true"
+        android:elevation="32dp"
         android:focusable="true"
         android:visibility="gone">
 
