@@ -15,10 +15,17 @@ test -s "$test_apk"
 mkdir -p "$output_dir"
 
 adb wait-for-device
+{
+  printf 'api_level=%s\n' "$api_level"
+  adb shell getprop ro.build.version.release | tr -d '\r' | sed 's/^/android_release=/'
+  adb shell getprop ro.product.cpu.abi | tr -d '\r' | sed 's/^/abi=/'
+} >"$output_dir/environment.txt"
+
 adb shell settings put global window_animation_scale 0
 adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
-adb logcat -c
+# Some API 26 images reject clearing one of the log buffers even though logcat itself works.
+adb logcat -c >/dev/null 2>&1 || true
 adb install -r "$app_apk"
 adb install -r "$test_apk"
 
