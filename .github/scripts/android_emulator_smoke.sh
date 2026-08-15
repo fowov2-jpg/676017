@@ -70,7 +70,15 @@ adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 
 
 # Deterministic debug-only fixtures drive the UI suite; production builds cannot enter them.
 instrumentation_output="$output_dir/instrumentation.txt"
+set +e
 adb shell am instrument -w -r "$test_runner" | tee "$instrumentation_output"
+instrumentation_status=${PIPESTATUS[0]}
+set -e
+adb pull "/sdcard/Android/data/$package_name/files/navigation-after-ime.png" "$output_dir/navigation-after-ime.png" >/dev/null 2>&1 || true
+adb pull "/sdcard/Android/data/$package_name/files/navigation-after-ime.txt" "$output_dir/navigation-after-ime.txt" >/dev/null 2>&1 || true
+if (( instrumentation_status != 0 )); then
+  exit "$instrumentation_status"
+fi
 grep -E 'OK \([0-9]+ tests?\)' "$instrumentation_output"
 if grep -E 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed' "$instrumentation_output"; then
   exit 1

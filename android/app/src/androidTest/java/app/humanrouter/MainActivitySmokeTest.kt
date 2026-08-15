@@ -3,7 +3,11 @@ package app.humanrouter
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Rect
 import android.view.View
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.closeSoftKeyboard
@@ -19,12 +23,15 @@ import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withSubstring
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.hamcrest.Matcher
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
+import java.io.FileOutputStream
 
 @RunWith(AndroidJUnit4::class)
 class MainActivitySmokeTest {
@@ -63,6 +70,7 @@ class MainActivitySmokeTest {
         onView(withId(R.id.closeSettingsButton)).perform(click())
         onView(isRoot()).perform(waitForUi(200L))
 
+        captureNavigationDiagnostics()
         onView(withId(R.id.transportNavButton)).perform(click())
         onView(withText(R.string.nearby_title)).check(matches(isDisplayed()))
         onView(withId(R.id.favoritesNavButton)).perform(click())
@@ -158,6 +166,61 @@ class MainActivitySmokeTest {
         override fun perform(uiController: UiController, view: View) {
             uiController.loopMainThreadForAtLeast(milliseconds)
         }
+    }
+
+    private fun captureNavigationDiagnostics() {
+        val application = ApplicationProvider.getApplicationContext<VremyaHodomApp>()
+        val directory = checkNotNull(application.getExternalFilesDir(null))
+        scenario!!.onActivity { activity ->
+            val root = activity.findViewById<View>(R.id.root)
+            val bottomNav = activity.findViewById<View>(R.id.bottomNav)
+            val target = activity.findViewById<View>(R.id.transportNavButton)
+            val rootInsets = ViewCompat.getRootWindowInsets(root)
+            val currentBars = rootInsets?.getInsets(WindowInsetsCompat.Type.systemBars())
+            val stableBars = rootInsets?.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())
+            val imeInsets = rootInsets?.getInsets(WindowInsetsCompat.Type.ime())
+
+            fun describe(label: String, view: View): String {
+                val rect = Rect()
+                val hasRect = view.getGlobalVisibleRect(rect)
+                val location = IntArray(2)
+                view.getLocationOnScreen(location)
+                return "$label: size=${view.width}x${view.height}, location=${location[0]},${location[1]}, " +
+                    "global=$hasRect/$rect, visibility=${view.visibility}, windowVisibility=${view.windowVisibility}, " +
+                    "shown=${view.isShown}, attached=${ViewCompat.isAttachedToWindow(view)}, " +
+                    "layoutRequested=${view.isLayoutRequested}"
+            }
+
+            val ancestors = buildString {
+                var view: View? = target
+                while (view != null) {
+                    append(view.javaClass.simpleName)
+                        .append("(visibility=").append(view.visibility)
+                        .append(", shown=").append(view.isShown)
+                        .append(")")
+                    view = view.parent as? View
+                    if (view != null) append(" <- ")
+                }
+            }
+            File(directory, "navigation-after-ime.txt").writeText(
+                buildString {
+                    appendLine(describe("root", root))
+                    appendLine(describe("bottomNav", bottomNav))
+                    appendLine(describe("transportNavButton", target))
+                    appendLine("ancestors=$ancestors")
+                    appendLine("currentSystemBars=$currentBars")
+                    appendLine("stableSystemBars=$stableBars")
+                    appendLine("imeInsets=$imeInsets")
+                    appendLine("imeVisible=${rootInsets?.isVisible(WindowInsetsCompat.Type.ime())}")
+                }
+            )
+        }
+
+        val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        FileOutputStream(File(directory, "navigation-after-ime.png")).use { stream ->
+            screenshot.compress(Bitmap.CompressFormat.PNG, 100, stream)
+        }
+        screenshot.recycle()
     }
 
 }
