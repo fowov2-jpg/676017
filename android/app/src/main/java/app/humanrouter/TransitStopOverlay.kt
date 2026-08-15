@@ -1,6 +1,5 @@
 package app.humanrouter
 
-import android.graphics.Color
 import app.humanrouter.routing.LastPlanStore
 import app.humanrouter.routing.RouteCandidate
 import app.humanrouter.routing.TransportMode
