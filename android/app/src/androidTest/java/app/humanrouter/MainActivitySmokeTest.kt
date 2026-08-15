@@ -20,12 +20,14 @@ import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.isRoot
+import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withSubstring
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.hamcrest.Matcher
+import org.hamcrest.Matchers.containsString
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -112,7 +114,7 @@ class MainActivitySmokeTest {
     fun routeOptionsFiltersFavoritesAndTripFlowAreInteractive() {
         launch("routes")
         onView(withText("Варианты маршрута")).check(matches(isDisplayed()))
-        onView(withSubstring("Автобус м2")).check(matches(isDisplayed()))
+        onView(withContentDescription(containsString("Автобус м2"))).check(matches(isDisplayed()))
         scenario!!.onActivity { activity ->
             val root = activity.findViewById<View>(R.id.root)
             val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
