@@ -98,7 +98,10 @@ capture_fixture() {
     start_output=$(adb shell am start -W -n "$activity_name" --es qa_screen "$screen")
   fi
   grep -F 'Status: ok' <<<"$start_output"
-  sleep 2
+  # MapLibre can restore the route overlay before raster tiles finish loading,
+  # especially on API 35. Give screenshot fixtures enough time to represent
+  # the settled UI instead of capturing a transient black map surface.
+  sleep 5
   adb exec-out screencap -p >"$output_dir/${name}.png"
   test -s "$output_dir/${name}.png"
   adb shell uiautomator dump /sdcard/vremyahodom-window.xml >/dev/null
