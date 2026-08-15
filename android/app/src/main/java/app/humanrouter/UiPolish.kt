@@ -9,6 +9,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
+import android.view.animation.DecelerateInterpolator
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
@@ -32,6 +33,7 @@ internal object UiPolish {
         private val density = activity.resources.displayMetrics.density
         private val visibility = LinkedHashMap<View, Int>()
         private val pressStyled = WeakHashMap<View, Boolean>()
+        private val easeOut = DecelerateInterpolator(1.35f)
 
         private val appearanceTargets = listOfNotNull(
             activity.findViewById<View?>(R.id.expandedSearchContent),
@@ -81,14 +83,18 @@ internal object UiPolish {
         }
 
         private fun smoothTransition(): LayoutTransition = LayoutTransition().apply {
-            setDuration(LayoutTransition.APPEARING, 150L)
-            setDuration(LayoutTransition.DISAPPEARING, 110L)
-            setDuration(LayoutTransition.CHANGE_APPEARING, 150L)
-            setDuration(LayoutTransition.CHANGE_DISAPPEARING, 130L)
+            setDuration(LayoutTransition.APPEARING, 190L)
+            setDuration(LayoutTransition.DISAPPEARING, 135L)
+            setDuration(LayoutTransition.CHANGE_APPEARING, 190L)
+            setDuration(LayoutTransition.CHANGE_DISAPPEARING, 165L)
             setStartDelay(LayoutTransition.APPEARING, 0L)
             setStartDelay(LayoutTransition.DISAPPEARING, 0L)
             setStartDelay(LayoutTransition.CHANGE_APPEARING, 0L)
             setStartDelay(LayoutTransition.CHANGE_DISAPPEARING, 0L)
+            setInterpolator(LayoutTransition.APPEARING, easeOut)
+            setInterpolator(LayoutTransition.DISAPPEARING, easeOut)
+            setInterpolator(LayoutTransition.CHANGE_APPEARING, easeOut)
+            setInterpolator(LayoutTransition.CHANGE_DISAPPEARING, easeOut)
             setAnimateParentHierarchy(false)
         }
 
@@ -214,19 +220,21 @@ internal object UiPolish {
             if (view is EditText || pressStyled.put(view, true) == true) return
             val pressed = AnimatorSet().apply {
                 playTogether(
-                    ObjectAnimator.ofFloat(view, View.SCALE_X, 1f, 0.975f),
-                    ObjectAnimator.ofFloat(view, View.SCALE_Y, 1f, 0.975f),
-                    ObjectAnimator.ofFloat(view, View.ALPHA, 1f, 0.90f)
+                    ObjectAnimator.ofFloat(view, View.SCALE_X, 1f, 0.985f),
+                    ObjectAnimator.ofFloat(view, View.SCALE_Y, 1f, 0.985f),
+                    ObjectAnimator.ofFloat(view, View.ALPHA, 1f, 0.94f)
                 )
-                duration = 70L
+                duration = 85L
+                interpolator = easeOut
             }
             val released = AnimatorSet().apply {
                 playTogether(
-                    ObjectAnimator.ofFloat(view, View.SCALE_X, 0.975f, 1f),
-                    ObjectAnimator.ofFloat(view, View.SCALE_Y, 0.975f, 1f),
-                    ObjectAnimator.ofFloat(view, View.ALPHA, 0.90f, 1f)
+                    ObjectAnimator.ofFloat(view, View.SCALE_X, 0.985f, 1f),
+                    ObjectAnimator.ofFloat(view, View.SCALE_Y, 0.985f, 1f),
+                    ObjectAnimator.ofFloat(view, View.ALPHA, 0.94f, 1f)
                 )
-                duration = 120L
+                duration = 155L
+                interpolator = easeOut
             }
             view.stateListAnimator = StateListAnimator().apply {
                 addState(intArrayOf(android.R.attr.state_pressed), pressed)
@@ -239,17 +247,22 @@ internal object UiPolish {
             if (old == null || old == View.VISIBLE || view.visibility != View.VISIBLE) return
             view.animate().cancel()
             val offset = when (view.id) {
-                R.id.routeResultsContainer, R.id.nearbyPanel, R.id.tabEmptyPanel -> dp(14).toFloat()
-                R.id.settingsScrim -> dp(8).toFloat()
-                R.id.expandedSearchContent -> -dp(6).toFloat()
-                else -> dp(4).toFloat()
+                R.id.routeResultsContainer, R.id.nearbyPanel, R.id.tabEmptyPanel -> dp(12).toFloat()
+                R.id.settingsScrim -> dp(7).toFloat()
+                R.id.expandedSearchContent -> -dp(5).toFloat()
+                else -> dp(3).toFloat()
             }
             view.alpha = 0f
             view.translationY = offset
+            view.scaleX = 0.995f
+            view.scaleY = 0.995f
             view.animate()
                 .alpha(1f)
                 .translationY(0f)
-                .setDuration(180L)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setInterpolator(easeOut)
+                .setDuration(235L)
                 .start()
         }
 
