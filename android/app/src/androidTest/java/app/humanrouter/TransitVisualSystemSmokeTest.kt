@@ -7,10 +7,12 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.swipeLeft
 import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.matcher.ViewMatchers.isDescendantOfA
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.hamcrest.Matchers.allOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -18,6 +20,8 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class TransitVisualSystemSmokeTest {
+    private val v2Strip = withContentDescription(TransitJourneyVisibilityGuard.V2_DESCRIPTION)
+
     @Test
     fun routeScreenShowsSecondGenerationTransportStrip() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -26,13 +30,11 @@ class TransitVisualSystemSmokeTest {
             putExtra("qa_screen", "routes")
         }
         ActivityScenario.launch<MainActivity>(intent).use {
-            onView(withContentDescription("Этапы маршрута с линиями и переходами"))
+            onView(v2Strip).check(matches(isDisplayed()))
+            onView(allOf(withText("м2"), isDescendantOfA(v2Strip)))
                 .check(matches(isDisplayed()))
-            onView(withText("м2"))
-                .check(matches(isDisplayed()))
-            onView(withContentDescription("Этапы маршрута с линиями и переходами"))
-                .perform(swipeLeft())
-            onView(withText("Метро 6"))
+            onView(v2Strip).perform(swipeLeft())
+            onView(allOf(withText("Метро 6"), isDescendantOfA(v2Strip)))
                 .check(matches(isDisplayed()))
         }
     }
@@ -45,8 +47,7 @@ class TransitVisualSystemSmokeTest {
             putExtra("qa_screen", "trip")
         }
         ActivityScenario.launch<MainActivity>(intent).use {
-            onView(withContentDescription("Этапы маршрута с линиями и переходами"))
-                .check(matches(isDisplayed()))
+            onView(v2Strip).check(matches(isDisplayed()))
         }
     }
 
