@@ -3,6 +3,10 @@ package app.humanrouter
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.graphics.Rect
+import android.os.SystemClock
+import android.view.InputDevice
+import android.view.MotionEvent
 import android.view.View
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -14,12 +18,16 @@ import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.isEnabled
 import androidx.test.espresso.matcher.ViewMatchers.isRoot
+import androidx.test.espresso.matcher.ViewMatchers.withEffectiveVisibility
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withSubstring
 import androidx.test.espresso.matcher.ViewMatchers.withText
+import androidx.test.espresso.matcher.ViewMatchers.Visibility
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.hamcrest.Matcher
+import org.hamcrest.Matchers.allOf
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -63,11 +71,11 @@ class MainActivitySmokeTest {
         onView(withId(R.id.closeSettingsButton)).perform(click())
         onView(isRoot()).perform(waitForUi(200L))
 
-        onView(withId(R.id.transportNavButton)).perform(click())
+        onView(withId(R.id.transportNavButton)).perform(tapVisibleCenter())
         onView(withText(R.string.nearby_title)).check(matches(isDisplayed()))
-        onView(withId(R.id.favoritesNavButton)).perform(click())
+        onView(withId(R.id.favoritesNavButton)).perform(tapVisibleCenter())
         onView(withText(R.string.favorites_empty)).check(matches(isDisplayed()))
-        onView(withId(R.id.mapNavButton)).perform(click())
+        onView(withId(R.id.mapNavButton)).perform(tapVisibleCenter())
 
         scenario!!.recreate()
         onView(withId(R.id.mapView)).check(matches(isDisplayed()))
@@ -108,8 +116,8 @@ class MainActivitySmokeTest {
 
         relaunch("trip")
         onView(withText("В пути")).check(matches(isDisplayed()))
-        onView(withId(R.id.favoritesNavButton)).perform(click())
-        onView(withId(R.id.routesNavButton)).perform(click())
+        onView(withId(R.id.favoritesNavButton)).perform(tapVisibleCenter())
+        onView(withId(R.id.routesNavButton)).perform(tapVisibleCenter())
         onView(withText("В пути")).check(matches(isDisplayed()))
         onView(withText("Завершить поездку")).perform(scrollTo(), click())
         onView(withText("Варианты маршрута")).check(matches(isDisplayed()))
@@ -157,6 +165,51 @@ class MainActivitySmokeTest {
 
         override fun perform(uiController: UiController, view: View) {
             uiController.loopMainThreadForAtLeast(milliseconds)
+        }
+    }
+
+    private fun tapVisibleCenter(): ViewAction = object : ViewAction {
+        override fun getConstraints(): Matcher<View> = allOf(
+            withEffectiveVisibility(Visibility.VISIBLE),
+            isEnabled()
+        )
+
+        override fun getDescription(): String = "tap the center of the visible touch target"
+
+        override fun perform(uiController: UiController, view: View) {
+            val visible = Rect()
+            check(view.getGlobalVisibleRect(visible) && !visible.isEmpty) {
+                "Touch target has no visible area"
+            }
+            val visibleArea = visible.width().toLong() * visible.height()
+            val fullArea = view.width.toLong() * view.height
+            check(visibleArea * 2 >= fullArea) {
+                "Less than half of the touch target is visible"
+            }
+
+            val x = visible.exactCenterX()
+            val y = visible.exactCenterY()
+            val downTime = SystemClock.uptimeMillis()
+            val down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0).apply {
+                source = InputDevice.SOURCE_TOUCHSCREEN
+            }
+            try {
+                check(uiController.injectMotionEvent(down)) { "Failed to inject touch down" }
+            } finally {
+                down.recycle()
+            }
+            uiController.loopMainThreadForAtLeast(50L)
+
+            val upTime = SystemClock.uptimeMillis()
+            val up = MotionEvent.obtain(downTime, upTime, MotionEvent.ACTION_UP, x, y, 0).apply {
+                source = InputDevice.SOURCE_TOUCHSCREEN
+            }
+            try {
+                check(uiController.injectMotionEvent(up)) { "Failed to inject touch up" }
+            } finally {
+                up.recycle()
+            }
+            uiController.loopMainThreadUntilIdle()
         }
     }
 }

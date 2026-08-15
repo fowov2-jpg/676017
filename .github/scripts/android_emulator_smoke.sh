@@ -50,7 +50,10 @@ adb shell dumpsys activity activities | grep -F "$package_name/.MainActivity"
 focus_dump="$output_dir/first-launch-window.txt"
 focus_ok=false
 for _ in {1..10}; do
-  adb shell dumpsys window displays >"$focus_dump"
+  {
+    adb shell dumpsys window windows
+    adb shell dumpsys window displays
+  } >"$focus_dump"
   if grep -F 'mCurrentFocus=' "$focus_dump" | grep -F "$package_name" >/dev/null; then
     focus_ok=true
     break
