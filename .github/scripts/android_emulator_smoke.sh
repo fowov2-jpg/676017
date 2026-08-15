@@ -21,6 +21,15 @@ adb wait-for-device
   adb shell getprop ro.product.cpu.abi | tr -d '\r' | sed 's/^/abi=/'
 } >"$output_dir/environment.txt"
 
+# Headless Google API images can surface a stale Pixel Launcher ANR over the
+# tested activity.  It is unrelated to the app but steals window focus from
+# Espresso, so suppress background system error dialogs and close any dialog
+# that was created while the emulator was still booting.
+adb shell settings put global hide_error_dialogs 1
+adb shell settings put global anr_show_background 0 >/dev/null 2>&1 || true
+adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
+adb shell wm dismiss-keyguard >/dev/null 2>&1 || true
+
 adb shell settings put global window_animation_scale 0
 adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
@@ -38,8 +47,15 @@ sleep 2
 adb exec-out screencap -p >"$output_dir/first-launch.png"
 test -s "$output_dir/first-launch.png"
 adb shell dumpsys activity activities | grep -F "$package_name/.MainActivity"
+adb shell uiautomator dump /sdcard/vremyahodom-first-launch.xml >/dev/null
+adb pull /sdcard/vremyahodom-first-launch.xml "$output_dir/first-launch.xml" >/dev/null
+grep -F 'Куда едем?' "$output_dir/first-launch.xml"
 adb shell am force-stop "$package_name"
 adb shell pm clear "$package_name" >/dev/null
+
+# A launcher ANR may have been queued before hide_error_dialogs took effect.
+# Close it once more immediately before ActivityScenario starts the UI suite.
+adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
 
 # Deterministic debug-only fixtures drive the UI suite; production builds cannot enter them.
 instrumentation_output="$output_dir/instrumentation.txt"
