@@ -11,6 +11,7 @@ import android.util.Base64
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.LinearInterpolator
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -37,8 +38,9 @@ import kotlin.math.max
  *
  * Unlike the platform splash icon, this screen reflects actual application work:
  * local runtime files are checked one by one and RuntimeDownloadWorker progress is
- * mirrored directly (including downloaded/total byte counts). It disappears as soon
- * as usable transport data and the first UI layout are ready.
+ * mirrored directly (including downloaded/total byte counts). Once the real work is
+ * complete, a short presentation phase keeps the polished startup experience visible
+ * for a predictable minimum duration instead of flashing for a fraction of a second.
  */
 internal object StartupLoadingController {
     private val controllers = WeakHashMap<MainActivity, Controller>()
@@ -359,20 +361,38 @@ internal object StartupLoadingController {
         private fun finishOverlay() {
             if (finishing || destroyed) return
             finishing = true
-            showState(100, "Готово", "")
+
             val elapsed = SystemClock.uptimeMillis() - startedAt
-            val delay = (MIN_VISIBLE_MS - elapsed).coerceAtLeast(120L)
+            val presentationMs = (MIN_VISIBLE_MS - elapsed).coerceAtLeast(MIN_FINISH_ANIMATION_MS)
+            status.text = "Ресурсы готовы · запускаем навигатор…"
+            details.text = "Карта и транспортный движок подготовлены"
+            retry.visibility = View.GONE
+
+            progressAnimator?.cancel()
+            progressAnimator = ObjectAnimator.ofInt(progress, "progress", progress.progress, 100).apply {
+                duration = presentationMs
+                interpolator = LinearInterpolator()
+                addUpdateListener { animator ->
+                    percent.text = "${animator.animatedValue as Int}%"
+                }
+                start()
+            }
+
             overlay.postDelayed({
                 if (destroyed) return@postDelayed
+                progress.progress = 100
+                percent.text = "100%"
+                status.text = "Готово"
+                details.text = ""
                 overlay.animate()
                     .alpha(0f)
-                    .setDuration(220L)
+                    .setDuration(FADE_OUT_MS)
                     .withEndAction {
                         if (overlay.parent === root) root.removeView(overlay)
                         restoreBars()
                     }
                     .start()
-            }, delay)
+            }, presentationMs)
         }
 
         private fun showFailure(message: String) {
@@ -440,6 +460,8 @@ internal object StartupLoadingController {
         private fun dp(value: Int): Int = (value * density + 0.5f).toInt()
     }
 
-    private const val MIN_VISIBLE_MS = 520L
+    private const val MIN_VISIBLE_MS = 5_000L
+    private const val MIN_FINISH_ANIMATION_MS = 350L
+    private const val FADE_OUT_MS = 260L
     private val BACKGROUND = Color.rgb(2, 8, 25)
 }
