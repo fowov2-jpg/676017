@@ -5,6 +5,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
+import app.humanrouter.routing.FastMeetRouter
 import app.humanrouter.routing.GeoPoint
 import app.humanrouter.routing.HumanRouterEngine
 import app.humanrouter.search.FastAddressResolver
@@ -12,19 +13,21 @@ import app.humanrouter.search.SearchPlace
 import java.lang.reflect.Method
 import java.util.WeakHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Fast path for the primary A -> B route action.
+ * Low-latency A -> B controller.
  *
- * The legacy MainActivity path resolves A and B sequentially and then asks the engine for every
- * alternative before showing anything. On a slow geocoder this can take many seconds. This
- * controller resolves both endpoints concurrently, renders planFastest first, and only then
- * refreshes the list with alternatives in the background.
+ * Typed endpoints are resolved under one shared geocoding deadline. The first route is produced by
+ * FastMeetRouter (bidirectional METRO/MCC + concurrent short-horizon BUS/TRAM) and painted before
+ * the expensive exact multimodal alternatives are calculated in the background.
  */
 internal object FastRoutePlanner {
-    private const val GEOCODE_BUDGET_MS = 1_550L
+    private const val GEOCODE_BUDGET_MS = 780L
+    private const val PREVIEW_BUDGET_MS = 820L
+    private const val FIRST_RESULT_TARGET_MS = 2_000L
     private val io = Executors.newFixedThreadPool(4)
     private val installed = WeakHashMap<MainActivity, Boolean>()
     private val requestSerial = AtomicInteger()
@@ -35,6 +38,16 @@ internal object FastRoutePlanner {
         if (installed.put(activity, true) == true) return
         activity.findViewById<Button>(R.id.routeButton).setOnClickListener {
             plan(activity)
+        }
+
+        // Build rail/surface indexes before the user presses the route button. This moves most
+        // cold-start cost into idle time while the user is choosing A and B.
+        io.execute {
+            runCatching {
+                FastMeetRouter
+                    .get(activity.applicationContext, AppPreferences.routePreferences(activity))
+                    .prewarm()
+            }
         }
     }
 
@@ -76,8 +89,11 @@ internal object FastRoutePlanner {
         }
 
         io.execute {
-            val origin = runCatching { originFuture.get(GEOCODE_BUDGET_MS, TimeUnit.MILLISECONDS) }.getOrNull()
-            val destination = runCatching { destinationFuture.get(GEOCODE_BUDGET_MS, TimeUnit.MILLISECONDS) }.getOrNull()
+            // One absolute deadline for both endpoints. The old code could effectively spend the
+            // timeout twice when one endpoint was slow.
+            val geocodeDeadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(GEOCODE_BUDGET_MS)
+            val origin = getBeforeDeadline(originFuture, geocodeDeadline)
+            val destination = getBeforeDeadline(destinationFuture, geocodeDeadline)
             if (request != requestSerial.get()) return@execute
 
             if (origin == null || destination == null) {
@@ -87,7 +103,11 @@ internal object FastRoutePlanner {
                     if (request != requestSerial.get()) return@runOnUiThread
                     invokeByName(activity, "setPlanBusy", false)
                     val missing = if (origin == null) "точку отправления" else "место назначения"
-                    invokeByName(activity, "showSuggestionMessage", "Не удалось быстро найти $missing. Уточните улицу и номер дома.")
+                    invokeByName(
+                        activity,
+                        "showSuggestionMessage",
+                        "Не удалось быстро найти $missing. Выберите подсказку или уточните улицу и дом."
+                    )
                     Toast.makeText(activity, "Адрес не найден. Проверьте написание.", Toast.LENGTH_SHORT).show()
                 }
                 return@execute
@@ -103,48 +123,87 @@ internal object FastRoutePlanner {
             }
 
             val departure = java.time.Instant.now().epochSecond
-            val fastResult = engine.planFastest(origin.point, destination.point, departure)
+            val routePreferences = AppPreferences.routePreferences(activity)
+            val preview = runCatching {
+                FastMeetRouter
+                    .get(activity.applicationContext, routePreferences)
+                    .planPreview(
+                        origin = origin.point,
+                        destination = destination.point,
+                        departureEpochSec = departure,
+                        budgetMs = PREVIEW_BUDGET_MS
+                    )
+            }.getOrElse {
+                HumanRouterEngine.PlanResult.Failure(it.message ?: "Быстрый поиск недоступен")
+            }
             if (request != requestSerial.get()) return@execute
 
-            val fastSucceeded = fastResult is HumanRouterEngine.PlanResult.Success
-            activity.runOnUiThread {
-                if (request != requestSerial.get()) return@runOnUiThread
-                applyResolvedEndpoint(activity, "selectedFrom", fromField, origin)
-                applyResolvedEndpoint(activity, "selectedTo", toField, destination)
-                activity.findViewById<TextView>(R.id.compactSearchButton).text = destination.title
-                invokeByName(activity, "collapseSearch")
-                invokeByName(activity, "setPlanBusy", false)
-                invokeRenderPlanResult(activity, fastResult)
-            }
-
-            // The first usable route is already on screen. Enrich with alternatives afterwards,
-            // without making the user wait for multiple departure offsets and multimodal scans.
-            if (fastSucceeded && request == requestSerial.get()) {
-                val options = runCatching {
-                    engine.planOptions(origin.point, destination.point, departure)
-                }.getOrNull()
-                if (options is HumanRouterEngine.PlanResult.Success && request == requestSerial.get()) {
-                    activity.runOnUiThread {
-                        if (request != requestSerial.get()) return@runOnUiThread
-                        invokeRenderPlanResult(activity, options)
-                    }
-                }
-            } else if (!fastSucceeded && request == requestSerial.get()) {
-                // Fast path may be too restrictive for a rare multimodal case. Try the broad search
-                // once before leaving the user with a failure.
-                val options = runCatching {
-                    engine.planOptions(origin.point, destination.point, departure)
-                }.getOrNull()
-                if (options is HumanRouterEngine.PlanResult.Success && request == requestSerial.get()) {
-                    activity.runOnUiThread { invokeRenderPlanResult(activity, options) }
+            val previewSucceeded = preview is HumanRouterEngine.PlanResult.Success
+            val firstElapsed = SystemClock.elapsedRealtime() - started
+            if (previewSucceeded) {
+                activity.runOnUiThread {
+                    if (request != requestSerial.get()) return@runOnUiThread
+                    applyResolvedEndpoint(activity, "selectedFrom", fromField, origin)
+                    applyResolvedEndpoint(activity, "selectedTo", toField, destination)
+                    activity.findViewById<TextView>(R.id.compactSearchButton).text = destination.title
+                    invokeByName(activity, "collapseSearch")
+                    invokeByName(activity, "setPlanBusy", false)
+                    invokeRenderPlanResult(activity, preview)
                 }
             }
 
             android.util.Log.i(
                 "VremyaHodomRoute",
-                "A-B first result in ${SystemClock.elapsedRealtime() - started} ms; fast=$fastSucceeded"
+                "first-preview=${firstElapsed}ms target=${FIRST_RESULT_TARGET_MS}ms success=$previewSucceeded"
             )
+
+            // Full exact multimodal calculation is refinement, not a blocker for first paint.
+            // If the preview could not cover a rare trip, fall back to the existing exact fastest
+            // route before running all alternatives.
+            if (!previewSucceeded && request == requestSerial.get()) {
+                val exactFast = runCatching {
+                    engine.planFastest(origin.point, destination.point, departure)
+                }.getOrNull()
+                if (exactFast is HumanRouterEngine.PlanResult.Success && request == requestSerial.get()) {
+                    activity.runOnUiThread {
+                        if (request != requestSerial.get()) return@runOnUiThread
+                        applyResolvedEndpoint(activity, "selectedFrom", fromField, origin)
+                        applyResolvedEndpoint(activity, "selectedTo", toField, destination)
+                        activity.findViewById<TextView>(R.id.compactSearchButton).text = destination.title
+                        invokeByName(activity, "collapseSearch")
+                        invokeByName(activity, "setPlanBusy", false)
+                        invokeRenderPlanResult(activity, exactFast)
+                    }
+                }
+            }
+
+            if (request != requestSerial.get()) return@execute
+            val options = runCatching {
+                engine.planOptions(origin.point, destination.point, departure)
+            }.getOrNull()
+            if (options is HumanRouterEngine.PlanResult.Success && request == requestSerial.get()) {
+                activity.runOnUiThread {
+                    if (request != requestSerial.get()) return@runOnUiThread
+                    invokeByName(activity, "setPlanBusy", false)
+                    invokeRenderPlanResult(activity, options)
+                }
+            } else if (!previewSucceeded && request == requestSerial.get()) {
+                activity.runOnUiThread {
+                    if (request != requestSerial.get()) return@runOnUiThread
+                    invokeByName(activity, "setPlanBusy", false)
+                    invokeRenderPlanResult(
+                        activity,
+                        options ?: HumanRouterEngine.PlanResult.Failure("Для выбранных точек маршрут не найден")
+                    )
+                }
+            }
         }
+    }
+
+    private fun <T> getBeforeDeadline(future: Future<T>, deadlineNanos: Long): T? {
+        val remaining = deadlineNanos - System.nanoTime()
+        if (remaining <= 0L) return null
+        return runCatching { future.get(remaining, TimeUnit.NANOSECONDS) }.getOrNull()
     }
 
     private fun resolveTyped(activity: MainActivity, text: String, focus: GeoPoint?): SearchPlace? {
@@ -172,8 +231,6 @@ internal object FastRoutePlanner {
         field: EditText,
         place: SearchPlace
     ) {
-        // setFieldText suppresses MainActivity's watcher so it does not immediately clear the
-        // selected SearchPlace while we fill the canonical label.
         val label = if (place.subtitle.isBlank()) place.title else "${place.title}, ${place.subtitle}"
         val method = activity.javaClass.declaredMethods.firstOrNull {
             it.name == "setFieldText" && it.parameterCount == 2
