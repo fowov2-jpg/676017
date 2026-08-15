@@ -16,8 +16,8 @@ internal data class SearchPlace(
 )
 
 internal object PhotonGeocoder {
-    private const val MAX_CACHE = 48
-    private const val RETRIES = 2
+    private const val MAX_CACHE = 96
+    private const val RETRIES = 1
     private val cache = object : LinkedHashMap<String, List<SearchPlace>>(MAX_CACHE, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<SearchPlace>>?): Boolean = size > MAX_CACHE
     }
@@ -39,7 +39,7 @@ internal object PhotonGeocoder {
                 return result
             } catch (error: IOException) {
                 lastError = error
-                if (attempt + 1 < RETRIES) Thread.sleep(180L * (attempt + 1))
+                if (attempt + 1 < RETRIES) Thread.sleep(120L * (attempt + 1))
             }
         }
         throw IOException("Поиск адреса временно недоступен", lastError)
@@ -50,7 +50,8 @@ internal object PhotonGeocoder {
         params += "q=${enc(q)}"
         params += "lang=ru"
         params += "limit=${limit.coerceIn(1, 10)}"
-        params += "bbox=36.75,55.45,38.35,56.05"
+        // Keep results relevant to the Moscow transport runtime while still covering the region.
+        params += "bbox=35.0,54.7,40.5,57.15"
         focus?.let {
             params += "lat=${it.lat}"
             params += "lon=${it.lon}"
@@ -58,8 +59,8 @@ internal object PhotonGeocoder {
         }
 
         val connection = (URL("https://photon.komoot.io/api?${params.joinToString("&")}").openConnection() as HttpURLConnection).apply {
-            connectTimeout = 6_000
-            readTimeout = 7_000
+            connectTimeout = 1_200
+            readTimeout = 1_600
             requestMethod = "GET"
             instanceFollowRedirects = true
             setRequestProperty("Accept", "application/geo+json, application/json")
