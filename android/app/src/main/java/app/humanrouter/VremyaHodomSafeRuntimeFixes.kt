@@ -14,11 +14,11 @@ import java.util.WeakHashMap
  * presentation do not wait for the periodic active-trip refresh tick.
  */
 internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallbacks {
-    private data class WatchState(
-        var lastRouteId: String? = null,
-        var resumed: Boolean = false,
+    private class WatchState {
+        var lastRouteId: String? = null
+        var resumed: Boolean = false
         lateinit var runnable: Runnable
-    )
+    }
 
     private val initialized = WeakHashMap<Activity, Boolean>()
     private val watches = WeakHashMap<MainActivity, WatchState>()
