@@ -388,7 +388,9 @@ class MainActivity : AppCompatActivity() {
                 renderCurrentLocationMarker()
                 renderNearbyMarkers(lastNearby)
                 selectedRoute()?.let {
-                    renderRouteOnMap(it, fit = routeResultsContainer.visibility == View.VISIBLE)
+                    // Style loading resets the initial camera. Always restore the selected
+                    // route with fitting so its destination cannot remain outside the viewport.
+                    renderRouteOnMap(it, fit = true)
                 }
             }
             readyMap.addOnCameraIdleListener {
