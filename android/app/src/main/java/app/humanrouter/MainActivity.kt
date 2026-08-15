@@ -2096,7 +2096,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun applySystemInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())
 
             searchPanel.updateLayoutParams<FrameLayout.LayoutParams> { topMargin = bars.top + dp(12) }
             quickActions.updateLayoutParams<FrameLayout.LayoutParams> { topMargin = bars.top + dp(78) }
