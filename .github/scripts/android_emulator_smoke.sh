@@ -47,9 +47,17 @@ sleep 2
 adb exec-out screencap -p >"$output_dir/first-launch.png"
 test -s "$output_dir/first-launch.png"
 adb shell dumpsys activity activities | grep -F "$package_name/.MainActivity"
-adb shell uiautomator dump /sdcard/vremyahodom-first-launch.xml >/dev/null
-adb pull /sdcard/vremyahodom-first-launch.xml "$output_dir/first-launch.xml" >/dev/null
-grep -F 'Куда едем?' "$output_dir/first-launch.xml"
+focus_dump="$output_dir/first-launch-window.txt"
+focus_ok=false
+for _ in {1..10}; do
+  adb shell dumpsys window windows >"$focus_dump"
+  if grep -F 'mCurrentFocus=' "$focus_dump" | grep -F "$package_name" >/dev/null; then
+    focus_ok=true
+    break
+  fi
+  sleep 1
+done
+test "$focus_ok" = true
 adb shell am force-stop "$package_name"
 adb shell pm clear "$package_name" >/dev/null
 
