@@ -31,10 +31,10 @@ class TransitVisualSystemSmokeTest {
         }
         ActivityScenario.launch<MainActivity>(intent).use {
             onView(v2Strip).check(matches(isDisplayed()))
-            onView(allOf(withText("м2"), isDescendantOfA(v2Strip)))
+            onView(allOf(withText("м2"), isDescendantOfA(v2Strip), isDisplayed()))
                 .check(matches(isDisplayed()))
             onView(v2Strip).perform(swipeLeft())
-            onView(allOf(withText("Метро 6"), isDescendantOfA(v2Strip)))
+            onView(allOf(withText("Метро 6"), isDescendantOfA(v2Strip), isDisplayed()))
                 .check(matches(isDisplayed()))
         }
     }
