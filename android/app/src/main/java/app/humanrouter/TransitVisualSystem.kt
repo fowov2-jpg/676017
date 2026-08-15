@@ -97,7 +97,10 @@ internal object TransitVisualCatalog {
         val raw = label.orEmpty().trim()
         if (raw.isBlank()) return null
         val normalized = normalize(raw)
-        METRO_NAMES.entries.firstOrNull { (needle, _) -> normalized.contains(needle) }?.let { return it.value }
+        METRO_NAMES.entries
+            .sortedByDescending { it.key.length }
+            .firstOrNull { (needle, _) -> normalized.contains(needle) }
+            ?.let { return it.value }
         val compact = raw.uppercase(Locale.ROOT)
             .replace('М', 'M')
             .replace("№", "")
@@ -618,7 +621,8 @@ internal object TransitVisualPolish {
                 contentDescription = when (step.kind) {
                     RouteDisplayKind.WALK -> "Пешком"
                     RouteDisplayKind.TRANSFER -> "Пересадка"
-                    RouteDisplayKind.TRANSIT -> "${visual.label} ${visual.badge}".trim()
+                    RouteDisplayKind.TRANSIT ->
+                        "Транспорт: ${visual.label.lowercase(Locale.ROOT)}; ${visual.badge}".trimEnd(';', ' ')
                 }
 
                 if (step.kind == RouteDisplayKind.TRANSIT && visual.circularBadge) {
