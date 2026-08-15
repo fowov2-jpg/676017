@@ -192,6 +192,7 @@ jobs:
             android/app/build/outputs/apk/debug/app-debug.apk.sha256
             android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
+          retention-days: 90
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -199,6 +200,7 @@ jobs:
           name: vremyahodom-lint-report
           path: android/app/build/reports/lint-results-debug.html
           if-no-files-found: ignore
+          retention-days: 90
 
   emulator-smoke:
     needs: build
@@ -241,3 +243,60 @@ jobs:
           name: vremyahodom-emulator-api-${{ matrix.api }}
           path: android/emulator-artifacts/api-${{ matrix.api }}
           if-no-files-found: error
+          retention-days: 90
+
+  publish-qa-release:
+    needs: [build, emulator-smoke]
+    if: ${{ always() && needs.build.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vremyahodom-debug-apk
+          path: android-ci
+
+      - name: Publish permanent versioned QA APK on GitHub Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EMULATOR_RESULT: ${{ needs.emulator-smoke.result }}
+        run: |
+          set -euo pipefail
+          VERSION="0.1.${GITHUB_RUN_NUMBER}"
+          TAG="qa-v${VERSION}"
+          APK_SRC=$(find android-ci -type f -name 'app-debug.apk' | head -n 1)
+          test -n "$APK_SRC"
+          test -s "$APK_SRC"
+
+          APK_OUT="VremyaHodom-${VERSION}-qa.apk"
+          SHA_OUT="VremyaHodom-${VERSION}-qa.sha256.txt"
+          cp "$APK_SRC" "$APK_OUT"
+          sha256sum "$APK_OUT" > "$SHA_OUT"
+
+          cat > release-notes.txt <<EOF
+          VremyaHodom QA build ${VERSION}
+
+          Source commit: ${GITHUB_SHA}
+          GitHub Actions run: ${GITHUB_RUN_ID}
+          Build/unit/lint/APK verification: success
+          Emulator smoke aggregate result: ${EMULATOR_RESULT}
+          Signing: CI debug signer (QA, not production signing)
+
+          This release is retained in GitHub Releases so a previously shared APK version can be found later.
+          EOF
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_OUT" "$SHA_OUT" --clobber
+            gh release edit "$TAG" \
+              --title "VremyaHodom ${VERSION} · QA" \
+              --notes-file release-notes.txt \
+              --prerelease
+          else
+            gh release create "$TAG" "$APK_OUT" "$SHA_OUT" \
+              --target "$GITHUB_SHA" \
+              --title "VremyaHodom ${VERSION} · QA" \
+              --notes-file release-notes.txt \
+              --prerelease
+          fi
