@@ -9,6 +9,7 @@ import androidx.test.espresso.action.ViewActions.swipeLeft
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
+import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -18,33 +19,33 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class TransitVisualSystemSmokeTest {
     @Test
-    fun routeScreenShowsReferenceTransportStrip() {
+    fun routeScreenShowsSecondGenerationTransportStrip() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val intent = Intent(context, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             putExtra("qa_screen", "routes")
         }
         ActivityScenario.launch<MainActivity>(intent).use {
-            onView(withContentDescription("Схема транспорта маршрута"))
+            onView(withContentDescription("Этапы маршрута с линиями и переходами"))
                 .check(matches(isDisplayed()))
-            onView(withContentDescription("Транспорт: автобус; м2"))
+            onView(withText("м2"))
                 .check(matches(isDisplayed()))
-            onView(withContentDescription("Схема транспорта маршрута"))
+            onView(withContentDescription("Этапы маршрута с линиями и переходами"))
                 .perform(swipeLeft())
-            onView(withContentDescription("Транспорт: метро; 6"))
+            onView(withText("Метро 6"))
                 .check(matches(isDisplayed()))
         }
     }
 
     @Test
-    fun activeTripShowsReferenceTransportStrip() {
+    fun activeTripShowsSecondGenerationTransportStrip() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val intent = Intent(context, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             putExtra("qa_screen", "trip")
         }
         ActivityScenario.launch<MainActivity>(intent).use {
-            onView(withContentDescription("Схема транспорта маршрута"))
+            onView(withContentDescription("Этапы маршрута с линиями и переходами"))
                 .check(matches(isDisplayed()))
         }
     }
