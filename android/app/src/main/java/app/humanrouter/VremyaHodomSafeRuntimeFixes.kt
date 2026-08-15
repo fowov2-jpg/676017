@@ -9,9 +9,9 @@ import app.humanrouter.routing.LastPlanStore
 import java.util.WeakHashMap
 
 /**
- * Defers the runtime UX controller until MainActivity is fully resumed and its content view exists.
- * It also notices a newly selected route and immediately kicks the controller, so route colours and
- * presentation do not wait for the periodic active-trip refresh tick.
+ * Defers runtime UX controllers until MainActivity is fully resumed and its content view exists.
+ * It also notices a newly selected route and immediately refreshes map, transport styling and the
+ * second-generation Moscow journey strip instead of waiting for the periodic active-trip tick.
  */
 internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallbacks {
     private class WatchState {
@@ -40,6 +40,8 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
         VremyaHodomRuntimeFixes.onActivityResumed(activity)
         TransitVisualPolish.install(activity)
         TransitVisualPolish.refresh(activity)
+        TransitJourneyUiV2.install(activity)
+        TransitJourneyUiV2.refresh(activity)
         TransitStopOverlay.install(activity)
         TransitStopOverlay.refresh(activity)
 
@@ -55,6 +57,7 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
                             watch.lastRouteId = routeId
                             VremyaHodomRuntimeFixes.onActivityResumed(activity)
                             TransitVisualPolish.refresh(activity)
+                            TransitJourneyUiV2.refresh(activity)
                             TransitStopOverlay.refresh(activity)
                         }
                         handler.postDelayed(this, ROUTE_WATCH_INTERVAL_MS)
@@ -81,6 +84,7 @@ internal object VremyaHodomSafeRuntimeFixes : Application.ActivityLifecycleCallb
         if (activity is MainActivity) {
             StartupExperienceV2.destroy(activity)
             TransitVisualPolish.destroy(activity)
+            TransitJourneyUiV2.destroy(activity)
             TransitStopOverlay.destroy(activity)
             watches.remove(activity)?.let { state ->
                 state.resumed = false
