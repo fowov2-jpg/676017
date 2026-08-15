@@ -24,23 +24,16 @@ import kotlin.math.sqrt
 /**
  * Low-latency first-route engine.
  *
- * The production HumanRouterEngine remains the authority and refines this preview in the
- * background. This router intentionally uses a much smaller search space for the first paint:
- *
- *  * METRO/MCC use a true bidirectional meet-in-the-middle search over the static rail graph;
- *  * BUS/TRAM use the timetable CSA with geometric (not OSM-Dijkstra) access/transfer links and a
- *    short horizon;
- *  * rail and surface searches run concurrently and the best completed candidate wins;
- *  * the expensive exact walking graph, MCD/train timetable and broad multimodal alternatives are
- *    left to HumanRouterEngine.planOptions after a preview is already visible.
- *
- * The preview is deliberately marked with larger uncertainty. It is a responsiveness mechanism,
- * not a replacement for the full route calculation.
+ * The full HumanRouterEngine remains authoritative and refines this preview in the background.
+ * For first paint we deliberately use a smaller search space:
+ * - METRO/MCC: true bidirectional meet-in-the-middle search;
+ * - BUS/TRAM: short-horizon CSA with geometric access/transfer links;
+ * - both searches run concurrently;
+ * - exact OSM walking, MCD/train and broad multimodal alternatives stay in the background pass.
  */
 internal class FastMeetRouter private constructor(
     context: Context,
-    private val preferences: RoutePreferences,
-    private val runtimeToken: String
+    private val preferences: RoutePreferences
 ) {
     private val appContext = context.applicationContext
     private val runtimeRoot = File(appContext.filesDir, "runtime")
@@ -48,10 +41,7 @@ internal class FastMeetRouter private constructor(
     private val workers = Executors.newFixedThreadPool(3)
 
     private val railIndex: FastRailMeetIndex? by lazy {
-        FastRailMeetIndex.openOrNull(
-            File(runtimeRoot, "rail/graph.json"),
-            preferences
-        )
+        FastRailMeetIndex.openOrNull(File(runtimeRoot, "rail/graph.json"), preferences)
     }
 
     @Volatile
@@ -77,20 +67,20 @@ internal class FastMeetRouter private constructor(
 
         val completion = ExecutorCompletionService<PreviewCandidate?>(workers)
         val futures = ArrayList<Future<PreviewCandidate?>>(2)
-        futures += completion.submit<PreviewCandidate?> {
+        futures += completion.submit {
             railIndex?.findFastest(origin, destination, departureEpochSec)?.let {
                 PreviewCandidate(it, null)
             }
         }
-        futures += completion.submit<PreviewCandidate?> {
+        futures += completion.submit {
             surfacePreview(origin, destination, departureEpochSec)
         }
 
         val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(
             budgetMs.coerceIn(MIN_PREVIEW_BUDGET_MS, MAX_PREVIEW_BUDGET_MS)
         )
-        var serviceDate: LocalDate? = null
         var completed = 0
+        var serviceDate: LocalDate? = null
         while (completed < futures.size) {
             val remaining = deadline - System.nanoTime()
             if (remaining <= 0L) break
@@ -103,14 +93,13 @@ internal class FastMeetRouter private constructor(
         futures.forEach { if (!it.isDone) it.cancel(true) }
 
         val ranked = RouteRanker.rank(
-            candidates = candidates.distinctBy { it.id },
-            objective = RouteObjective.FASTEST,
-            preferences = preferences
+            candidates.distinctBy { it.id },
+            RouteObjective.FASTEST,
+            preferences
         ).firstOrNull()
-
-        if (ranked == null) {
-            return HumanRouterEngine.PlanResult.Failure("Быстрый маршрут не найден; выполняется расширенный поиск")
-        }
+            ?: return HumanRouterEngine.PlanResult.Failure(
+                "Быстрый маршрут не найден; выполняется расширенный поиск"
+            )
 
         LastPlanStore.select(ranked.route, destination)
         return HumanRouterEngine.PlanResult.Success(
@@ -130,15 +119,16 @@ internal class FastMeetRouter private constructor(
         val requestedDate = Instant.ofEpochSecond(departureEpochSec).atZone(zoneId).toLocalDate()
         val serviceDate = runCatching { LocalDate.parse(session.repository.serviceDate) }.getOrNull()
             ?: return PreviewCandidate(null, null)
-
-        val dayDistance = kotlin.math.abs(ChronoUnit.DAYS.between(serviceDate, requestedDate))
-        if (dayDistance > MAX_SURFACE_DATE_DISTANCE_DAYS) {
+        val dateDistance = kotlin.math.abs(ChronoUnit.DAYS.between(serviceDate, requestedDate))
+        if (dateDistance > MAX_SURFACE_DATE_DISTANCE_DAYS) {
             return PreviewCandidate(null, serviceDate)
         }
 
         val midnight = requestedDate.atStartOfDay(zoneId).toEpochSecond()
         val serviceSeconds = (departureEpochSec - midnight).toInt()
-        if (serviceSeconds !in 0..MAX_SERVICE_SECONDS) return PreviewCandidate(null, serviceDate)
+        if (serviceSeconds !in 0..MAX_SERVICE_SECONDS) {
+            return PreviewCandidate(null, serviceDate)
+        }
 
         val result = synchronized(session.router) {
             session.router.findFastest(
@@ -160,9 +150,9 @@ internal class FastMeetRouter private constructor(
         val manifest = File(runtimeRoot, "surface/manifest.json")
         if (!manifest.exists()) return null
         val token = "${manifest.length()}:${manifest.lastModified()}"
-        surfaceSession?.let { existing ->
-            if (existing.token == token) return existing
-            runCatching { existing.repository.close() }
+        surfaceSession?.let { current ->
+            if (current.token == token) return current
+            runCatching { current.repository.close() }
             surfaceSession = null
         }
         return runCatching {
@@ -170,8 +160,7 @@ internal class FastMeetRouter private constructor(
             SurfaceSession(
                 token = token,
                 repository = repository,
-                // A fast preview deliberately avoids OSM walking Dijkstra. The exact background
-                // route restores pedestrian geometry and timing a moment later.
+                // Exact pedestrian Dijkstra is intentionally deferred to the full background pass.
                 router = SurfaceCsaRouter(repository, preferences, walkGraph = null)
             ).also { surfaceSession = it }
         }.getOrNull()
@@ -182,25 +171,26 @@ internal class FastMeetRouter private constructor(
         destination: GeoPoint,
         departureEpochSec: Long
     ): RouteCandidate? {
-        val geometricMeters = haversineMeters(origin, destination)
-        if (geometricMeters > DIRECT_PREVIEW_LIMIT_METERS) return null
-        val meters = ceil(geometricMeters * WALK_DETOUR_FACTOR).toInt().coerceAtLeast(1)
+        val geometric = haversineMeters(origin, destination)
+        if (geometric > DIRECT_PREVIEW_LIMIT_METERS) return null
+        val meters = ceil(geometric * WALK_DETOUR_FACTOR).toInt().coerceAtLeast(1)
         val seconds = ceil(meters / preferences.walkingSpeedMetersPerSecond).toInt().coerceAtLeast(1)
-        val leg = RouteLeg(
-            mode = TransportMode.WALK,
-            from = RoutePlace("origin", "Откуда", origin),
-            to = RoutePlace("destination", "Куда", destination),
-            departureEpochSec = departureEpochSec,
-            arrivalEpochSec = departureEpochSec + seconds,
-            walkMeters = meters,
-            uncertaintySeconds = 120,
-            realtimeConfidence = 0.68,
-            geometry = listOf(origin, destination)
-        )
         return RouteCandidate(
             id = "fast-walk-${origin.hashCode().toUInt().toString(16)}-${destination.hashCode().toUInt().toString(16)}",
             requestedDepartureEpochSec = departureEpochSec,
-            legs = listOf(leg)
+            legs = listOf(
+                RouteLeg(
+                    mode = TransportMode.WALK,
+                    from = RoutePlace("origin", "Откуда", origin),
+                    to = RoutePlace("destination", "Куда", destination),
+                    departureEpochSec = departureEpochSec,
+                    arrivalEpochSec = departureEpochSec + seconds,
+                    walkMeters = meters,
+                    uncertaintySeconds = 120,
+                    realtimeConfidence = 0.68,
+                    geometry = listOf(origin, destination)
+                )
+            )
         )
     }
 
@@ -208,11 +198,14 @@ internal class FastMeetRouter private constructor(
         id = "fast-${route.id}",
         legs = route.legs.map { leg ->
             leg.copy(
-                uncertaintySeconds = maxOf(leg.uncertaintySeconds, when (leg.mode) {
-                    TransportMode.WALK -> 90
-                    TransportMode.BUS, TransportMode.TRAM -> 240
-                    else -> 120
-                }),
+                uncertaintySeconds = maxOf(
+                    leg.uncertaintySeconds,
+                    when (leg.mode) {
+                        TransportMode.WALK -> 90
+                        TransportMode.BUS, TransportMode.TRAM -> 240
+                        else -> 120
+                    }
+                ),
                 realtimeConfidence = min(leg.realtimeConfidence, 0.62)
             )
         }
@@ -242,16 +235,16 @@ internal class FastMeetRouter private constructor(
 
         @Volatile
         private var cached: FastMeetRouter? = null
-        private var cachedKey: String = ""
+        private var cachedKey = ""
 
         @Synchronized
         fun get(context: Context, preferences: RoutePreferences): FastMeetRouter {
-            val runtimeRoot = File(context.applicationContext.filesDir, "runtime")
-            val manifest = File(runtimeRoot, "surface/manifest.json")
-            val rail = File(runtimeRoot, "rail/graph.json")
+            val root = File(context.applicationContext.filesDir, "runtime")
+            val surfaceManifest = File(root, "surface/manifest.json")
+            val railGraph = File(root, "rail/graph.json")
             val runtimeToken = listOf(
-                manifest.length(), manifest.lastModified(),
-                rail.length(), rail.lastModified()
+                surfaceManifest.length(), surfaceManifest.lastModified(),
+                railGraph.length(), railGraph.lastModified()
             ).joinToString(":")
             val key = listOf(
                 runtimeToken,
@@ -260,9 +253,8 @@ internal class FastMeetRouter private constructor(
                 preferences.walkingSpeedMetersPerSecond,
                 preferences.maxWalkMeters
             ).joinToString(":")
-            val existing = cached
-            if (existing != null && key == cachedKey) return existing
-            return FastMeetRouter(context, preferences, runtimeToken).also {
+            cached?.let { if (key == cachedKey) return it }
+            return FastMeetRouter(context, preferences).also {
                 cached = it
                 cachedKey = key
             }
@@ -281,8 +273,8 @@ internal class FastMeetRouter private constructor(
 }
 
 /**
- * Small static METRO/MCC graph optimized for first paint. It expands both endpoints and terminates
- * as soon as the two settled frontiers cannot beat the best meeting point already found.
+ * Static METRO/MCC graph for the first route. Forward and backward Dijkstra frontiers are expanded
+ * together and stop once their lower bound cannot beat the best meeting node already found.
  */
 private class FastRailMeetIndex private constructor(
     private val preferences: RoutePreferences,
@@ -307,14 +299,24 @@ private class FastRailMeetIndex private constructor(
     )
 
     private data class QueueItem(val node: Int, val seconds: Int)
-    private data class Access(val node: Int, val meters: Int, val walkSeconds: Int, val overheadSeconds: Int)
-    private data class Egress(val node: Int, val meters: Int, val walkSeconds: Int, val exitSeconds: Int)
+    private data class Access(
+        val node: Int,
+        val meters: Int,
+        val walkSeconds: Int,
+        val overheadSeconds: Int
+    )
+    private data class Egress(
+        val node: Int,
+        val meters: Int,
+        val walkSeconds: Int,
+        val exitSeconds: Int
+    )
 
     private val nodes = ArrayList<Node>()
-    private val indexByOsmId = HashMap<String, Int>()
+    private val nodeByOsmId = HashMap<String, Int>()
     private val forward = ArrayList<MutableList<Edge>>()
     private val reverse = ArrayList<MutableList<Edge>>()
-    private val groups = HashMap<String, MutableList<Int>>()
+    private val groupsByName = HashMap<String, MutableList<Int>>()
 
     init {
         load(graph)
@@ -327,98 +329,96 @@ private class FastRailMeetIndex private constructor(
         departureEpochSec: Long
     ): RouteCandidate? {
         if (nodes.isEmpty()) return null
-        val access = nearest(origin, towardDestination = false)
-        val egress = nearest(destination, towardDestination = true)
+        val access = nearestAccess(origin)
+        val egress = nearestEgress(destination)
         if (access.isEmpty() || egress.isEmpty()) return null
 
         val n = nodes.size
         val inf = Int.MAX_VALUE / 4
-        val distForward = IntArray(n) { inf }
-        val distBackward = IntArray(n) { inf }
+        val distF = IntArray(n) { inf }
+        val distB = IntArray(n) { inf }
         val prevNode = IntArray(n) { -1 }
         val prevEdge = arrayOfNulls<Edge>(n)
         val nextNode = IntArray(n) { -1 }
         val nextEdge = arrayOfNulls<Edge>(n)
-        val startAccess = arrayOfNulls<Access>(n)
-        val endEgress = arrayOfNulls<Egress>(n)
-        val settledForward = BooleanArray(n)
-        val settledBackward = BooleanArray(n)
-        val qForward = PriorityQueue(compareBy<QueueItem> { it.seconds })
-        val qBackward = PriorityQueue(compareBy<QueueItem> { it.seconds })
+        val rootAccess = arrayOfNulls<Access>(n)
+        val rootEgress = arrayOfNulls<Egress>(n)
+        val settledF = BooleanArray(n)
+        val settledB = BooleanArray(n)
+        val qF = PriorityQueue(compareBy<QueueItem> { it.seconds })
+        val qB = PriorityQueue(compareBy<QueueItem> { it.seconds })
 
-        access.forEach { link ->
+        for (link in access) {
             val total = link.walkSeconds + link.overheadSeconds
-            if (total < distForward[link.node]) {
-                distForward[link.node] = total
-                startAccess[link.node] = link
-                qForward += QueueItem(link.node, total)
+            if (total < distF[link.node]) {
+                distF[link.node] = total
+                rootAccess[link.node] = link
+                qF += QueueItem(link.node, total)
             }
         }
-        egress.forEach { link ->
+        for (link in egress) {
             val total = link.walkSeconds + link.exitSeconds
-            if (total < distBackward[link.node]) {
-                distBackward[link.node] = total
-                endEgress[link.node] = link
-                qBackward += QueueItem(link.node, total)
+            if (total < distB[link.node]) {
+                distB[link.node] = total
+                rootEgress[link.node] = link
+                qB += QueueItem(link.node, total)
             }
         }
 
         var best = inf
         var meeting = -1
 
-        fun updateMeeting(node: Int) {
-            val a = distForward[node]
-            val b = distBackward[node]
-            if (a >= inf || b >= inf) return
-            val total = a + b
+        fun consider(node: Int) {
+            if (distF[node] >= inf || distB[node] >= inf) return
+            val total = distF[node] + distB[node]
             if (total < best) {
                 best = total
                 meeting = node
             }
         }
 
-        while (qForward.isNotEmpty() && qBackward.isNotEmpty()) {
-            while (qForward.isNotEmpty() && qForward.peek().seconds != distForward[qForward.peek().node]) qForward.remove()
-            while (qBackward.isNotEmpty() && qBackward.peek().seconds != distBackward[qBackward.peek().node]) qBackward.remove()
-            if (qForward.isEmpty() || qBackward.isEmpty()) break
-            if (qForward.peek().seconds.toLong() + qBackward.peek().seconds.toLong() >= best.toLong()) break
+        while (qF.isNotEmpty() && qB.isNotEmpty()) {
+            while (qF.isNotEmpty() && qF.peek().seconds != distF[qF.peek().node]) qF.remove()
+            while (qB.isNotEmpty() && qB.peek().seconds != distB[qB.peek().node]) qB.remove()
+            if (qF.isEmpty() || qB.isEmpty()) break
+            if (qF.peek().seconds.toLong() + qB.peek().seconds.toLong() >= best.toLong()) break
 
-            if (qForward.peek().seconds <= qBackward.peek().seconds) {
-                val item = qForward.remove()
-                if (settledForward[item.node]) continue
-                settledForward[item.node] = true
-                updateMeeting(item.node)
+            if (qF.peek().seconds <= qB.peek().seconds) {
+                val item = qF.remove()
+                if (settledF[item.node]) continue
+                settledF[item.node] = true
+                consider(item.node)
                 for (edge in forward[item.node]) {
                     val candidate = item.seconds + edge.seconds
-                    if (candidate < distForward[edge.to]) {
-                        distForward[edge.to] = candidate
+                    if (candidate < distF[edge.to]) {
+                        distF[edge.to] = candidate
                         prevNode[edge.to] = item.node
                         prevEdge[edge.to] = edge
-                        startAccess[edge.to] = startAccess[item.node]
-                        qForward += QueueItem(edge.to, candidate)
+                        rootAccess[edge.to] = rootAccess[item.node]
+                        qF += QueueItem(edge.to, candidate)
                     }
                 }
             } else {
-                val item = qBackward.remove()
-                if (settledBackward[item.node]) continue
-                settledBackward[item.node] = true
-                updateMeeting(item.node)
+                val item = qB.remove()
+                if (settledB[item.node]) continue
+                settledB[item.node] = true
+                consider(item.node)
                 for (edge in reverse[item.node]) {
                     val candidate = item.seconds + edge.seconds
-                    if (candidate < distBackward[edge.from]) {
-                        distBackward[edge.from] = candidate
+                    if (candidate < distB[edge.from]) {
+                        distB[edge.from] = candidate
                         nextNode[edge.from] = item.node
                         nextEdge[edge.from] = edge
-                        endEgress[edge.from] = endEgress[item.node]
-                        qBackward += QueueItem(edge.from, candidate)
+                        rootEgress[edge.from] = rootEgress[item.node]
+                        qB += QueueItem(edge.from, candidate)
                     }
                 }
             }
         }
 
         if (meeting < 0) return null
-        val accessUsed = startAccess[meeting] ?: return null
-        val egressUsed = endEgress[meeting] ?: return null
+        val accessUsed = rootAccess[meeting] ?: return null
+        val egressUsed = rootEgress[meeting] ?: return null
 
         val firstHalf = ArrayList<Edge>()
         var cursor = meeting
@@ -464,23 +464,23 @@ private class FastRailMeetIndex private constructor(
         path: List<Edge>
     ): RouteCandidate {
         val legs = ArrayList<RouteLeg>()
-        var time = departureEpochSec
         val originPlace = RoutePlace("origin", "Откуда", origin)
         val destinationPlace = RoutePlace("destination", "Куда", destination)
+        var time = departureEpochSec
 
-        val accessArrival = time + access.walkSeconds
         legs += RouteLeg(
             mode = TransportMode.WALK,
             from = originPlace,
             to = nodes[startNode].place(),
             departureEpochSec = time,
-            arrivalEpochSec = accessArrival,
+            arrivalEpochSec = time + access.walkSeconds,
             walkMeters = access.meters,
             uncertaintySeconds = 90,
             realtimeConfidence = 0.65,
             geometry = listOf(origin, nodes[startNode].point)
         )
-        time = accessArrival
+        time += access.walkSeconds
+
         var firstRail = true
         var index = 0
         while (index < path.size) {
@@ -506,16 +506,16 @@ private class FastRailMeetIndex private constructor(
             var last = edge
             var duration = edge.seconds
             val geometry = ArrayList<GeoPoint>()
-            geometry += nodes[edge.from].point
-            geometry += nodes[edge.to].point
-            var cursorIndex = index + 1
-            while (cursorIndex < path.size) {
-                val next = path[cursorIndex]
+            geometry += nodes[first.from].point
+            geometry += nodes[first.to].point
+            var endExclusive = index + 1
+            while (endExclusive < path.size) {
+                val next = path[endExclusive]
                 if (next.transfer || next.lineKey != first.lineKey || next.mode != first.mode) break
                 last = next
                 duration += next.seconds
                 if (geometry.lastOrNull() != nodes[next.to].point) geometry += nodes[next.to].point
-                cursorIndex++
+                endExclusive++
             }
 
             val wait = if (firstRail) access.overheadSeconds else 0
@@ -532,12 +532,12 @@ private class FastRailMeetIndex private constructor(
                 uncertaintySeconds = maxOf(120, duration / 4),
                 realtimeConfidence = 0.60,
                 transferBufferSeconds = if (firstRail) 0 else 120,
-                stopCount = (cursorIndex - index).coerceAtLeast(1),
+                stopCount = (endExclusive - index).coerceAtLeast(1),
                 geometry = geometry
             )
             time = departure + duration
             firstRail = false
-            index = cursorIndex
+            index = endExclusive
         }
 
         val egressDuration = egress.walkSeconds + egress.exitSeconds
@@ -561,41 +561,29 @@ private class FastRailMeetIndex private constructor(
         )
     }
 
-    private fun nearest(point: GeoPoint, towardDestination: Boolean): List<Any> = emptyList()
-
-    private fun nearest(point: GeoPoint, towardDestination: Boolean, marker: Unit = Unit): List<Access> {
-        val candidates = nodes.asSequence()
-            .map { node -> node to haversineMeters(point, node.point) }
-            .filter { it.second <= MAX_ACCESS_METERS }
-            .sortedBy { it.second }
-            .take(MAX_ACCESS_NODES)
-            .toList()
-
-        return candidates.map { (node, geometric) ->
+    private fun nearestAccess(point: GeoPoint): List<Access> = nodes.asSequence()
+        .map { node -> node to haversineMeters(point, node.point) }
+        .filter { it.second <= MAX_ACCESS_METERS }
+        .sortedBy { it.second }
+        .take(MAX_ACCESS_NODES)
+        .map { (node, geometric) ->
             val meters = ceil(geometric * WALK_DETOUR_FACTOR).toInt().coerceAtLeast(1)
-            val walkSeconds = ceil(meters / preferences.walkingSpeedMetersPerSecond).toInt().coerceAtLeast(1)
-            Access(
-                node = node.index,
-                meters = meters,
-                walkSeconds = walkSeconds,
-                overheadSeconds = if (towardDestination) exitSeconds(node) else entranceAndWaitSeconds(node)
-            )
+            val seconds = ceil(meters / preferences.walkingSpeedMetersPerSecond).toInt().coerceAtLeast(1)
+            Access(node.index, meters, seconds, entranceAndWaitSeconds(node))
         }
-    }
+        .toList()
 
-    private fun nearestEgress(point: GeoPoint): List<Egress> {
-        return nodes.asSequence()
-            .map { node -> node to haversineMeters(point, node.point) }
-            .filter { it.second <= MAX_ACCESS_METERS }
-            .sortedBy { it.second }
-            .take(MAX_ACCESS_NODES)
-            .map { (node, geometric) ->
-                val meters = ceil(geometric * WALK_DETOUR_FACTOR).toInt().coerceAtLeast(1)
-                val walkSeconds = ceil(meters / preferences.walkingSpeedMetersPerSecond).toInt().coerceAtLeast(1)
-                Egress(node.index, meters, walkSeconds, exitSeconds(node))
-            }
-            .toList()
-    }
+    private fun nearestEgress(point: GeoPoint): List<Egress> = nodes.asSequence()
+        .map { node -> node to haversineMeters(point, node.point) }
+        .filter { it.second <= MAX_ACCESS_METERS }
+        .sortedBy { it.second }
+        .take(MAX_ACCESS_NODES)
+        .map { (node, geometric) ->
+            val meters = ceil(geometric * WALK_DETOUR_FACTOR).toInt().coerceAtLeast(1)
+            val seconds = ceil(meters / preferences.walkingSpeedMetersPerSecond).toInt().coerceAtLeast(1)
+            Egress(node.index, meters, seconds, exitSeconds(node))
+        }
+        .toList()
 
     private fun load(root: JSONObject) {
         val routes = root.getJSONArray("routes")
@@ -610,14 +598,14 @@ private class FastRailMeetIndex private constructor(
             val lineName = route.optString("ref").takeIf(String::isNotBlank)
                 ?: route.optString("name", mode.name)
             val stops = route.getJSONArray("stops")
-            val seconds = route.getJSONArray("segment_seconds")
-            if (stops.length() < 2 || seconds.length() != stops.length() - 1) continue
+            val segmentSeconds = route.getJSONArray("segment_seconds")
+            if (stops.length() < 2 || segmentSeconds.length() != stops.length() - 1) continue
 
             val local = IntArray(stops.length())
-            for (index in 0 until stops.length()) {
-                val stop = stops.getJSONObject(index)
+            for (stopIndex in 0 until stops.length()) {
+                val stop = stops.getJSONObject(stopIndex)
                 val osmId = stop.getString("osm_stop_id")
-                val nodeIndex = indexByOsmId[osmId] ?: run {
+                val nodeIndex = nodeByOsmId[osmId] ?: run {
                     val created = nodes.size
                     val node = Node(
                         index = created,
@@ -626,41 +614,40 @@ private class FastRailMeetIndex private constructor(
                         point = GeoPoint(stop.getDouble("lat"), stop.getDouble("lon"))
                     )
                     nodes += node
-                    indexByOsmId[osmId] = created
-                    forward += ArrayList()
-                    reverse += ArrayList()
-                    groups.getOrPut(normalize(node.name)) { ArrayList() }.add(created)
+                    nodeByOsmId[osmId] = created
+                    forward.add(ArrayList())
+                    reverse.add(ArrayList())
+                    groupsByName.getOrPut(normalize(node.name)) { ArrayList() }.add(created)
                     created
                 }
                 nodes[nodeIndex].modes += mode
-                local[index] = nodeIndex
+                local[stopIndex] = nodeIndex
             }
 
-            for (index in 0 until seconds.length()) {
-                val edge = Edge(
-                    from = local[index],
-                    to = local[index + 1],
-                    seconds = seconds.getInt(index).coerceAtLeast(1),
-                    lineKey = lineKey,
-                    lineName = lineName,
-                    mode = mode
+            for (segment in 0 until segmentSeconds.length()) {
+                addEdge(
+                    Edge(
+                        from = local[segment],
+                        to = local[segment + 1],
+                        seconds = segmentSeconds.getInt(segment).coerceAtLeast(1),
+                        lineKey = lineKey,
+                        lineName = lineName,
+                        mode = mode
+                    )
                 )
-                addEdge(edge)
             }
         }
     }
 
     private fun addTransferEdges() {
-        groups.values.forEach { group ->
-            if (group.size < 2) return@forEach
+        for (group in groupsByName.values) {
+            if (group.size < 2) continue
             for (from in group) {
                 for (to in group) {
                     if (from == to) continue
-                    val mode = if (
-                        TransportMode.MCC in nodes[from].modes || TransportMode.MCC in nodes[to].modes
-                    ) TransportMode.MCC else TransportMode.METRO
-                    val transfer = if (mode == TransportMode.MCC) MCC_TRANSFER_SECONDS else METRO_TRANSFER_SECONDS
-                    val wait = if (mode == TransportMode.MCC) MCC_EXPECTED_WAIT_SECONDS else METRO_EXPECTED_WAIT_SECONDS
+                    val mcc = TransportMode.MCC in nodes[from].modes || TransportMode.MCC in nodes[to].modes
+                    val transfer = if (mcc) MCC_TRANSFER_SECONDS else METRO_TRANSFER_SECONDS
+                    val wait = if (mcc) MCC_EXPECTED_WAIT_SECONDS else METRO_EXPECTED_WAIT_SECONDS
                     addEdge(
                         Edge(
                             from = from,
@@ -678,19 +665,20 @@ private class FastRailMeetIndex private constructor(
     }
 
     private fun addEdge(edge: Edge) {
-        if (forward.any { false }) Unit
         forward[edge.from] += edge
         reverse[edge.to] += edge
     }
 
-    private fun entranceAndWaitSeconds(node: Node): Int = when {
-        TransportMode.MCC in node.modes -> MCC_ENTRANCE_SECONDS + MCC_EXPECTED_WAIT_SECONDS
-        else -> METRO_ENTRANCE_SECONDS + METRO_EXPECTED_WAIT_SECONDS
+    private fun entranceAndWaitSeconds(node: Node): Int = if (TransportMode.MCC in node.modes) {
+        MCC_ENTRANCE_SECONDS + MCC_EXPECTED_WAIT_SECONDS
+    } else {
+        METRO_ENTRANCE_SECONDS + METRO_EXPECTED_WAIT_SECONDS
     }
 
-    private fun exitSeconds(node: Node): Int = when {
-        TransportMode.MCC in node.modes -> MCC_EXIT_SECONDS
-        else -> METRO_EXIT_SECONDS
+    private fun exitSeconds(node: Node): Int = if (TransportMode.MCC in node.modes) {
+        MCC_EXIT_SECONDS
+    } else {
+        METRO_EXIT_SECONDS
     }
 
     private fun Node.place(): RoutePlace = RoutePlace("rail:$id", name, point)
