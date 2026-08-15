@@ -11,14 +11,17 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * Low-latency address resolver used by the route button.
+ * Low-latency Moscow address resolver used by both live suggestions and A -> B routing.
  *
- * Android's device geocoder and Photon are queried in parallel. The first useful answer wins,
- * so a slow or temporarily unavailable provider cannot block route construction for many seconds.
+ * Short human input such as "Шумилова 13" is normalized to a Moscow street/house query before
+ * asking the device geocoder and Photon in parallel. Results are ranked by street/house-token
+ * agreement so a generic street centroid cannot beat an exact building candidate merely because
+ * it returned first.
  */
 internal object FastAddressResolver {
-    private const val MAX_CACHE = 96
-    private const val DEFAULT_BUDGET_MS = 1_450L
+    private const val MAX_CACHE = 128
+    private const val DEFAULT_BUDGET_MS = 1_550L
+    private const val EXACT_HOUSE_SCORE = 120
     private val workers = Executors.newFixedThreadPool(4)
     private val cache = object : LinkedHashMap<String, List<SearchPlace>>(MAX_CACHE, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<SearchPlace>>?): Boolean =
@@ -36,31 +39,39 @@ internal object FastAddressResolver {
         if (clean.length < 2) return emptyList()
         val boundedLimit = limit.coerceIn(1, 10)
         val key = buildString {
-            append(clean.lowercase(Locale.ROOT)).append('|').append(boundedLimit)
+            append(normalize(clean)).append('|').append(boundedLimit)
             focus?.let { append('|').append((it.lat * 1000).toInt()).append(':').append((it.lon * 1000).toInt()) }
         }
         synchronized(cache) { cache[key]?.let { return it } }
 
+        val variants = queryVariants(clean)
         val completion = ExecutorCompletionService<List<SearchPlace>>(workers)
         val tasks = listOf(
-            completion.submit { deviceSearch(context.applicationContext, clean, boundedLimit) },
-            completion.submit { runCatching { PhotonGeocoder.search(clean, focus, boundedLimit) }.getOrDefault(emptyList()) }
+            completion.submit { deviceSearchVariants(context.applicationContext, variants, boundedLimit) },
+            completion.submit { photonSearchVariants(variants, focus, boundedLimit) }
         )
 
-        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(budgetMs.coerceIn(350L, 3_000L))
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(budgetMs.coerceIn(450L, 3_000L))
         val merged = LinkedHashMap<String, SearchPlace>()
-        repeat(tasks.size) {
+        val houseToken = extractHouseToken(clean)
+        var completed = 0
+
+        while (completed < tasks.size) {
             val remaining = deadline - System.nanoTime()
-            if (remaining <= 0L) return@repeat
-            val future = completion.poll(remaining, TimeUnit.NANOSECONDS) ?: return@repeat
+            if (remaining <= 0L) break
+            val future = completion.poll(remaining, TimeUnit.NANOSECONDS) ?: break
+            completed++
             val result = runCatching { future.get() }.getOrDefault(emptyList())
             for (place in result) {
                 val placeKey = "${(place.point.lat * 100000).toInt()}:${(place.point.lon * 100000).toInt()}:${place.title.lowercase(Locale.ROOT)}"
                 merged.putIfAbsent(placeKey, place)
-                if (merged.size >= boundedLimit) break
             }
-            if (merged.isNotEmpty()) {
-                val answer = merged.values.take(boundedLimit)
+
+            val rankedNow = rank(clean, merged.values)
+            // For a house-number query, wait for the second provider if the first answer is only
+            // a street/district centroid. Exact house matches may arrive a few hundred ms later.
+            if (rankedNow.isNotEmpty() && (houseToken == null || score(clean, rankedNow.first()) >= EXACT_HOUSE_SCORE)) {
+                val answer = rankedNow.take(boundedLimit)
                 synchronized(cache) { cache[key] = answer }
                 tasks.forEach { if (!it.isDone) it.cancel(true) }
                 return answer
@@ -68,9 +79,25 @@ internal object FastAddressResolver {
         }
 
         tasks.forEach { if (!it.isDone) it.cancel(true) }
-        val answer = merged.values.take(boundedLimit)
+        val answer = rank(clean, merged.values).take(boundedLimit)
         if (answer.isNotEmpty()) synchronized(cache) { cache[key] = answer }
         return answer
+    }
+
+    private fun deviceSearchVariants(context: Context, variants: List<String>, limit: Int): List<SearchPlace> {
+        for (variant in variants) {
+            val result = deviceSearch(context, variant, limit)
+            if (result.isNotEmpty()) return result
+        }
+        return emptyList()
+    }
+
+    private fun photonSearchVariants(variants: List<String>, focus: GeoPoint?, limit: Int): List<SearchPlace> {
+        for (variant in variants) {
+            val result = runCatching { PhotonGeocoder.search(variant, focus, limit) }.getOrDefault(emptyList())
+            if (result.isNotEmpty()) return result
+        }
+        return emptyList()
     }
 
     @Suppress("DEPRECATION")
@@ -92,6 +119,55 @@ internal object FastAddressResolver {
         }.take(limit)
     }
 
+    private fun queryVariants(query: String): List<String> {
+        val compact = query.replace(Regex("\\s+"), " ").trim().trim(',')
+        val lower = normalize(compact)
+        val hasMoscow = lower.contains("москва") || lower.contains("московская область")
+        val hasStreetType = STREET_WORDS.any(lower::contains)
+        val hasHouse = extractHouseToken(compact) != null
+        return buildList {
+            if (!hasMoscow && hasHouse && !hasStreetType) add("Москва, улица $compact")
+            if (!hasMoscow) add("Москва, $compact")
+            add(compact)
+        }.distinct()
+    }
+
+    private fun rank(query: String, places: Collection<SearchPlace>): List<SearchPlace> =
+        places.sortedWith(compareByDescending<SearchPlace> { score(query, it) }.thenBy { it.title.length })
+
+    private fun score(query: String, place: SearchPlace): Int {
+        val q = normalize(query)
+        val address = normalize("${place.title} ${place.subtitle}")
+        var result = 0
+        val house = extractHouseToken(query)
+        if (house != null) {
+            val houseRegex = Regex("(^|\\D)${Regex.escape(house)}([а-яa-z]?)(\\D|$)")
+            if (houseRegex.containsMatchIn(address)) result += 90 else result -= 35
+        }
+        val words = q.split(' ')
+            .filter { it.length >= 3 && it !in STOP_WORDS && it.none(Char::isDigit) }
+            .distinct()
+        for (word in words) {
+            if (address.contains(word)) result += 32
+        }
+        if (address.contains(q)) result += 80
+        if (address.contains("москва")) result += 8
+        return result
+    }
+
+    private fun extractHouseToken(query: String): String? =
+        Regex("(?:^|[\\s,])(?:д(?:ом)?\\.?\\s*)?(\\d+[а-яa-z]?)", RegexOption.IGNORE_CASE)
+            .find(normalize(query))
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.takeIf(String::isNotBlank)
+
+    private fun normalize(value: String): String = value
+        .lowercase(Locale("ru", "RU"))
+        .replace('ё', 'е')
+        .replace(Regex("[^а-яa-z0-9]+"), " ")
+        .trim()
+
     private fun toSearchPlace(address: Address): SearchPlace? {
         val lat = address.latitude
         val lon = address.longitude
@@ -109,12 +185,15 @@ internal object FastAddressResolver {
             address.subLocality?.takeIf(String::isNotBlank),
             address.locality?.takeIf(String::isNotBlank),
             address.adminArea?.takeIf(String::isNotBlank)
-        ).distinct().take(3).joinToString(", ")
+        ).distinct().take(4).joinToString(", ")
         return SearchPlace(title, subtitle, GeoPoint(lat, lon))
     }
 
-    // Runtime routing is Moscow-focused, but keep the address resolver broad enough for the
-    // surrounding region so border addresses are not silently discarded.
+    private val STREET_WORDS = listOf("улица", "ул ", "проспект", "пр т", "переулок", "шоссе", "бульвар", "набережная")
+    private val STOP_WORDS = setOf("москва", "улица", "дом", "корпус", "строение")
+
+    // Routing runtime is Moscow-focused, while address search intentionally includes the nearby
+    // Moscow region so border addresses are not silently rejected.
     private const val MOSCOW_SOUTH = 54.70
     private const val MOSCOW_WEST = 35.00
     private const val MOSCOW_NORTH = 57.15
