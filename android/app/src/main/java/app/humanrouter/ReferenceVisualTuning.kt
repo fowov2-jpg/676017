@@ -61,7 +61,6 @@ internal object ReferenceVisualTuning {
 
     private fun tuneNearbyPanel(activity: MainActivity) {
         val panel = activity.findViewById<View>(R.id.nearbyPanel)
-        if (panel.visibility != View.VISIBLE) return
         val list = activity.findViewById<ViewGroup>(R.id.nearbyList)
         val state = activity.findViewById<TextView>(R.id.nearbyStateText).text?.toString().orEmpty()
         val compactState = list.childCount == 0 ||
