@@ -42,8 +42,8 @@ class ReferenceProductUiSmokeTest {
                 val root = activity.findViewById<FrameLayout>(R.id.root)
                 val settingsPanel = activity.findViewById<LinearLayout>(R.id.settingsPanel)
                 val sheet = settingsPanel.parent as View
-                assertTrue(sheet.width < root.width * 0.80f)
-                assertTrue(sheet.width > root.width * 0.50f)
+                assertTrue(sheet.width < root.width * 0.48f)
+                assertTrue(sheet.width > root.width * 0.36f)
                 assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.mapView).visibility)
             }
         }
