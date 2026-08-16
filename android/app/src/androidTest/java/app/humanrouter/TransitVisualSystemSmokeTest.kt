@@ -5,14 +5,12 @@ import app.humanrouter.routing.TransportMode
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
-import androidx.test.espresso.action.ViewActions.swipeLeft
 import androidx.test.espresso.assertion.ViewAssertions.matches
-import androidx.test.espresso.matcher.ViewMatchers.isDescendantOfA
+import androidx.test.espresso.matcher.ViewMatchers.Visibility
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
-import androidx.test.espresso.matcher.ViewMatchers.withText
+import androidx.test.espresso.matcher.ViewMatchers.withEffectiveVisibility
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.hamcrest.Matchers.allOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -23,19 +21,14 @@ class TransitVisualSystemSmokeTest {
     private val v2Strip = withContentDescription(TransitJourneyVisibilityGuard.V2_DESCRIPTION)
 
     @Test
-    fun routeScreenShowsSecondGenerationTransportStrip() {
+    fun routeChoiceHidesGlobalTripStrip() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val intent = Intent(context, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             putExtra("qa_screen", "routes")
         }
         ActivityScenario.launch<MainActivity>(intent).use {
-            onView(v2Strip).check(matches(isDisplayed()))
-            onView(allOf(withText("м2"), isDescendantOfA(v2Strip), isDisplayed()))
-                .check(matches(isDisplayed()))
-            onView(v2Strip).perform(swipeLeft())
-            onView(allOf(withText("Метро 6"), isDescendantOfA(v2Strip), isDisplayed()))
-                .check(matches(isDisplayed()))
+            onView(v2Strip).check(matches(withEffectiveVisibility(Visibility.GONE)))
         }
     }
 
