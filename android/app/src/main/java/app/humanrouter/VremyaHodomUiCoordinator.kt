@@ -169,7 +169,7 @@ internal object VremyaHodomUiCoordinator : Application.ActivityLifecycleCallback
 
             val scene = JourneySceneView(activity).apply {
                 tag = JOURNEY_SCENE_TAG
-                contentDescription = "Анимация поездки: человек, остановка, автобус, метро и поезд"
+                contentDescription = JOURNEY_DESCRIPTION
                 onStageChanged = { stage ->
                     if (journeyStageText.text != stage.label) journeyStageText.text = stage.label
                 }
@@ -238,7 +238,6 @@ internal object VremyaHodomUiCoordinator : Application.ActivityLifecycleCallback
             val rootHeight = root.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels
             val collapsed = dp(164)
             val medium = max(dp(278), (rootHeight * 0.34f).roundToInt())
-            // Keep a meaningful piece of the map visible even in the fully expanded state.
             val expanded = max(medium + dp(92), min(dp(560), (rootHeight * 0.56f).roundToInt()))
             return intArrayOf(collapsed, medium, expanded)
         }
@@ -294,11 +293,12 @@ internal object VremyaHodomUiCoordinator : Application.ActivityLifecycleCallback
                 tag = expectedTag
                 isHorizontalScrollBarEnabled = false
                 overScrollMode = View.OVER_SCROLL_NEVER
-                contentDescription = "Этапы маршрута по видам транспорта"
+                contentDescription = TransitJourneyVisibilityGuard.V2_DESCRIPTION
                 setPadding(0, dp(4), 0, dp(7))
                 addView(LinearLayout(activity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
+                    contentDescription = UNIFIED_ROUTE_DESCRIPTION
                     route.legs.forEachIndexed { index, leg ->
                         if (index > 0) addView(separator())
                         addView(routeToken(leg))
@@ -325,12 +325,20 @@ internal object VremyaHodomUiCoordinator : Application.ActivityLifecycleCallback
         }
 
         private fun routeToken(leg: RouteLeg): TextView = TextView(activity).apply {
-            text = legLabel(leg)
+            val visual = TransitVisualCatalog.forLeg(leg)
+            text = when (leg.mode) {
+                TransportMode.WALK -> if (leg.walkMeters > 0) "Пешком ${formatMeters(leg.walkMeters)}" else "Пешком"
+                TransportMode.BUS, TransportMode.TRAM -> visual.badge.ifBlank { visual.label }
+                TransportMode.METRO -> "Метро ${visual.badge}".trim()
+                TransportMode.MCC -> "МЦК 14"
+                TransportMode.MCD -> visual.badge.ifBlank { "МЦД" }
+                TransportMode.TRAIN -> visual.badge.ifBlank { "Поезд" }
+            }
             gravity = Gravity.CENTER
             minHeight = dp(42)
             textSize = 12.5f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.parseColor(TransitVisualCatalog.colorHex(leg.mode, leg.lineName, leg.lineId)))
+            setTextColor(visual.color)
             background = ContextCompat.getDrawable(activity, R.drawable.bg_chip)
             backgroundTintList = android.content.res.ColorStateList.valueOf(
                 ContextCompat.getColor(activity, R.color.vh_surface_muted)
@@ -340,16 +348,15 @@ internal object VremyaHodomUiCoordinator : Application.ActivityLifecycleCallback
         }
 
         private fun legLabel(leg: RouteLeg): String {
-            val line = leg.lineName?.takeIf(String::isNotBlank)
-                ?: leg.lineId?.substringAfterLast(':')?.takeIf(String::isNotBlank)
+            val visual = TransitVisualCatalog.forLeg(leg)
             return when (leg.mode) {
                 TransportMode.WALK -> "Пешком ${formatMeters(leg.walkMeters)}"
-                TransportMode.BUS -> "Автобус ${line.orEmpty()}".trim()
-                TransportMode.TRAM -> "Трамвай ${line.orEmpty()}".trim()
-                TransportMode.METRO -> "Метро ${line.orEmpty()}".trim()
+                TransportMode.BUS -> "Автобус ${visual.badge}".trim()
+                TransportMode.TRAM -> "Трамвай ${visual.badge}".trim()
+                TransportMode.METRO -> "Метро ${visual.badge}".trim()
                 TransportMode.MCC -> "МЦК"
-                TransportMode.MCD -> "МЦД ${line.orEmpty()}".trim()
-                TransportMode.TRAIN -> "Поезд ${line.orEmpty()}".trim()
+                TransportMode.MCD -> "МЦД ${visual.badge}".trim()
+                TransportMode.TRAIN -> "Поезд ${visual.badge}".trim()
             }
         }
 
@@ -360,11 +367,10 @@ internal object VremyaHodomUiCoordinator : Application.ActivityLifecycleCallback
 
         private fun updateLiveDisclosure(snapshot: TripLiveSnapshot) {
             if (!routesTab.isSelected || routeSheet.visibility != View.VISIBLE) return
-            val tag = LIVE_STATUS_TAG
-            var view = routePanel.findViewWithTag<TextView>(tag)
+            var view = routePanel.findViewWithTag<TextView>(LIVE_STATUS_TAG)
             if (view == null) {
                 view = TextView(activity).apply {
-                    this.tag = tag
+                    tag = LIVE_STATUS_TAG
                     textSize = 11.5f
                     setTextColor(ContextCompat.getColor(activity, R.color.vh_text_tertiary))
                     setPadding(0, dp(2), 0, dp(5))
@@ -406,7 +412,18 @@ internal object VremyaHodomUiCoordinator : Application.ActivityLifecycleCallback
             view.text = "GPS · этап ${nearest.first + 1}/${route.legs.size}: ${legLabel(nearest.second)} · точность ≈${location.accuracy.roundToInt()} м"
         }
 
+        private fun hasLocationPermission(): Boolean =
+            ContextCompat.checkSelfPermission(
+                activity,
+                android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(
+                    activity,
+                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
         private fun latestLocation(): Location? {
+            if (!hasLocationPermission()) return null
             val manager = activity.getSystemService(Context.LOCATION_SERVICE) as LocationManager
             return runCatching {
                 manager.getProviders(true)
@@ -476,13 +493,14 @@ internal object VremyaHodomUiCoordinator : Application.ActivityLifecycleCallback
             val origin = route.legs.firstOrNull()?.from?.point
             val destination = route.legs.lastOrNull()?.to?.point
             val features = LinkedHashMap<String, Feature>()
-            route.legs.filter { it.mode != TransportMode.WALK }.forEach legLoop@ { leg ->
+            route.legs.filter { it.mode != TransportMode.WALK }.forEach { leg ->
                 val color = TransitVisualCatalog.colorHex(leg.mode, leg.lineName, leg.lineId)
-                listOf(leg.from.point, leg.to.point).forEach pointLoop@ { point ->
-                    if (samePoint(point, origin) || samePoint(point, destination)) return@pointLoop
-                    val key = "${point.lat.format6()}:${point.lon.format6()}"
-                    features[key] = Feature.fromGeometry(Point.fromLngLat(point.lon, point.lat)).apply {
-                        addStringProperty("stop_color", color)
+                listOf(leg.from.point, leg.to.point).forEach { point ->
+                    if (!samePoint(point, origin) && !samePoint(point, destination)) {
+                        val key = "${point.lat.format6()}:${point.lon.format6()}"
+                        features[key] = Feature.fromGeometry(Point.fromLngLat(point.lon, point.lat)).apply {
+                            addStringProperty("stop_color", color)
+                        }
                     }
                 }
             }
@@ -539,8 +557,10 @@ internal object VremyaHodomUiCoordinator : Application.ActivityLifecycleCallback
     }
 
     private const val JOURNEY_SCENE_TAG = "vh_unified_journey_scene"
+    private const val JOURNEY_DESCRIPTION = "Анимация поездки: человек, остановка, автобус, метро и поезд"
     private const val REALTIME_DISCLOSURE_TAG = "vh_realtime_disclosure"
     private const val ROUTE_STRIP_PREFIX = "vh_unified_route_strip:"
+    private const val UNIFIED_ROUTE_DESCRIPTION = "Этапы маршрута по видам транспорта"
     private const val LIVE_STATUS_TAG = "vh_unified_live_status"
     private const val GPS_STATUS_TAG = "vh_unified_gps_status"
     private const val GPS_REFRESH_MS = 10_000L
