@@ -51,7 +51,7 @@ class ReferenceProductUiSmokeTest {
     }
 
     @Test
-    fun routesExposeReferenceEndpointsAndFreeTheBottomEdge() {
+    fun routesExposeReferenceEndpointsAndThreeOptionViewport() {
         launch("routes").use { scenario ->
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             scenario.onActivity { activity ->
@@ -59,7 +59,9 @@ class ReferenceProductUiSmokeTest {
                 assertEquals(View.GONE, activity.findViewById<View>(R.id.bottomNav).visibility)
                 val root = activity.findViewById<View>(R.id.root)
                 val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
-                assertTrue(sheet.height * 2 < root.height)
+                val ratio = sheet.height.toFloat() / root.height.toFloat()
+                assertTrue("route sheet is too short for alternatives", ratio >= 0.52f)
+                assertTrue("route sheet covers too much map", ratio <= 0.60f)
             }
         }
     }
