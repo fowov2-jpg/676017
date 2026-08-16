@@ -53,8 +53,6 @@ internal object ReferenceVisualTuning {
         val list = activity.findViewById<ViewGroup>(R.id.nearbyList)
         val state = activity.findViewById<TextView>(R.id.nearbyStateText)
 
-        // V2 can update bottom-sheet geometry from a posted composition pass. Re-assert the
-        // approved 158–188dp range after that layout finishes; the next pass is then a no-op.
         panel.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             panel.post { tuneNearbyPanel(activity) }
         }
@@ -73,10 +71,15 @@ internal object ReferenceVisualTuning {
     private fun installRouteObserver(activity: MainActivity) {
         if (routeObserversInstalled.put(activity, true) == true) return
         val panel = activity.findViewById<View>(R.id.routeResultsPanel)
+        val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
         panel.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            // This listener is safe because tuneRouteCards mutates each generated card once and
-            // marks it. A second layout pass observes an already converged tree and does nothing.
-            tuneRouteCards(activity)
+            panel.post {
+                tuneRouteChrome(activity)
+                tuneRouteCards(activity)
+            }
+        }
+        sheet.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            sheet.post { tuneRouteChrome(activity) }
         }
     }
 
@@ -215,6 +218,29 @@ internal object ReferenceVisualTuning {
         hideIfVisible(activity.findViewById(R.id.locationButton))
         hideIfVisible(activity.findViewById(R.id.settingsButton))
         hideIfVisible(activity.findViewById(R.id.bottomNav))
+
+        val root = activity.findViewById<FrameLayout>(R.id.root)
+        val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
+        val rootHeight = root.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels
+        val targetHeight = (rootHeight * 0.56f).roundToInt()
+            .coerceIn(dp(activity, 390), dp(activity, 520))
+        (sheet.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
+            if (lp.height != targetHeight) {
+                lp.height = targetHeight
+                sheet.layoutParams = lp
+            }
+        }
+
+        val panel = activity.findViewById<LinearLayout>(R.id.routeResultsPanel)
+        for (index in 0 until panel.childCount) {
+            val child = panel.getChildAt(index)
+            if (child is HorizontalScrollView &&
+                child.contentDescription?.toString() == TransitJourneyVisibilityGuard.V2_DESCRIPTION &&
+                child.visibility != View.GONE
+            ) {
+                child.visibility = View.GONE
+            }
+        }
     }
 
     private fun tuneRouteCards(activity: MainActivity) {
@@ -223,16 +249,16 @@ internal object ReferenceVisualTuning {
         val primaryAction = activity.findViewById<Button>(R.id.routePrimaryAction)
 
         primaryAction.apply {
-            val targetHeight = dp(activity, 46)
+            val targetHeight = dp(activity, 44)
             val lp = layoutParams
             if (lp.height != targetHeight) {
                 lp.height = targetHeight
                 layoutParams = lp
             }
             if (minimumHeight != targetHeight) minimumHeight = targetHeight
-            val targetPx = 14f * activity.resources.displayMetrics.scaledDensity
+            val targetPx = 13.5f * activity.resources.displayMetrics.scaledDensity
             if (kotlin.math.abs(textSize - targetPx) > 0.5f) {
-                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13.5f)
             }
         }
 
@@ -252,42 +278,60 @@ internal object ReferenceVisualTuning {
     }
 
     private fun compactRouteCard(activity: MainActivity, card: LinearLayout) {
-        card.setPadding(dp(activity, 12), dp(activity, 8), dp(activity, 12), dp(activity, 8))
+        val top = card.getChildAt(0) as? LinearLayout ?: return
+        val badge = card.getChildAt(1) as? TextView
+        val chain = card.getChildAt(2) as? TextView
+        val meta = card.getChildAt(3) as? TextView
+        val keep = setOf<View>(top, badge, chain, meta)
+
+        for (index in 0 until card.childCount) {
+            val child = card.getChildAt(index)
+            if (child !in keep) child.visibility = View.GONE
+        }
+
+        if (badge != null && badge.parent === card) {
+            card.removeView(badge)
+            top.addView(
+                badge,
+                1.coerceAtMost(top.childCount),
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { leftMargin = dp(activity, 8) }
+            )
+        }
+
+        card.setPadding(dp(activity, 10), dp(activity, 6), dp(activity, 10), dp(activity, 6))
         (card.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
-            lp.topMargin = dp(activity, 6)
+            lp.topMargin = dp(activity, 5)
             card.layoutParams = lp
         }
 
-        // The route overview is summary-first. Detailed timetable rows are preserved in the route
-        // model and active trip, but hidden in the choice card so 2–3 alternatives fit at once.
-        for (index in 0 until card.childCount) {
-            if (index >= 4) card.getChildAt(index).visibility = View.GONE
+        (top.getChildAt(0) as? TextView)?.apply {
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 19f)
+            includeFontPadding = false
         }
-
-        (card.getChildAt(0) as? ViewGroup)?.let { top ->
-            (top.getChildAt(0) as? TextView)?.apply {
-                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20f)
-                includeFontPadding = false
-            }
-            (top.getChildAt(1) as? TextView)?.apply {
-                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11.5f)
-                includeFontPadding = false
-            }
+        badge?.apply {
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 8.5f)
+            setPadding(dp(activity, 6), dp(activity, 1), dp(activity, 6), dp(activity, 1))
+            includeFontPadding = false
+            maxLines = 1
         }
-        (card.getChildAt(1) as? TextView)?.apply {
-            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 9.5f)
-            setPadding(dp(activity, 7), dp(activity, 2), dp(activity, 7), dp(activity, 2))
+        (top.getChildAt(top.childCount - 1) as? TextView)?.apply {
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 10.5f)
+            includeFontPadding = false
         }
-        (card.getChildAt(2) as? TextView)?.apply {
-            maxLines = 2
-            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11.5f)
-            setPadding(0, dp(activity, 4), 0, 0)
-        }
-        (card.getChildAt(3) as? TextView)?.apply {
+        chain?.apply {
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 10.5f)
             setPadding(0, dp(activity, 3), 0, 0)
+        }
+        meta?.apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 9.5f)
+            setPadding(0, dp(activity, 2), 0, 0)
         }
     }
 
