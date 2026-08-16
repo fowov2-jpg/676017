@@ -7,10 +7,8 @@ import android.os.Bundle
 /**
  * The single Application lifecycle entry-point for phone UI behavior.
  *
- * UiPolish is a one-shot visual helper (touch targets, font padding, press animators and layout
- * transitions); it is not registered as a lifecycle callback. The route/journey/map coordinator and
- * the reference product skin are driven through this owner as well, so the app keeps one lifecycle
- * registration instead of a chain of independent runtime patch controllers.
+ * Visual helpers are one-shot components, not independent lifecycle registrations. Route/journey/map
+ * behavior and the reference product presentation are all driven through this owner.
  */
 internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleCallbacks {
     fun install(application: Application) {
@@ -20,7 +18,10 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
     override fun onActivityResumed(activity: Activity) {
         if (activity is MainActivity) UiPolish.install(activity)
         VremyaHodomUiCoordinator.onActivityResumed(activity)
-        if (activity is MainActivity) ReferenceProductUi.install(activity)
+        if (activity is MainActivity) {
+            ReferenceProductUi.install(activity)
+            ReferenceProductUiRefinement.install(activity)
+        }
     }
 
     override fun onActivityPaused(activity: Activity) {
