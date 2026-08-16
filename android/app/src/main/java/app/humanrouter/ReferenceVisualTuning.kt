@@ -53,17 +53,22 @@ internal object ReferenceVisualTuning {
         if (settingsPanel.paddingLeft != dp(activity, 18) || settingsPanel.paddingRight != dp(activity, 16)) {
             settingsPanel.setPadding(dp(activity, 18), settingsPanel.paddingTop, dp(activity, 16), settingsPanel.paddingBottom)
         }
-        intArrayOf(
-            R.id.showStopsSwitch,
-            R.id.showTransportSwitch,
-            R.id.darkThemeSwitch,
-            R.id.lessWalkingSwitch,
-            R.id.avoidTransfersSwitch
-        ).forEach { id ->
+
+        val switches = mapOf(
+            R.id.showStopsSwitch to ("Показывать остановки" to "Отображать остановки общественного транспорта на карте"),
+            R.id.showTransportSwitch to ("Показывать линии маршрута" to "Показывать транспортные сегменты выбранного маршрута"),
+            R.id.darkThemeSwitch to ("Тёмная тема" to "Использовать тёмную тему интерфейса и карты"),
+            R.id.lessWalkingSwitch to ("Меньше ходьбы" to "Предпочитать варианты с минимальной ходьбой"),
+            R.id.avoidTransfersSwitch to ("Избегать пересадок" to "Предпочитать маршруты с меньшим числом пересадок")
+        )
+        switches.forEach { (id, copy) ->
             activity.findViewById<SwitchCompat>(id).apply {
+                if (text?.toString() != copy.first) text = copy.first
+                contentDescription = "${copy.first}. ${copy.second}"
                 val targetTextPx = 12.5f * activity.resources.displayMetrics.scaledDensity
                 if (kotlin.math.abs(textSize - targetTextPx) > 0.5f) setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12.5f)
                 if (minimumHeight != dp(activity, 72)) minimumHeight = dp(activity, 72)
+                setLineSpacing(0f, 1f)
             }
         }
     }
