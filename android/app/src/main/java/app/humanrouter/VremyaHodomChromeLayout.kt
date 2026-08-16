@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.util.AttributeSet
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -30,17 +32,19 @@ class VremyaHodomChromeLayout @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        // Keep the legacy drawer-shaped bottom navigation out of the first frame.
+        findViewById<View?>(R.id.bottomNav)?.visibility = View.GONE
         post { wireChrome() }
     }
 
     private fun wireChrome() {
-        val search = findViewById<View?>(R.id.searchPanel)
-        val results = findViewById<View?>(R.id.routeResultsPanel)
-        val nearby = findViewById<View?>(R.id.nearbyPanel)
-        val bottom = findViewById<View?>(R.id.bottomNav)
         val destination = findViewById<EditText?>(R.id.toField)
-        compactBottomNavigation(bottom)
-        bottom?.visibility = View.VISIBLE
+
+        // Bottom navigation is now a Material 3 Compose surface. The legacy LinearLayout
+        // remains only as a compatibility target for MainActivity while the rest of the
+        // screen is migrated incrementally.
+        findViewById<View?>(R.id.bottomNav)?.visibility = View.GONE
+        ensureModernBottomNavigation()
 
         findViewById<Button?>(R.id.routeButton)?.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
             val button = view as Button
@@ -57,30 +61,6 @@ class VremyaHodomChromeLayout @JvmOverloads constructor(
         }
         findViewById<TextView?>(R.id.nearbyQuickButton)?.setOnClickListener { showNearby(true) }
         findViewById<View?>(R.id.locationButton)?.setOnClickListener { centerOnLastLocation() }
-
-        // Override the legacy drawer handlers installed by MainActivity. The bottom bar
-        // is persistent in the new map-first shell and switches visible content only.
-        findViewById<TextView?>(R.id.mapNavButton)?.setOnClickListener {
-            results?.visibility = View.GONE
-            nearby?.visibility = View.VISIBLE
-            search?.visibility = View.VISIBLE
-            bottom?.visibility = View.VISIBLE
-        }
-        findViewById<TextView?>(R.id.routesNavButton)?.setOnClickListener {
-            results?.visibility = View.GONE
-            nearby?.visibility = View.GONE
-            search?.visibility = View.VISIBLE
-            bottom?.visibility = View.VISIBLE
-            destination?.requestFocus()
-        }
-        findViewById<TextView?>(R.id.transportNavButton)?.setOnClickListener {
-            search?.visibility = View.VISIBLE
-            bottom?.visibility = View.VISIBLE
-            showNearby(true)
-        }
-        findViewById<TextView?>(R.id.favoritesNavButton)?.setOnClickListener {
-            Toast.makeText(context, "Избранные маршруты пока пусты", Toast.LENGTH_SHORT).show()
-        }
         findViewById<TextView?>(R.id.closeSettingsButton)?.setOnClickListener { closeSettings() }
 
         findViewById<View?>(R.id.nearbyBusRow)?.setOnClickListener { focusNearby("автобус") }
@@ -94,24 +74,23 @@ class VremyaHodomChromeLayout @JvmOverloads constructor(
         bindPreferenceSwitch(R.id.avoidTransfersSwitch, "avoid_transfers", false)
     }
 
-    private fun compactBottomNavigation(bottom: View?) {
-        val nav = bottom as? LinearLayout ?: return
-        nav.layoutParams = nav.layoutParams.apply { height = dp(60) }
-        nav.setPadding(dp(4), dp(2), dp(4), dp(2))
+    private fun ensureModernBottomNavigation() {
+        if (findViewWithTag<View?>(MODERN_BOTTOM_NAV_TAG) != null) return
 
-        listOf(
-            R.id.mapNavButton,
-            R.id.routesNavButton,
-            R.id.transportNavButton,
-            R.id.favoritesNavButton
-        ).forEach { id ->
-            findViewById<TextView?>(id)?.apply {
-                includeFontPadding = false
-                compoundDrawablePadding = dp(2)
-                textSize = 10f
-                setPadding(0, dp(3), 0, dp(3))
-            }
+        val nav = ModernBottomNavigationView(context).apply {
+            tag = MODERN_BOTTOM_NAV_TAG
+            elevation = dp(10).toFloat()
         }
+        val params = LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.BOTTOM
+        )
+
+        // Keep settings above navigation just like the original XML z-order.
+        val settings = findViewById<View?>(R.id.settingsPanel)
+        val settingsIndex = settings?.let(::indexOfChild)?.takeIf { it >= 0 } ?: childCount
+        addView(nav, settingsIndex, params)
     }
 
     private fun focusNearby(kind: String) {
@@ -122,7 +101,6 @@ class VremyaHodomChromeLayout @JvmOverloads constructor(
     private fun showNearby(show: Boolean) {
         val panel = findViewById<View?>(R.id.nearbyPanel) ?: return
         panel.visibility = if (show) View.VISIBLE else View.GONE
-        findViewById<View?>(R.id.bottomNav)?.visibility = View.VISIBLE
         if (show) {
             findViewById<View?>(R.id.routeResultsPanel)?.visibility = View.GONE
             panel.alpha = 0f
@@ -138,7 +116,6 @@ class VremyaHodomChromeLayout @JvmOverloads constructor(
             panel.translationX = 0f
             panel.alpha = 1f
             findViewById<View?>(R.id.searchPanel)?.visibility = View.VISIBLE
-            findViewById<View?>(R.id.bottomNav)?.visibility = View.VISIBLE
         }.start()
     }
 
@@ -174,4 +151,8 @@ class VremyaHodomChromeLayout @JvmOverloads constructor(
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private companion object {
+        const val MODERN_BOTTOM_NAV_TAG = "vremyahodom_modern_bottom_navigation"
+    }
 }
