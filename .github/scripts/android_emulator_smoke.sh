@@ -22,9 +22,9 @@ adb wait-for-device
 } >"$output_dir/environment.txt"
 
 # Headless Google API images can surface a stale Pixel Launcher ANR over the
-# tested activity.  It is unrelated to the app but steals window focus from
-# Espresso, so suppress background system error dialogs and close any dialog
-# that was created while the emulator was still booting.
+# tested activity. It is unrelated to the app but can steal mCurrentFocus,
+# so suppress background system error dialogs and close any dialog that was
+# created while the emulator was still booting.
 adb shell settings put global hide_error_dialogs 1
 adb shell settings put global anr_show_background 0 >/dev/null 2>&1 || true
 adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
@@ -54,7 +54,11 @@ for _ in {1..10}; do
     adb shell dumpsys window windows
     adb shell dumpsys window displays
   } >"$focus_dump"
-  if grep -F 'mCurrentFocus=' "$focus_dump" | grep -F "$package_name" >/dev/null; then
+  if {
+    grep -F 'mCurrentFocus=' "$focus_dump" | grep -F "$package_name" >/dev/null
+  } || {
+    grep -F 'mFocusedApp=' "$focus_dump" | grep -F "$package_name" >/dev/null
+  }; then
     focus_ok=true
     break
   fi
