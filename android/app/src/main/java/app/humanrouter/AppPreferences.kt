@@ -1,6 +1,8 @@
 package app.humanrouter
 
 import android.content.Context
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import app.humanrouter.routing.RoutePreferences
 
 internal object AppPreferences {
@@ -14,7 +16,18 @@ internal object AppPreferences {
     const val KEY_WORK = "work"
     const val KEY_SELECTED_TAB = "selected_tab"
 
-    fun isDarkTheme(context: Context): Boolean = prefs(context).getBoolean(KEY_DARK_THEME, false)
+    fun isDarkTheme(context: Context): Boolean {
+        // Respect an Activity-local override first. Instrumentation and legitimate per-screen
+        // night-mode overrides use this path; normal production screens fall back to the persisted
+        // setting below. This keeps the basemap and app chrome on the same effective theme.
+        if (context is AppCompatActivity) {
+            when (context.delegate.localNightMode) {
+                AppCompatDelegate.MODE_NIGHT_YES -> return true
+                AppCompatDelegate.MODE_NIGHT_NO -> return false
+            }
+        }
+        return prefs(context).getBoolean(KEY_DARK_THEME, false)
+    }
 
     fun routePreferences(context: Context): RoutePreferences {
         val values = prefs(context)
