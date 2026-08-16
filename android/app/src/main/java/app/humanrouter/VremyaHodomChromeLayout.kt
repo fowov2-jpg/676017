@@ -16,6 +16,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
@@ -34,7 +36,23 @@ class VremyaHodomChromeLayout @JvmOverloads constructor(
         super.onAttachedToWindow()
         // Keep the legacy drawer-shaped bottom navigation out of the first frame.
         findViewById<View?>(R.id.bottomNav)?.visibility = View.GONE
-        post { wireChrome() }
+        post {
+            configureChromeInsets()
+            wireChrome()
+        }
+    }
+
+    private fun configureChromeInsets() {
+        // MainActivity historically padded the whole root by systemBars().bottom. That
+        // produced a second visual floor underneath app navigation. Keep only the status
+        // bar safe area here; Material 3 NavigationBar consumes the bottom inset itself,
+        // while the map/background can render edge-to-edge behind it.
+        ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
+            val statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            view.setPadding(0, statusBars.top, 0, 0)
+            insets
+        }
+        ViewCompat.requestApplyInsets(this)
     }
 
     private fun wireChrome() {
