@@ -3,7 +3,6 @@ package app.humanrouter
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
-import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -13,8 +12,11 @@ import java.util.WeakHashMap
 /**
  * Keeps the V2 journey strip authoritative while legacy route visuals are still present.
  *
- * Changes are event-driven and converge after a finite layout pass: the guard only mutates when
- * an actual legacy artefact is present, so Espresso and the main thread can return to idle.
+ * The guard is intentionally non-structural: it never reparents the V2 strip. Reparenting made the
+ * coordinator believe the strip was missing and create another one on the next layout pass, which
+ * could keep the main thread permanently non-idle. All mutations below converge after a finite
+ * pass: stale legacy views are hidden, duplicate labels are suppressed, and the V2 strip remains a
+ * direct child owned by the route coordinator.
  */
 internal object TransitJourneyVisibilityGuard {
     private val controllers = WeakHashMap<MainActivity, Controller>()
@@ -42,23 +44,15 @@ internal object TransitJourneyVisibilityGuard {
         private var destroyed = false
 
         private val rootLayoutListener = ViewTreeObserver.OnGlobalLayoutListener {
-            if (needsStructuralChange()) enforceSoon()
+            if (!destroyed && needsVisualChange()) enforceSoon()
         }
 
         private val panelLayoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            if (!destroyed && hasHiddenLegacyActiveStatus()) enforceSoon()
-        }
-
-        private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
-            if (!destroyed && hasHiddenLegacyActiveStatus()) {
-                suppressHiddenLegacyActiveStatus()
-            }
-            true
+            if (!destroyed && needsVisualChange()) enforceSoon()
         }
 
         init {
             root.viewTreeObserver.addOnGlobalLayoutListener(rootLayoutListener)
-            root.viewTreeObserver.addOnPreDrawListener(preDrawListener)
             panel.addOnLayoutChangeListener(panelLayoutListener)
             enforceSoon()
         }
@@ -67,7 +61,6 @@ internal object TransitJourneyVisibilityGuard {
             destroyed = true
             if (root.viewTreeObserver.isAlive) {
                 root.viewTreeObserver.removeOnGlobalLayoutListener(rootLayoutListener)
-                root.viewTreeObserver.removeOnPreDrawListener(preDrawListener)
             }
             panel.removeOnLayoutChangeListener(panelLayoutListener)
         }
@@ -81,13 +74,11 @@ internal object TransitJourneyVisibilityGuard {
             }
         }
 
-        private fun needsStructuralChange(): Boolean {
+        private fun needsVisualChange(): Boolean {
             if (hasHiddenLegacyActiveStatus()) return true
             return descendants(panel).filterIsInstance<HorizontalScrollView>().any { scroll ->
                 when (scroll.contentDescription?.toString().orEmpty()) {
-                    V2_DESCRIPTION -> scroll.parent === panel ||
-                        scroll.visibility != View.VISIBLE ||
-                        hasDuplicateSecondary(scroll)
+                    V2_DESCRIPTION -> scroll.visibility != View.VISIBLE || hasDuplicateSecondary(scroll)
                     LEGACY_DESCRIPTION -> scroll.visibility != View.GONE
                     else -> false
                 }
@@ -96,16 +87,15 @@ internal object TransitJourneyVisibilityGuard {
 
         private fun enforceNow() {
             suppressHiddenLegacyActiveStatus()
-            val v2 = descendants(panel).filterIsInstance<HorizontalScrollView>()
-                .firstOrNull { it.contentDescription?.toString() == V2_DESCRIPTION }
-            if (v2 != null) {
-                isolateV2(v2)
-                if (v2.visibility != View.VISIBLE) v2.visibility = View.VISIBLE
-                suppressDuplicateSecondaryLabels(v2)
-            }
             descendants(panel).filterIsInstance<HorizontalScrollView>().forEach { scroll ->
-                if (scroll.contentDescription?.toString() == LEGACY_DESCRIPTION && scroll.visibility != View.GONE) {
-                    scroll.visibility = View.GONE
+                when (scroll.contentDescription?.toString().orEmpty()) {
+                    V2_DESCRIPTION -> {
+                        if (scroll.visibility != View.VISIBLE) scroll.visibility = View.VISIBLE
+                        suppressDuplicateSecondaryLabels(scroll)
+                    }
+                    LEGACY_DESCRIPTION -> {
+                        if (scroll.visibility != View.GONE) scroll.visibility = View.GONE
+                    }
                 }
             }
         }
@@ -122,42 +112,6 @@ internal object TransitJourneyVisibilityGuard {
                     view.text = ""
                     view.contentDescription = null
                 }
-        }
-
-        private fun isolateV2(scroll: HorizontalScrollView) {
-            if (scroll.parent !== panel) return
-            val index = panel.indexOfChild(scroll)
-            if (index < 0) return
-
-            val transition = panel.layoutTransition
-            panel.layoutTransition = null
-            try {
-                panel.removeViewAt(index)
-                if (scroll.parent != null) return
-
-                val wrapper = FrameLayout(activity).apply {
-                    tag = V2_WRAPPER_TAG
-                    clipChildren = false
-                    clipToPadding = false
-                }
-                panel.addView(
-                    wrapper,
-                    index.coerceAtMost(panel.childCount),
-                    LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    )
-                )
-                wrapper.addView(
-                    scroll,
-                    FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    )
-                )
-            } finally {
-                panel.layoutTransition = transition
-            }
         }
 
         private fun hasDuplicateSecondary(root: View): Boolean =
@@ -209,5 +163,4 @@ internal object TransitJourneyVisibilityGuard {
     internal const val V2_DESCRIPTION = "Этапы маршрута с линиями и переходами"
     private const val LEGACY_DESCRIPTION = "Схема транспорта маршрута"
     private const val ACTIVE_STATUS_TEXT = "В пути"
-    private const val V2_WRAPPER_TAG = "vh-transit-strip-v2-wrapper"
 }
