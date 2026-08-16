@@ -1,7 +1,5 @@
 package app.humanrouter
 
-import android.text.Editable
-import android.text.TextWatcher
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
@@ -13,12 +11,10 @@ import java.util.Locale
 import java.util.WeakHashMap
 
 /**
- * Keeps the V2 journey strip authoritative while the legacy visual decorator is still present.
+ * Keeps the V2 journey strip authoritative while legacy route visuals are still present.
  *
- * The legacy decorator was written before V2 and hides direct sibling HorizontalScrollViews in
- * active-trip mode. V2 is therefore re-parented once into a neutral FrameLayout wrapper: legacy
- * code can no longer hide it on every layout pass, which also avoids an API 26 layout tug-of-war.
- * Redundant secondary labels such as "м2 / м2" or "Метро 6 / 6" are removed as well.
+ * Changes are event-driven and converge after a finite layout pass: the guard only mutates when
+ * an actual legacy artefact is present, so Espresso and the main thread can return to idle.
  */
 internal object TransitJourneyVisibilityGuard {
     private val controllers = WeakHashMap<MainActivity, Controller>()
@@ -42,24 +38,27 @@ internal object TransitJourneyVisibilityGuard {
     private class Controller(private val activity: MainActivity) {
         private val root = activity.findViewById<ViewGroup>(R.id.root)
         private val panel = activity.findViewById<LinearLayout>(R.id.routeResultsPanel)
-        private val watchedTextViews = WeakHashMap<TextView, TextWatcher>()
         private var posted = false
         private var destroyed = false
 
-        private val layoutListener = ViewTreeObserver.OnGlobalLayoutListener {
-            if (needsChange()) enforceSoon()
+        private val rootLayoutListener = ViewTreeObserver.OnGlobalLayoutListener {
+            if (needsStructuralChange()) enforceSoon()
+        }
+
+        private val panelLayoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (!destroyed && hasHiddenLegacyActiveStatus()) enforceSoon()
         }
 
         init {
-            root.viewTreeObserver.addOnGlobalLayoutListener(layoutListener)
+            root.viewTreeObserver.addOnGlobalLayoutListener(rootLayoutListener)
+            panel.addOnLayoutChangeListener(panelLayoutListener)
             enforceSoon()
         }
 
         fun destroy() {
             destroyed = true
-            if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnGlobalLayoutListener(layoutListener)
-            watchedTextViews.forEach { (view, watcher) -> view.removeTextChangedListener(watcher) }
-            watchedTextViews.clear()
+            if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnGlobalLayoutListener(rootLayoutListener)
+            panel.removeOnLayoutChangeListener(panelLayoutListener)
         }
 
         fun enforceSoon() {
@@ -71,25 +70,20 @@ internal object TransitJourneyVisibilityGuard {
             }
         }
 
-        private fun needsChange(): Boolean {
-            if (descendants(panel).filterIsInstance<TextView>().any { it !in watchedTextViews }) return true
+        private fun needsStructuralChange(): Boolean {
             if (hasHiddenLegacyActiveStatus()) return true
-            var needs = false
-            descendants(panel).filterIsInstance<HorizontalScrollView>().forEach { scroll ->
+            return descendants(panel).filterIsInstance<HorizontalScrollView>().any { scroll ->
                 when (scroll.contentDescription?.toString().orEmpty()) {
-                    V2_DESCRIPTION -> {
-                        if (scroll.parent === panel || scroll.visibility != View.VISIBLE || hasDuplicateSecondary(scroll)) {
-                            needs = true
-                        }
-                    }
-                    LEGACY_DESCRIPTION -> if (scroll.visibility != View.GONE) needs = true
+                    V2_DESCRIPTION -> scroll.parent === panel ||
+                        scroll.visibility != View.VISIBLE ||
+                        hasDuplicateSecondary(scroll)
+                    LEGACY_DESCRIPTION -> scroll.visibility != View.GONE
+                    else -> false
                 }
             }
-            return needs
         }
 
         private fun enforceNow() {
-            installLegacyStatusWatchers()
             suppressHiddenLegacyActiveStatus()
             val v2 = descendants(panel).filterIsInstance<HorizontalScrollView>()
                 .firstOrNull { it.contentDescription?.toString() == V2_DESCRIPTION }
@@ -103,26 +97,6 @@ internal object TransitJourneyVisibilityGuard {
                     scroll.visibility = View.GONE
                 }
             }
-        }
-
-        private fun installLegacyStatusWatchers() {
-            descendants(panel)
-                .filterIsInstance<TextView>()
-                .filter { it !in watchedTextViews }
-                .forEach { view ->
-                    val watcher = object : TextWatcher {
-                        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                        override fun afterTextChanged(s: Editable?) {
-                            if (!destroyed && view.visibility != View.VISIBLE && s?.toString() == ACTIVE_STATUS_TEXT) {
-                                view.text = ""
-                                view.contentDescription = null
-                            }
-                        }
-                    }
-                    view.addTextChangedListener(watcher)
-                    watchedTextViews[view] = watcher
-                }
         }
 
         private fun hasHiddenLegacyActiveStatus(): Boolean = descendants(panel)
@@ -144,10 +118,6 @@ internal object TransitJourneyVisibilityGuard {
             val index = panel.indexOfChild(scroll)
             if (index < 0) return
 
-            // UiPolish installs LayoutTransition on routeResultsPanel. During an animated removal
-            // Android can keep the disappearing child attached, so immediately adding it to the
-            // wrapper throws "child already has a parent". Re-parent atomically with transitions
-            // disabled, then restore the existing transition for normal UI changes.
             val transition = panel.layoutTransition
             panel.layoutTransition = null
             try {
