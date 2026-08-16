@@ -282,7 +282,7 @@ internal object ReferenceVisualTuning {
         val badge = card.getChildAt(1) as? TextView
         val chain = card.getChildAt(2) as? TextView
         val meta = card.getChildAt(3) as? TextView
-        val keep = setOf<View>(top, badge, chain, meta)
+        val keep = listOfNotNull<View>(top, badge, chain, meta).toSet()
 
         for (index in 0 until card.childCount) {
             val child = card.getChildAt(index)
