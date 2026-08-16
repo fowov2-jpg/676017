@@ -23,6 +23,10 @@ on:
       - .github/scripts/android_emulator_smoke.sh
       - .github/workflows/build-android.yml
 
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
