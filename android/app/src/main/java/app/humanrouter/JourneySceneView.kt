@@ -3,13 +3,16 @@ package app.humanrouter
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Shader
+import android.graphics.drawable.Drawable
 import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.View
-import kotlin.math.PI
-import kotlin.math.sin
+import androidx.core.content.ContextCompat
+import kotlin.math.roundToInt
 
 internal object JourneySceneTimeline {
     const val LOOP_MS = 12_000L
@@ -37,11 +40,11 @@ internal object JourneySceneTimeline {
 }
 
 /**
- * A continuous journey scene used while route data is prepared.
+ * One continuous journey scene shown while route data is prepared.
  *
- * Unlike the old frame swap, this is one coherent animation: the passenger approaches a stop,
- * waits for roughly two seconds, boards a bus, rides to metro, descends to the platform and leaves
- * on a train. Everything is drawn as vector geometry so it stays crisp on every density.
+ * The timeline stays deliberately simple and deterministic, but the passenger and transport are
+ * now the real illustrated journey assets shipped with the app instead of placeholder Canvas
+ * people/rectangles. The stop is visibly empty after boarding, matching the product sequence.
  */
 internal class JourneySceneView @JvmOverloads constructor(
     context: Context,
@@ -54,6 +57,13 @@ internal class JourneySceneView @JvmOverloads constructor(
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
+
+    private val person = asset(R.drawable.journey_person)
+    private val occupiedStop = asset(R.drawable.journey_stop)
+    private val bus = asset(R.drawable.journey_bus)
+    private val metroTrain = asset(R.drawable.journey_metro)
+    private val train = asset(R.drawable.journey_train)
+
     private var startedAt = 0L
     private var running = false
     private var lastStage: JourneySceneTimeline.Stage? = null
@@ -89,94 +99,160 @@ internal class JourneySceneView @JvmOverloads constructor(
     private fun drawScene(canvas: Canvas, frame: JourneySceneTimeline.Frame) {
         val w = width.toFloat()
         val h = height.toFloat()
-        val groundY = h * 0.48f
-        val railY = h * 0.82f
-        val stopX = w * 0.29f
+        val groundY = h * 0.64f
+        val railY = h * 0.88f
+        val stopX = w * 0.31f
         val metroX = w * 0.73f
 
-        paint.color = Color.rgb(238, 243, 248)
-        canvas.drawRoundRect(RectF(0f, 0f, w, h), dp(16f), dp(16f), paint)
-
-        paint.color = Color.rgb(216, 224, 234)
-        canvas.drawRect(0f, groundY + dp(7f), w, groundY + dp(9f), paint)
-        paint.color = Color.rgb(205, 214, 225)
-        canvas.drawRect(0f, railY, w, railY + dp(2f), paint)
-        canvas.drawRect(0f, railY + dp(7f), w, railY + dp(9f), paint)
-
-        drawStop(canvas, stopX, groundY)
+        drawBackground(canvas, w, h, groundY, railY)
         drawMetroEntrance(canvas, metroX, groundY)
-        drawStairs(canvas, metroX, groundY + dp(8f), railY - dp(10f))
+        drawStairs(canvas, metroX, groundY + dp(4f), railY - dp(7f))
 
         when (frame.stage) {
             JourneySceneTimeline.Stage.RUN_TO_STOP -> {
-                val x = lerp(w * 0.08f, stopX - dp(12f), ease(frame.progress))
-                drawPerson(canvas, x, groundY - dp(2f), walkingPhase = frame.progress * 6f)
-            }
-            JourneySceneTimeline.Stage.WAIT_AT_STOP -> {
-                drawPerson(canvas, stopX - dp(12f), groundY - dp(2f), walkingPhase = 0f)
-                val approach = ((frame.progress - 0.38f) / 0.62f).coerceIn(0f, 1f)
-                val busX = lerp(w + dp(48f), stopX + dp(28f), ease(approach))
-                drawBus(canvas, busX, groundY, passengerVisible = approach > 0.93f)
-            }
-            JourneySceneTimeline.Stage.BUS_TO_METRO -> {
-                val busX = lerp(stopX + dp(28f), metroX - dp(16f), ease(frame.progress))
-                drawBus(canvas, busX, groundY, passengerVisible = true)
-            }
-            JourneySceneTimeline.Stage.DESCEND_TO_PLATFORM -> {
-                drawBus(canvas, metroX - dp(16f), groundY, passengerVisible = false)
+                drawEmptyStop(canvas, stopX, groundY)
                 val p = ease(frame.progress)
-                val x = lerp(metroX - dp(6f), metroX + dp(22f), p)
-                val y = lerp(groundY - dp(2f), railY - dp(12f), p)
-                drawPerson(canvas, x, y, walkingPhase = frame.progress * 5f, scale = 0.86f)
+                val x = lerp(w * 0.05f, stopX - dp(16f), p)
+                val bounce = if (frame.progress in 0.04f..0.96f) {
+                    kotlin.math.sin(frame.progress * Math.PI * 8.0).toFloat() * dp(1.4f)
+                } else 0f
+                drawAsset(canvas, person, x, groundY + dp(5f) + bounce, dp(49f))
             }
-            JourneySceneTimeline.Stage.TRAIN_DEPARTS -> {
-                val trainX = lerp(-w * 0.28f, w * 1.23f, ease(frame.progress))
-                drawTrain(canvas, trainX, railY - dp(2f), passengerVisible = frame.progress > 0.12f)
-                if (frame.progress < 0.12f) {
-                    drawPerson(canvas, metroX + dp(22f), railY - dp(12f), walkingPhase = 0f, scale = 0.86f)
+
+            JourneySceneTimeline.Stage.WAIT_AT_STOP -> {
+                // This artwork contains the waiting passenger. It replaces the moving person only
+                // after arrival, so there is never a second static person waiting at the stop.
+                drawAsset(canvas, occupiedStop, stopX, groundY + dp(12f), dp(62f))
+                val approach = ((frame.progress - 0.32f) / 0.68f).coerceIn(0f, 1f)
+                if (approach > 0f) {
+                    val x = lerp(w + dp(48f), stopX + dp(38f), ease(approach))
+                    drawAsset(canvas, bus, x, groundY + dp(15f), dp(79f))
                 }
+            }
+
+            JourneySceneTimeline.Stage.BUS_TO_METRO -> {
+                // Boarding is complete: the shelter is intentionally empty from this point on.
+                drawEmptyStop(canvas, stopX, groundY)
+                val x = lerp(stopX + dp(38f), metroX - dp(23f), ease(frame.progress))
+                drawAsset(canvas, bus, x, groundY + dp(15f), dp(79f))
+            }
+
+            JourneySceneTimeline.Stage.DESCEND_TO_PLATFORM -> {
+                drawEmptyStop(canvas, stopX, groundY)
+                val busAlpha = ((1f - frame.progress * 1.5f).coerceIn(0f, 1f) * 255).roundToInt()
+                if (busAlpha > 0) {
+                    drawAsset(canvas, bus, metroX - dp(23f), groundY + dp(15f), dp(79f), busAlpha)
+                }
+
+                drawAsset(canvas, metroTrain, metroX + dp(17f), h + dp(12f), dp(84f), 190)
+                val p = ease(frame.progress)
+                val x = lerp(metroX - dp(7f), metroX + dp(19f), p)
+                val y = lerp(groundY + dp(5f), railY + dp(9f), p)
+                val size = lerp(dp(47f), dp(38f), p)
+                drawAsset(canvas, person, x, y, size)
+            }
+
+            JourneySceneTimeline.Stage.TRAIN_DEPARTS -> {
+                drawEmptyStop(canvas, stopX, groundY)
+                val p = ease(frame.progress)
+                val x = lerp(metroX + dp(10f), w + dp(62f), p)
+                drawAsset(canvas, train, x, h + dp(10f), dp(96f))
             }
         }
     }
 
-    private fun drawStop(canvas: Canvas, x: Float, groundY: Float) {
-        stroke.color = Color.rgb(68, 80, 99)
-        stroke.strokeWidth = dp(2f)
-        canvas.drawLine(x, groundY - dp(31f), x, groundY + dp(7f), stroke)
+    private fun drawBackground(canvas: Canvas, w: Float, h: Float, groundY: Float, railY: Float) {
+        paint.shader = LinearGradient(
+            0f,
+            0f,
+            0f,
+            h,
+            Color.rgb(250, 252, 255),
+            Color.rgb(231, 238, 247),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRoundRect(RectF(0f, 0f, w, h), dp(16f), dp(16f), paint)
+        paint.shader = null
+
+        paint.color = Color.rgb(211, 220, 231)
+        canvas.drawRoundRect(
+            RectF(dp(8f), groundY + dp(8f), w - dp(8f), groundY + dp(10f)),
+            dp(1f),
+            dp(1f),
+            paint
+        )
+
+        paint.color = Color.rgb(193, 204, 219)
+        canvas.drawRect(dp(5f), railY, w - dp(5f), railY + dp(1.5f), paint)
+        canvas.drawRect(dp(5f), railY + dp(6f), w - dp(5f), railY + dp(7.5f), paint)
+    }
+
+    private fun drawEmptyStop(canvas: Canvas, x: Float, groundY: Float) {
+        val left = x - dp(17f)
+        val right = x + dp(17f)
+        val roofY = groundY - dp(26f)
+
+        paint.color = Color.argb(210, 235, 242, 249)
+        canvas.drawRoundRect(
+            RectF(left, roofY, right, groundY + dp(3f)),
+            dp(4f),
+            dp(4f),
+            paint
+        )
+        stroke.color = Color.rgb(111, 129, 153)
+        stroke.strokeWidth = dp(1.6f)
+        canvas.drawLine(left, roofY, right, roofY, stroke)
+        canvas.drawLine(left + dp(2f), roofY, left + dp(2f), groundY + dp(5f), stroke)
+        canvas.drawLine(right - dp(2f), roofY, right - dp(2f), groundY + dp(5f), stroke)
+
+        paint.color = Color.rgb(115, 134, 157)
+        canvas.drawRoundRect(
+            RectF(x - dp(10f), groundY - dp(7f), x + dp(7f), groundY - dp(4f)),
+            dp(1.5f),
+            dp(1.5f),
+            paint
+        )
+
+        val poleX = right + dp(7f)
+        stroke.color = Color.rgb(70, 88, 111)
+        stroke.strokeWidth = dp(1.8f)
+        canvas.drawLine(poleX, roofY - dp(1f), poleX, groundY + dp(5f), stroke)
         paint.color = Color.WHITE
-        canvas.drawCircle(x, groundY - dp(31f), dp(9f), paint)
+        canvas.drawCircle(poleX, roofY, dp(6f), paint)
         stroke.color = Color.rgb(40, 123, 255)
-        stroke.strokeWidth = dp(2.4f)
-        canvas.drawCircle(x, groundY - dp(31f), dp(8f), stroke)
-        paint.color = Color.rgb(40, 123, 255)
-        canvas.drawCircle(x, groundY - dp(31f), dp(2.8f), paint)
+        stroke.strokeWidth = dp(2f)
+        canvas.drawCircle(poleX, roofY, dp(5.5f), stroke)
     }
 
     private fun drawMetroEntrance(canvas: Canvas, x: Float, groundY: Float) {
         paint.color = Color.WHITE
         canvas.drawRoundRect(
-            RectF(x - dp(16f), groundY - dp(33f), x + dp(16f), groundY + dp(4f)),
-            dp(6f), dp(6f), paint
+            RectF(x - dp(14f), groundY - dp(31f), x + dp(14f), groundY + dp(2f)),
+            dp(6f),
+            dp(6f),
+            paint
         )
-        stroke.color = Color.rgb(220, 43, 61)
-        stroke.strokeWidth = dp(2f)
+        stroke.color = Color.rgb(221, 39, 59)
+        stroke.strokeWidth = dp(1.8f)
         canvas.drawRoundRect(
-            RectF(x - dp(16f), groundY - dp(33f), x + dp(16f), groundY + dp(4f)),
-            dp(6f), dp(6f), stroke
+            RectF(x - dp(14f), groundY - dp(31f), x + dp(14f), groundY + dp(2f)),
+            dp(6f),
+            dp(6f),
+            stroke
         )
-        paint.color = Color.rgb(220, 43, 61)
+        paint.color = Color.rgb(221, 39, 59)
         paint.textAlign = Paint.Align.CENTER
-        paint.textSize = dp(15f)
+        paint.textSize = dp(13f)
         paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
         canvas.drawText("M", x, groundY - dp(11f), paint)
         paint.typeface = android.graphics.Typeface.DEFAULT
     }
 
     private fun drawStairs(canvas: Canvas, x: Float, topY: Float, bottomY: Float) {
-        stroke.color = Color.rgb(151, 163, 180)
-        stroke.strokeWidth = dp(1.5f)
-        val left = x + dp(10f)
-        val right = x + dp(31f)
+        stroke.color = Color.rgb(149, 164, 183)
+        stroke.strokeWidth = dp(1.2f)
+        val left = x + dp(9f)
+        val right = x + dp(29f)
         val steps = 5
         for (i in 0 until steps) {
             val p0 = i / steps.toFloat()
@@ -190,67 +266,31 @@ internal class JourneySceneView @JvmOverloads constructor(
         }
     }
 
-    private fun drawPerson(
+    private fun drawAsset(
         canvas: Canvas,
-        x: Float,
-        footY: Float,
-        walkingPhase: Float,
-        scale: Float = 1f
+        drawable: Drawable,
+        centerX: Float,
+        bottomY: Float,
+        size: Float,
+        alpha: Int = 255
     ) {
-        val s = scale
-        val sway = sin(walkingPhase * PI).toFloat() * dp(3.2f) * s
-        paint.color = Color.rgb(31, 41, 55)
-        canvas.drawCircle(x, footY - dp(22f) * s, dp(4.2f) * s, paint)
-        stroke.color = Color.rgb(31, 41, 55)
-        stroke.strokeWidth = dp(2.5f) * s
-        canvas.drawLine(x, footY - dp(17f) * s, x, footY - dp(7f) * s, stroke)
-        canvas.drawLine(x, footY - dp(14f) * s, x - sway, footY - dp(8f) * s, stroke)
-        canvas.drawLine(x, footY - dp(14f) * s, x + sway, footY - dp(9f) * s, stroke)
-        canvas.drawLine(x, footY - dp(7f) * s, x - sway, footY, stroke)
-        canvas.drawLine(x, footY - dp(7f) * s, x + sway, footY, stroke)
+        val half = size / 2f
+        val left = centerX - half
+        val top = bottomY - size
+        val oldAlpha = drawable.alpha
+        drawable.alpha = alpha.coerceIn(0, 255)
+        drawable.setBounds(
+            left.roundToInt(),
+            top.roundToInt(),
+            (left + size).roundToInt(),
+            bottomY.roundToInt()
+        )
+        drawable.draw(canvas)
+        drawable.alpha = oldAlpha
     }
 
-    private fun drawBus(canvas: Canvas, centerX: Float, groundY: Float, passengerVisible: Boolean) {
-        val left = centerX - dp(28f)
-        val top = groundY - dp(28f)
-        val right = centerX + dp(28f)
-        val bottom = groundY
-        paint.color = Color.rgb(40, 123, 255)
-        canvas.drawRoundRect(RectF(left, top, right, bottom), dp(7f), dp(7f), paint)
-        paint.color = Color.rgb(225, 240, 255)
-        canvas.drawRoundRect(RectF(left + dp(7f), top + dp(5f), right - dp(7f), top + dp(15f)), dp(3f), dp(3f), paint)
-        paint.color = Color.WHITE
-        canvas.drawRect(right - dp(12f), top + dp(17f), right - dp(5f), bottom - dp(4f), paint)
-        paint.color = Color.rgb(43, 51, 64)
-        canvas.drawCircle(left + dp(12f), bottom + dp(1f), dp(4.5f), paint)
-        canvas.drawCircle(right - dp(12f), bottom + dp(1f), dp(4.5f), paint)
-        if (passengerVisible) {
-            paint.color = Color.rgb(31, 41, 55)
-            canvas.drawCircle(centerX - dp(5f), top + dp(10f), dp(2.3f), paint)
-        }
-    }
-
-    private fun drawTrain(canvas: Canvas, centerX: Float, railY: Float, passengerVisible: Boolean) {
-        val left = centerX - dp(43f)
-        val top = railY - dp(30f)
-        val right = centerX + dp(43f)
-        val bottom = railY - dp(3f)
-        paint.color = Color.rgb(216, 33, 53)
-        canvas.drawRoundRect(RectF(left, top, right, bottom), dp(9f), dp(9f), paint)
-        paint.color = Color.rgb(240, 247, 252)
-        val windowTop = top + dp(5f)
-        for (i in 0..3) {
-            val wx = left + dp(8f) + i * dp(18f)
-            canvas.drawRoundRect(RectF(wx, windowTop, wx + dp(12f), windowTop + dp(10f)), dp(2f), dp(2f), paint)
-        }
-        paint.color = Color.rgb(47, 55, 69)
-        canvas.drawCircle(left + dp(15f), bottom + dp(1f), dp(3.8f), paint)
-        canvas.drawCircle(right - dp(15f), bottom + dp(1f), dp(3.8f), paint)
-        if (passengerVisible) {
-            paint.color = Color.rgb(31, 41, 55)
-            canvas.drawCircle(left + dp(32f), windowTop + dp(5f), dp(2f), paint)
-        }
-    }
+    private fun asset(id: Int): Drawable =
+        requireNotNull(ContextCompat.getDrawable(context, id)) { "Missing journey drawable $id" }.mutate()
 
     private fun ease(value: Float): Float {
         val v = value.coerceIn(0f, 1f)
