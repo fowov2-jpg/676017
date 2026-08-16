@@ -39,6 +39,7 @@ class VremyaHodomChromeLayout @JvmOverloads constructor(
         val nearby = findViewById<View?>(R.id.nearbyPanel)
         val bottom = findViewById<View?>(R.id.bottomNav)
         val destination = findViewById<EditText?>(R.id.toField)
+        compactBottomNavigation(bottom)
         bottom?.visibility = View.VISIBLE
 
         findViewById<Button?>(R.id.routeButton)?.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
@@ -91,6 +92,26 @@ class VremyaHodomChromeLayout @JvmOverloads constructor(
         bindPreferenceSwitch(R.id.darkThemeSwitch, "dark_theme", false)
         bindPreferenceSwitch(R.id.lessWalkingSwitch, "less_walking", false)
         bindPreferenceSwitch(R.id.avoidTransfersSwitch, "avoid_transfers", false)
+    }
+
+    private fun compactBottomNavigation(bottom: View?) {
+        val nav = bottom as? LinearLayout ?: return
+        nav.layoutParams = nav.layoutParams.apply { height = dp(60) }
+        nav.setPadding(dp(4), dp(2), dp(4), dp(2))
+
+        listOf(
+            R.id.mapNavButton,
+            R.id.routesNavButton,
+            R.id.transportNavButton,
+            R.id.favoritesNavButton
+        ).forEach { id ->
+            findViewById<TextView?>(id)?.apply {
+                includeFontPadding = false
+                compoundDrawablePadding = dp(2)
+                textSize = 10f
+                setPadding(0, dp(3), 0, dp(3))
+            }
+        }
     }
 
     private fun focusNearby(kind: String) {
