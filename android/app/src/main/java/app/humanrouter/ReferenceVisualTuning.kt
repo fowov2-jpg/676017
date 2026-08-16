@@ -237,9 +237,9 @@ internal object ReferenceVisualTuning {
                         child.visibility = View.GONE
                     }
                 }
-                is LinearLayout -> if (child.isClickable && child.getTag(ROUTE_CARD_POLISH_TAG_KEY) != true) {
+                is LinearLayout -> if (child.isClickable && child.getTag(R.id.routeFiltersPanel) != true) {
                     compactRouteCard(activity, child)
-                    child.setTag(ROUTE_CARD_POLISH_TAG_KEY, true)
+                    child.setTag(R.id.routeFiltersPanel, true)
                 }
             }
         }
@@ -327,7 +327,4 @@ internal object ReferenceVisualTuning {
 
     private fun dp(activity: MainActivity, value: Int): Int =
         (value * activity.resources.displayMetrics.density + 0.5f).toInt()
-
-    // Keyed tag is local to each generated route card; it does not replace the card's normal tag.
-    private const val ROUTE_CARD_POLISH_TAG_KEY = R.id.routeFiltersPanel
 }
