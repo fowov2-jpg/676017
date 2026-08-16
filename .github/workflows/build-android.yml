@@ -100,10 +100,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          wget -q https://services.gradle.org/distributions/gradle-8.9-bin.zip -O /tmp/gradle.zip
-          echo 'd725d707bfabd4dfdc958c624003b3c80accc03f7037b5122c4b1d0ef15cecab  /tmp/gradle.zip' | sha256sum -c -
+          wget -q https://services.gradle.org/distributions/gradle-8.11.1-bin.zip -O /tmp/gradle.zip
+          echo 'f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6  /tmp/gradle.zip' | sha256sum -c -
           unzip -q /tmp/gradle.zip -d /tmp
-          echo "/tmp/gradle-8.9/bin" >> "$GITHUB_PATH"
+          echo "/tmp/gradle-8.11.1/bin" >> "$GITHUB_PATH"
 
       - name: Prepare stable CI debug signing key
         working-directory: android

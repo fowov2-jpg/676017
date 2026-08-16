@@ -8,7 +8,7 @@ val ciVersionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
 
 android {
     namespace = "app.humanrouter"
-    compileSdk = 35
+    compileSdk = 36
 
     signingConfigs {
         getByName("debug") {
@@ -53,8 +53,8 @@ android {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.core:core-ktx:1.18.0")
+    implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.13.0")
     implementation("androidx.work:work-runtime:2.11.2")
     implementation("org.maplibre.gl:android-sdk:11.8.0")
