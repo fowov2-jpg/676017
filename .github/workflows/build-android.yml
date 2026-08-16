@@ -169,9 +169,9 @@ jobs:
 
           "$APKSIGNER" verify --verbose "$APK"
           "$AAPT" dump badging "$APK" | tee /tmp/vremyahodom-badging.txt
-          grep -F "application-label:'ВремяХодом'" /tmp/vremyahodom-badging.txt
+          grep -F "application-label:'Время ходом'" /tmp/vremyahodom-badging.txt
           grep -F "launchable-activity:" /tmp/vremyahodom-badging.txt
-          grep -F "application: label='ВремяХодом'" /tmp/vremyahodom-badging.txt
+          grep -F "application: label='Время ходом'" /tmp/vremyahodom-badging.txt
 
           "$AAPT" dump resources "$APK" > /tmp/vremyahodom-resources.txt
           grep -F 'mipmap/ic_launcher' /tmp/vremyahodom-resources.txt
