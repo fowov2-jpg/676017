@@ -101,8 +101,8 @@ internal object ReferenceVisualTuning {
     private fun tuneSettingsSheet(activity: MainActivity) {
         val settingsPanel = activity.findViewById<ViewGroup>(R.id.settingsPanel)
         val scroll = settingsPanel.parent as? ScrollView ?: return
-        val width = activity.resources.displayMetrics.widthPixels
-        val targetWidth = (width * 0.47f).roundToInt()
+        val screenWidth = activity.resources.displayMetrics.widthPixels
+        val targetWidth = (screenWidth * 0.47f).roundToInt()
         val params = scroll.layoutParams as? FrameLayout.LayoutParams ?: return
         if (params.width != targetWidth || params.gravity != Gravity.END) {
             params.width = targetWidth
@@ -126,8 +126,8 @@ internal object ReferenceVisualTuning {
         activity.findViewById<TextView>(R.id.closeSettingsButton).apply {
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 26f)
             layoutParams = layoutParams.apply {
-                width = dp(activity, 40)
-                height = dp(activity, 40)
+                this.width = dp(activity, 40)
+                this.height = dp(activity, 40)
             }
         }
 
@@ -161,7 +161,6 @@ internal object ReferenceVisualTuning {
             }
         }
 
-        // Keep the honest realtime disclosure, but stop it from dominating the narrow reference sheet.
         descendants(settingsPanel)
             .filterIsInstance<TextView>()
             .firstOrNull { it.text?.toString()?.contains("Live-позиции", ignoreCase = true) == true }
@@ -222,8 +221,6 @@ internal object ReferenceVisualTuning {
             }
         }
 
-        // The old selected-card expansion repeated every timetable step and consumed almost the
-        // entire sheet. Route overview stays summary-first; detailed timeline belongs to the trip.
         for (index in 0 until card.childCount) {
             val child = card.getChildAt(index)
             if (index >= 4 && child.visibility != View.GONE) child.visibility = View.GONE
