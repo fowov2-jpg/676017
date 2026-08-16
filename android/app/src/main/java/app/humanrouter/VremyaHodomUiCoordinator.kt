@@ -412,22 +412,23 @@ internal object VremyaHodomUiCoordinator : Application.ActivityLifecycleCallback
             view.text = "GPS · этап ${nearest.first + 1}/${route.legs.size}: ${legLabel(nearest.second)} · точность ≈${location.accuracy.roundToInt()} м"
         }
 
-        private fun hasLocationPermission(): Boolean =
-            ContextCompat.checkSelfPermission(
+        private fun latestLocation(): Location? {
+            val fineGranted = ContextCompat.checkSelfPermission(
                 activity,
                 android.Manifest.permission.ACCESS_FINE_LOCATION
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
-                ContextCompat.checkSelfPermission(
-                    activity,
-                    android.Manifest.permission.ACCESS_COARSE_LOCATION
-                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val coarseGranted = ContextCompat.checkSelfPermission(
+                activity,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!fineGranted && !coarseGranted) return null
 
-        private fun latestLocation(): Location? {
-            if (!hasLocationPermission()) return null
             val manager = activity.getSystemService(Context.LOCATION_SERVICE) as LocationManager
             return runCatching {
                 manager.getProviders(true)
-                    .mapNotNull { provider -> runCatching { manager.getLastKnownLocation(provider) }.getOrNull() }
+                    .mapNotNull { provider ->
+                        runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
+                    }
                     .maxByOrNull(Location::getTime)
             }.getOrNull()
         }
