@@ -31,6 +31,7 @@ import org.hamcrest.Matcher
 import org.hamcrest.Matchers.containsString
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -114,7 +115,6 @@ class MainActivitySmokeTest {
     @Test
     fun routeOptionsFiltersFavoritesAndTripFlowAreInteractive() {
         launch("routes")
-        onView(withText("Варианты маршрута")).check(matches(isDisplayed()))
         onView(withContentDescription(containsString("Автобус м2"))).check(matches(isDisplayed()))
         scenario!!.onActivity { activity ->
             val root = activity.findViewById<View>(R.id.root)
@@ -125,6 +125,8 @@ class MainActivitySmokeTest {
             assertEquals(View.GONE, quickActions.visibility)
             assertTrue("route sheet still covers most of the map", sheet.height * 2 < root.height)
             assertTrue("route filters overflow their viewport", filterPanel.width <= filterViewport.width)
+            assertNotNull(sheet.findViewWithTag<View>("reference_route_endpoints"))
+            assertEquals(View.GONE, activity.findViewById<View>(R.id.bottomNav).visibility)
         }
         onView(withText("Ещё")).perform(click())
         onView(withText("Наземный транспорт")).perform(click())
@@ -132,6 +134,7 @@ class MainActivitySmokeTest {
         onView(withText("✓ Маршрут сохранён")).perform(scrollTo()).check(matches(isDisplayed()))
 
         relaunch("trip")
+        onView(isRoot()).perform(waitForUi(250L))
         onView(withText("В пути")).check(matches(isDisplayed()))
         onView(withText("Пешком 0 м")).check(doesNotExist())
         onView(withText("Откуда")).check(doesNotExist())
@@ -139,11 +142,17 @@ class MainActivitySmokeTest {
         onView(withContentDescription(containsString("Этап маршрута: Переход")))
             .perform(scrollTo())
             .check(matches(isDisplayed()))
-        onView(withId(R.id.favoritesNavButton)).perform(click())
-        onView(withId(R.id.routesNavButton)).perform(click())
-        onView(withText("В пути")).check(matches(isDisplayed()))
+        scenario!!.onActivity { activity ->
+            val root = activity.findViewById<android.widget.FrameLayout>(R.id.root)
+            assertNotNull(root.findViewWithTag<View>("reference_active_trip_top"))
+            assertNotNull(root.findViewWithTag<View>("reference_active_trip_mini"))
+            assertEquals(View.GONE, activity.findViewById<View>(R.id.bottomNav).visibility)
+        }
         onView(withText("Завершить поездку")).perform(click())
-        onView(withText("Варианты маршрута")).check(matches(isDisplayed()))
+        onView(isRoot()).perform(waitForUi(200L))
+        scenario!!.onActivity { activity ->
+            assertNotNull(activity.findViewById<View>(R.id.routeResultsContainer).findViewWithTag<View>("reference_route_endpoints"))
+        }
     }
 
     @Test
