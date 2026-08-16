@@ -5,7 +5,9 @@ import android.graphics.Color
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.widget.SwitchCompat
@@ -25,10 +27,12 @@ internal object ReferenceVisualTuning {
         tune(activity)
         activity.window.decorView.postDelayed({ tune(activity) }, 220L)
         activity.window.decorView.postDelayed({ tune(activity) }, 720L)
+        activity.window.decorView.postDelayed({ tune(activity) }, 1_400L)
     }
 
     private fun tune(activity: MainActivity) {
         tuneSettingsSheet(activity)
+        tuneRouteChrome(activity)
         tuneActiveTripBadge(activity)
     }
 
@@ -58,6 +62,22 @@ internal object ReferenceVisualTuning {
                 minimumHeight = dp(activity, 72)
             }
         }
+    }
+
+    private fun tuneRouteChrome(activity: MainActivity) {
+        val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
+        val filters = activity.findViewById<HorizontalScrollView>(R.id.routeFiltersScroll)
+        val primaryAction = activity.findViewById<Button>(R.id.routePrimaryAction)
+        val activeTrip = primaryAction.visibility == View.VISIBLE &&
+            primaryAction.text?.toString()?.contains("Завершить", ignoreCase = true) == true
+        val routeOptions = sheet.visibility == View.VISIBLE && filters.visibility == View.VISIBLE && !activeTrip
+        if (!routeOptions) return
+
+        activity.findViewById<View>(R.id.searchPanel).visibility = View.GONE
+        activity.findViewById<View>(R.id.quickActions).visibility = View.GONE
+        activity.findViewById<View>(R.id.locationButton).visibility = View.GONE
+        activity.findViewById<View>(R.id.settingsButton).visibility = View.GONE
+        activity.findViewById<View>(R.id.bottomNav).visibility = View.GONE
     }
 
     private fun tuneActiveTripBadge(activity: MainActivity) {
