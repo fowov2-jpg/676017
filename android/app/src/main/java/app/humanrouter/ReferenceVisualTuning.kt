@@ -17,17 +17,46 @@ import java.time.Instant
 import java.util.WeakHashMap
 import kotlin.math.roundToInt
 
-/** Finite post-layout tuning for the approved reference proportions. */
+/** Event-driven final tuning for the approved reference proportions. */
 internal object ReferenceVisualTuning {
-    private val installed = WeakHashMap<MainActivity, Boolean>()
+    private data class Listeners(
+        val route: View.OnLayoutChangeListener,
+        val settings: View.OnLayoutChangeListener
+    )
+
+    private val installed = WeakHashMap<MainActivity, Listeners>()
 
     @Synchronized
     fun install(activity: MainActivity) {
-        if (installed.put(activity, true) == true) return
+        if (installed.containsKey(activity)) return
+        val routeSheet = activity.findViewById<View>(R.id.routeResultsContainer)
+        val settingsScrim = activity.findViewById<View>(R.id.settingsScrim)
+
+        val routeListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            tuneRouteChrome(activity)
+            tuneActiveTripBadge(activity)
+        }
+        val settingsListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            tuneSettingsSheet(activity)
+        }
+        installed[activity] = Listeners(routeListener, settingsListener)
+        routeSheet.addOnLayoutChangeListener(routeListener)
+        settingsScrim.addOnLayoutChangeListener(settingsListener)
+
+        activity.window.decorView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) = Unit
+            override fun onViewDetachedFromWindow(v: View) {
+                installed.remove(activity)?.let { listeners ->
+                    routeSheet.removeOnLayoutChangeListener(listeners.route)
+                    settingsScrim.removeOnLayoutChangeListener(listeners.settings)
+                }
+                v.removeOnAttachStateChangeListener(this)
+            }
+        })
+
         tune(activity)
         activity.window.decorView.postDelayed({ tune(activity) }, 220L)
         activity.window.decorView.postDelayed({ tune(activity) }, 720L)
-        activity.window.decorView.postDelayed({ tune(activity) }, 1_400L)
     }
 
     private fun tune(activity: MainActivity) {
