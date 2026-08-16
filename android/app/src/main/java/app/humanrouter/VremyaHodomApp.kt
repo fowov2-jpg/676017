@@ -13,9 +13,8 @@ class VremyaHodomApp : Application() {
         }
         AppCompatDelegate.setDefaultNightMode(mode)
 
-        // One lifecycle owner for cross-cutting UI behavior. The previous chain of patch objects
-        // remains in history for comparison but is no longer installed in production execution.
-        VremyaHodomUiCoordinator.install(this)
+        // One registered lifecycle owner coordinates visual defaults and route/journey/map behavior.
+        VremyaHodomLifecycleCoordinator.install(this)
         RuntimeUpdateScheduler.schedule(this)
     }
 }
