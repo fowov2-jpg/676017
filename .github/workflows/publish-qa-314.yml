@@ -1,0 +1,88 @@
+name: Publish QA 0.1.314
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-qa-314.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_RUN_ID: '31934184312'
+      SOURCE_SHA: 'b5d9b18def678e8fde079edfa9097093f5b05ae2'
+      VERSION: '0.1.314'
+      TAG: 'qa-v0.1.314'
+    steps:
+      - name: Wait for Android build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 90); do
+            status=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" --jq '.status')
+            conclusion=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" --jq '.conclusion // ""')
+            echo "build status=${status} conclusion=${conclusion}"
+            if [ "$status" = "completed" ]; then
+              test "$conclusion" = "success"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "Timed out waiting for Android build" >&2
+          exit 1
+
+      - name: Download verified APK artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p android-ci
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name vremyahodom-debug-apk --dir android-ci
+          APK_SRC=$(find android-ci -type f -name 'app-debug.apk' | head -n 1)
+          test -n "$APK_SRC"
+          test -s "$APK_SRC"
+          cp "$APK_SRC" "VremyaHodom-${VERSION}-qa.apk"
+          sha256sum "VremyaHodom-${VERSION}-qa.apk" > "VremyaHodom-${VERSION}-qa.sha256.txt"
+
+      - name: Create GitHub QA release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.txt <<EOF
+          VremyaHodom QA build ${VERSION}
+
+          Source commit: ${SOURCE_SHA}
+          GitHub Actions source run: ${SOURCE_RUN_ID}
+          Build/unit/lint/APK verification: success
+          Change: compact bottom navigation bar (60dp height, reduced icon/text spacing and font padding).
+          Signing: CI debug signer (QA, not production signing)
+          EOF
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              "VremyaHodom-${VERSION}-qa.apk" \
+              "VremyaHodom-${VERSION}-qa.sha256.txt" \
+              --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "VremyaHodom ${VERSION} · QA" \
+              --notes-file release-notes.txt --prerelease
+          else
+            gh release create "$TAG" \
+              "VremyaHodom-${VERSION}-qa.apk" \
+              "VremyaHodom-${VERSION}-qa.sha256.txt" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_SHA" \
+              --title "VremyaHodom ${VERSION} · QA" \
+              --notes-file release-notes.txt --prerelease
+          fi
