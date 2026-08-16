@@ -1,5 +1,7 @@
 package app.humanrouter
 
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
@@ -40,6 +42,7 @@ internal object TransitJourneyVisibilityGuard {
     private class Controller(private val activity: MainActivity) {
         private val root = activity.findViewById<ViewGroup>(R.id.root)
         private val panel = activity.findViewById<LinearLayout>(R.id.routeResultsPanel)
+        private val watchedTextViews = WeakHashMap<TextView, TextWatcher>()
         private var posted = false
         private var destroyed = false
 
@@ -55,6 +58,8 @@ internal object TransitJourneyVisibilityGuard {
         fun destroy() {
             destroyed = true
             if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnGlobalLayoutListener(layoutListener)
+            watchedTextViews.forEach { (view, watcher) -> view.removeTextChangedListener(watcher) }
+            watchedTextViews.clear()
         }
 
         fun enforceSoon() {
@@ -67,6 +72,7 @@ internal object TransitJourneyVisibilityGuard {
         }
 
         private fun needsChange(): Boolean {
+            if (descendants(panel).filterIsInstance<TextView>().any { it !in watchedTextViews }) return true
             if (hasHiddenLegacyActiveStatus()) return true
             var needs = false
             descendants(panel).filterIsInstance<HorizontalScrollView>().forEach { scroll ->
@@ -83,6 +89,7 @@ internal object TransitJourneyVisibilityGuard {
         }
 
         private fun enforceNow() {
+            installLegacyStatusWatchers()
             suppressHiddenLegacyActiveStatus()
             val v2 = descendants(panel).filterIsInstance<HorizontalScrollView>()
                 .firstOrNull { it.contentDescription?.toString() == V2_DESCRIPTION }
@@ -96,6 +103,26 @@ internal object TransitJourneyVisibilityGuard {
                     scroll.visibility = View.GONE
                 }
             }
+        }
+
+        private fun installLegacyStatusWatchers() {
+            descendants(panel)
+                .filterIsInstance<TextView>()
+                .filter { it !in watchedTextViews }
+                .forEach { view ->
+                    val watcher = object : TextWatcher {
+                        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                        override fun afterTextChanged(s: Editable?) {
+                            if (!destroyed && view.visibility != View.VISIBLE && s?.toString() == ACTIVE_STATUS_TEXT) {
+                                view.text = ""
+                                view.contentDescription = null
+                            }
+                        }
+                    }
+                    view.addTextChangedListener(watcher)
+                    watchedTextViews[view] = watcher
+                }
         }
 
         private fun hasHiddenLegacyActiveStatus(): Boolean = descendants(panel)
