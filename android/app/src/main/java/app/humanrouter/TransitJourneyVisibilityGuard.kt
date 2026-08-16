@@ -49,15 +49,29 @@ internal object TransitJourneyVisibilityGuard {
             if (!destroyed && hasHiddenLegacyActiveStatus()) enforceSoon()
         }
 
+        private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
+            if (!destroyed && hasHiddenLegacyActiveStatus()) {
+                // ReferenceProductUiV2 hides the old title late in its composition pass. Clear the
+                // stale semantic text synchronously before the frame becomes observable so the
+                // invisible legacy label cannot duplicate the authoritative V2 "В пути" title.
+                suppressHiddenLegacyActiveStatus()
+            }
+            true
+        }
+
         init {
             root.viewTreeObserver.addOnGlobalLayoutListener(rootLayoutListener)
+            root.viewTreeObserver.addOnPreDrawListener(preDrawListener)
             panel.addOnLayoutChangeListener(panelLayoutListener)
             enforceSoon()
         }
 
         fun destroy() {
             destroyed = true
-            if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnGlobalLayoutListener(rootLayoutListener)
+            if (root.viewTreeObserver.isAlive) {
+                root.viewTreeObserver.removeOnGlobalLayoutListener(rootLayoutListener)
+                root.viewTreeObserver.removeOnPreDrawListener(preDrawListener)
+            }
             panel.removeOnLayoutChangeListener(panelLayoutListener)
         }
 
