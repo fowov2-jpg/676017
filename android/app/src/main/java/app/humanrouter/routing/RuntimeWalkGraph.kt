@@ -5,10 +5,19 @@ import java.util.PriorityQueue
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
+/**
+ * Runtime pedestrian graph.
+ *
+ * Point-to-point walks use an exact A* search over the directed OSM-derived graph. The heuristic is
+ * deliberately conservative (2.4 m/s straight-line lower bound), so it changes search order, not
+ * route correctness. Endpoints that are implausibly far from the pedestrian graph are rejected
+ * instead of drawing a straight line across a river, railway yard or fenced area.
+ */
 internal class RuntimeWalkGraph private constructor(
     private val root: File,
     private val preferences: RoutePreferences
@@ -20,7 +29,19 @@ internal class RuntimeWalkGraph private constructor(
     )
 
     private data class Snap(val node: Int, val meters: Int, val seconds: Int)
-    private data class QueueNode(val node: Int, val seconds: Int, val meters: Int)
+    private data class QueueNode(
+        val node: Int,
+        val seconds: Int,
+        val meters: Int,
+        val prioritySeconds: Int = seconds
+    )
+
+    private data class WalkCacheKey(
+        val from: Long,
+        val to: Long,
+        val maxSeconds: Int,
+        val maxMeters: Int
+    )
 
     private val latE7 = NpyArrays.int32(File(root, "lat_e7.npy"))
     private val lonE7 = NpyArrays.int32(File(root, "lon_e7.npy"))
@@ -49,6 +70,7 @@ internal class RuntimeWalkGraph private constructor(
     private val parentGeneration = IntArray(latE7.size)
     private var currentGeneration = 0
     private val snapCache = LinkedHashMap<Long, Snap>(32, 0.75f, true)
+    private val walkCache = LinkedHashMap<WalkCacheKey, WalkCost?>(64, 0.75f, true)
 
     init {
         require(latE7.size == lonE7.size)
@@ -147,14 +169,43 @@ internal class RuntimeWalkGraph private constructor(
         maxSeconds: Int,
         maxMeters: Int
     ): WalkCost? {
+        if (maxSeconds <= 0 || maxMeters <= 0) return null
+        val cacheKey = WalkCacheKey(snapKey(from), snapKey(to), maxSeconds, maxMeters)
+        if (walkCache.containsKey(cacheKey)) return walkCache[cacheKey]
+
         val start = snap(from)
         val target = snap(to)
+        if (start.meters > MAX_ENDPOINT_SNAP_METERS || target.meters > MAX_ENDPOINT_SNAP_METERS) {
+            putWalkCache(cacheKey, null)
+            return null
+        }
+
+        if (start.node == target.node) {
+            val meters = start.meters + target.meters
+            val seconds = start.seconds + target.seconds
+            val result = if (meters <= maxMeters && seconds <= maxSeconds) {
+                WalkCost(seconds, meters, listOf(from, nodePoint(start.node), to).distinct())
+            } else null
+            putWalkCache(cacheKey, result)
+            return result
+        }
+
         beginSearch()
-        val queue = PriorityQueue(compareBy<QueueNode> { it.seconds }.thenBy { it.meters })
+        val queue = PriorityQueue(
+            compareBy<QueueNode> { it.prioritySeconds }
+                .thenBy { it.seconds }
+                .thenBy { it.meters }
+        )
         setDistance(start.node, start.seconds, start.meters)
         setParent(start.node, -1)
-        queue += QueueNode(start.node, start.seconds, start.meters)
+        queue += QueueNode(
+            node = start.node,
+            seconds = start.seconds,
+            meters = start.meters,
+            prioritySeconds = start.seconds + heuristicSeconds(start.node, target.node)
+        )
 
+        var result: WalkCost? = null
         while (queue.isNotEmpty()) {
             val current = queue.remove()
             if (!isCurrent(current)) continue
@@ -162,26 +213,70 @@ internal class RuntimeWalkGraph private constructor(
             if (current.node == target.node) {
                 val seconds = current.seconds + target.seconds
                 val meters = current.meters + target.meters
-                return if (seconds <= maxSeconds && meters <= maxMeters) {
-                    WalkCost(
+                if (seconds <= maxSeconds && meters <= maxMeters) {
+                    result = WalkCost(
                         seconds = seconds,
                         meters = meters,
                         geometry = reconstructGeometry(start.node, target.node, from, to)
                     )
-                } else {
-                    null
                 }
+                break
             }
-            relax(
-                current,
-                queue,
-                reverse = false,
+            relaxAStar(
+                current = current,
+                queue = queue,
+                targetNode = target.node,
                 maxSeconds = maxSeconds,
-                maxMeters = maxMeters,
-                trackParents = true
+                maxMeters = maxMeters
             )
         }
-        return null
+        putWalkCache(cacheKey, result)
+        return result
+    }
+
+    private fun putWalkCache(key: WalkCacheKey, value: WalkCost?) {
+        walkCache[key] = value
+        if (walkCache.size > WALK_CACHE_SIZE) {
+            walkCache.remove(walkCache.entries.first().key)
+        }
+    }
+
+    private fun relaxAStar(
+        current: QueueNode,
+        queue: PriorityQueue<QueueNode>,
+        targetNode: Int,
+        maxSeconds: Int,
+        maxMeters: Int
+    ) {
+        val from = offsets[current.node].toInt()
+        val until = offsets[current.node + 1].toInt()
+        for (edge in from until until) {
+            val target = targets[edge]
+            val seconds = current.seconds + edgeSeconds[edge]
+            val meters = current.meters + edgeMeters[edge]
+            if (seconds > maxSeconds || meters > maxMeters) continue
+
+            val oldSeconds = distanceSeconds(target)
+            val oldMeters = distanceMeters(target)
+            if (seconds < oldSeconds || (seconds == oldSeconds && meters < oldMeters)) {
+                setDistance(target, seconds, meters)
+                setParent(target, current.node)
+                val estimate = heuristicSeconds(target, targetNode)
+                if (seconds + estimate <= maxSeconds) {
+                    queue += QueueNode(target, seconds, meters, seconds + estimate)
+                }
+            }
+        }
+    }
+
+    /** Straight-line time at 2.4 m/s is a lower bound for a pedestrian graph edge path. */
+    private fun heuristicSeconds(fromNode: Int, targetNode: Int): Int {
+        val lat = (latE7[fromNode] + latE7[targetNode]) * 0.5 / 10_000_000.0
+        val lonScale = cos(lat * PI / 180.0).coerceAtLeast(0.01)
+        val dLat = (latE7[fromNode] - latE7[targetNode]).toDouble()
+        val dLon = (lonE7[fromNode] - lonE7[targetNode]).toDouble() * lonScale
+        val meters = sqrt(dLat * dLat + dLon * dLon) * METERS_PER_E7
+        return floor(meters / MAX_HEURISTIC_SPEED_MPS).toInt().coerceAtLeast(0)
     }
 
     private fun dijkstraStops(
@@ -535,8 +630,11 @@ internal class RuntimeWalkGraph private constructor(
         private const val METERS_PER_E7 = 0.011132
         private const val GRID_CELL_E7 = 20_000
         private const val MAX_GRID_RING = 8
-        private const val SNAP_CACHE_SIZE = 64
+        private const val SNAP_CACHE_SIZE = 96
+        private const val WALK_CACHE_SIZE = 96
         private const val MAX_GEOMETRY_POINTS = 700
+        private const val MAX_ENDPOINT_SNAP_METERS = 250
+        private const val MAX_HEURISTIC_SPEED_MPS = 2.4
 
         fun openOrNull(runtimeRoot: File, preferences: RoutePreferences): RuntimeWalkGraph? {
             val root = File(runtimeRoot, "walk_graph")

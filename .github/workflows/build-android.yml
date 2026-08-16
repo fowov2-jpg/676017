@@ -23,6 +23,10 @@ on:
       - .github/scripts/android_emulator_smoke.sh
       - .github/workflows/build-android.yml
 
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -169,9 +173,9 @@ jobs:
 
           "$APKSIGNER" verify --verbose "$APK"
           "$AAPT" dump badging "$APK" | tee /tmp/vremyahodom-badging.txt
-          grep -F "application-label:'ВремяХодом'" /tmp/vremyahodom-badging.txt
+          grep -F "application-label:'Время ходом'" /tmp/vremyahodom-badging.txt
           grep -F "launchable-activity:" /tmp/vremyahodom-badging.txt
-          grep -F "application: label='ВремяХодом'" /tmp/vremyahodom-badging.txt
+          grep -F "application: label='Время ходом'" /tmp/vremyahodom-badging.txt
 
           "$AAPT" dump resources "$APK" > /tmp/vremyahodom-resources.txt
           grep -F 'mipmap/ic_launcher' /tmp/vremyahodom-resources.txt
@@ -192,6 +196,7 @@ jobs:
             android/app/build/outputs/apk/debug/app-debug.apk.sha256
             android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
+          retention-days: 90
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -199,6 +204,7 @@ jobs:
           name: vremyahodom-lint-report
           path: android/app/build/reports/lint-results-debug.html
           if-no-files-found: ignore
+          retention-days: 90
 
   emulator-smoke:
     needs: build
@@ -241,3 +247,62 @@ jobs:
           name: vremyahodom-emulator-api-${{ matrix.api }}
           path: android/emulator-artifacts/api-${{ matrix.api }}
           if-no-files-found: error
+          retention-days: 90
+
+  publish-qa-release:
+    needs: [build, emulator-smoke]
+    if: ${{ always() && needs.build.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vremyahodom-debug-apk
+          path: android-ci
+
+      - name: Publish permanent versioned QA APK on GitHub Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EMULATOR_RESULT: ${{ needs.emulator-smoke.result }}
+        run: |
+          set -euo pipefail
+          VERSION="0.1.${GITHUB_RUN_NUMBER}"
+          TAG="qa-v${VERSION}"
+          APK_SRC=$(find android-ci -type f -name 'app-debug.apk' | head -n 1)
+          test -n "$APK_SRC"
+          test -s "$APK_SRC"
+
+          APK_OUT="VremyaHodom-${VERSION}-qa.apk"
+          SHA_OUT="VremyaHodom-${VERSION}-qa.sha256.txt"
+          cp "$APK_SRC" "$APK_OUT"
+          sha256sum "$APK_OUT" > "$SHA_OUT"
+
+          cat > release-notes.txt <<EOF
+          VremyaHodom QA build ${VERSION}
+
+          Source commit: ${GITHUB_SHA}
+          GitHub Actions run: ${GITHUB_RUN_ID}
+          Build/unit/lint/APK verification: success
+          Emulator smoke aggregate result: ${EMULATOR_RESULT}
+          Signing: CI debug signer (QA, not production signing)
+
+          This release is retained in GitHub Releases so a previously shared APK version can be found later.
+          EOF
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_OUT" "$SHA_OUT" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "VremyaHodom ${VERSION} · QA" \
+              --notes-file release-notes.txt \
+              --prerelease
+          else
+            gh release create "$TAG" "$APK_OUT" "$SHA_OUT" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "VremyaHodom ${VERSION} · QA" \
+              --notes-file release-notes.txt \
+              --prerelease
+          fi

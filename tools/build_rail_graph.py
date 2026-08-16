@@ -4,21 +4,54 @@ import gzip
 import hashlib
 import json
 import math
+import re
 import time
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 OSM_REL = "https://api.openstreetmap.org/api/0.6/relation/{}"
 OSM_NODES = "https://api.openstreetmap.org/api/0.6/nodes?nodes={}"
-UA = "HumanRouterRuntimeBuilder/0.5 (+https://github.com/fowov2-jpg/676017)"
+OVERPASS_ENDPOINTS = (
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+)
+UA = "HumanRouterRuntimeBuilder/0.6 (+https://github.com/fowov2-jpg/676017)"
 PACK_ID = "rail-routing-graph"
+MOSCOW_EXIT_BBOX = (55.10, 36.80, 56.20, 38.40)
+MAX_EXIT_STATION_DISTANCE_METERS = 750.0
 
 
 def fetch_xml(url: str) -> ET.Element:
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=40) as response:
         return ET.fromstring(response.read())
+
+
+def fetch_overpass_json(query: str):
+    payload = urllib.parse.urlencode({"data": query}).encode("utf-8")
+    last_error = None
+    for endpoint in OVERPASS_ENDPOINTS:
+        for attempt in range(2):
+            try:
+                req = urllib.request.Request(
+                    endpoint,
+                    data=payload,
+                    headers={
+                        "User-Agent": UA,
+                        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=75) as response:
+                    return json.loads(response.read())
+            except Exception as exc:
+                last_error = exc
+                print(f"warning: Overpass {endpoint} attempt {attempt + 1} failed: {exc}")
+                time.sleep(1.5 * (attempt + 1))
+    print(f"warning: metro exits unavailable from Overpass: {last_error}")
+    return {"elements": []}
 
 
 def parse_duration_seconds(value):
@@ -48,6 +81,89 @@ def haversine_meters(a, b):
     dl = math.radians(b["lon"] - a["lon"])
     q = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
     return max(1, int(round(2 * r * math.asin(min(1.0, math.sqrt(q))))))
+
+
+def normalize_name(value):
+    value = str(value or "").lower().replace("ё", "е")
+    return re.sub(r"[^а-яa-z0-9]+", "", value)
+
+
+def exit_display_ref(tags):
+    # OSM ref is used only when a mapper actually supplied it. Never invent an exit number.
+    for key in ("ref", "local_ref"):
+        value = str(tags.get(key, "")).strip()
+        if value and len(value) <= 12:
+            return value
+    return None
+
+
+def build_metro_exits(stations):
+    south, west, north, east = MOSCOW_EXIT_BBOX
+    query = f"""
+[out:json][timeout:60];
+node[\"railway\"=\"subway_entrance\"]({south},{west},{north},{east});
+out body;
+"""
+    data = fetch_overpass_json(query)
+    elements = [item for item in data.get("elements", []) if item.get("type") == "node"]
+    if not elements:
+        return []
+
+    station_rows = list(stations.values())
+    exits = []
+    for element in elements:
+        tags = element.get("tags") or {}
+        point = {
+            "lat": float(element["lat"]),
+            "lon": float(element["lon"]),
+        }
+        best = None
+        best_distance = float("inf")
+        entrance_name = normalize_name(" ".join([
+            str(tags.get("name", "")),
+            str(tags.get("official_name", "")),
+            str(tags.get("description", "")),
+            str(tags.get("exit_to", "")),
+        ]))
+
+        for station in station_rows:
+            distance = haversine_meters(point, station)
+            if distance > MAX_EXIT_STATION_DISTANCE_METERS:
+                continue
+            station_name = normalize_name(station.get("name"))
+            # If the entrance itself carries the station name, strongly prefer that match.
+            name_bonus = 220.0 if station_name and station_name in entrance_name else 0.0
+            score = distance - name_bonus
+            if score < best_distance:
+                best_distance = score
+                best = (station, distance)
+
+        if best is None:
+            continue
+        station, real_distance = best
+        ref = exit_display_ref(tags)
+        name = (
+            str(tags.get("exit_to") or "").strip()
+            or str(tags.get("name") or "").strip()
+            or str(tags.get("description") or "").strip()
+        )
+        exits.append({
+            "osm_id": str(element["id"]),
+            "station_name": station.get("name"),
+            "station_osm_stop_id": station.get("osm_stop_id"),
+            "ref": ref,
+            "name": name or None,
+            "lat": point["lat"],
+            "lon": point["lon"],
+            "wheelchair": tags.get("wheelchair"),
+            "entrance": tags.get("entrance"),
+            "distance_to_station_meters": int(round(real_distance)),
+            "source": "OpenStreetMap railway=subway_entrance",
+        })
+
+    exits.sort(key=lambda item: (normalize_name(item.get("station_name")), item.get("ref") or "", item["osm_id"]))
+    print(f"metro exits: fetched={len(elements)} attached={len(exits)}")
+    return exits
 
 
 def allocate_segment_seconds(total_seconds, distances, dwell_seconds):
@@ -89,7 +205,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default="runtime")
     parser.add_argument("--manifest", default="manifest.json")
-    parser.add_argument("--version", default="moscow-runtime-2026-08-14-r3")
+    parser.add_argument("--version", default="moscow-runtime-2026-08-15-r4")
     args = parser.parse_args()
 
     root = Path(args.root)
@@ -133,6 +249,8 @@ def main():
         print(f"nodes {min(start + len(chunk), len(ordered_ids))}/{len(ordered_ids)}")
         time.sleep(0.20)
 
+    metro_exits = build_metro_exits(nodes)
+
     dwell_by_mode = {"METRO": 25, "MCC": 35, "MCD": 45}
     routes = []
     routeable_count = 0
@@ -145,11 +263,14 @@ def main():
         seconds = allocate_segment_seconds(duration, distances, dwell) if routeable else []
         if routeable:
             routeable_count += 1
+        ref = meta.get("ref") or tags.get("ref")
+        name = meta.get("name") or tags.get("name")
         routes.append({
             "osm_relation_id": str(meta["osm_id"]),
             "mode": meta.get("mode"),
-            "ref": meta.get("ref"),
-            "name": meta.get("name") or tags.get("name"),
+            "ref": ref,
+            "name": name,
+            "display_line_name": " · ".join(part for part in (str(ref or "").strip(), str(name or "").strip()) if part),
             "from": meta.get("from") or tags.get("from"),
             "to": meta.get("to") or tags.get("to"),
             "colour": meta.get("colour") or tags.get("colour"),
@@ -165,12 +286,14 @@ def main():
         })
 
     graph = {
-        "schema": 1,
+        "schema": 2,
         "generated_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "data_sources": [
             {"name": "OpenStreetMap", "license": "ODbL", "attribution": "© OpenStreetMap contributors"},
         ],
         "timing_notes": "Route total durations come from OSM route relations. Individual segment times are estimates constrained to each route total duration; routes without duration are disabled.",
+        "exit_notes": "Metro entrance/exit coordinates come from OSM railway=subway_entrance. Exit numbers are shown only when OSM contains ref/local_ref; missing numbers are never fabricated.",
+        "exits": metro_exits,
         "routes": routes,
     }
     raw = json.dumps(graph, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -199,7 +322,7 @@ def main():
         "required": True,
     })
     manifest["version"] = args.version
-    manifest["description"] = "Human Router Moscow runtime: BUS/TRAM timetable + OSM WALK graph + routeable METRO/MCC/MCD rail graph"
+    manifest["description"] = "Human Router Moscow runtime: BUS/TRAM timetable + OSM WALK graph + routeable METRO/MCC/MCD rail graph + metro entrance/exit geometry"
     manifest["total_download_bytes"] = base_download + len(compressed)
     manifest["total_installed_bytes"] = base_installed + len(raw)
     manifest["required_free_bytes"] = manifest["total_download_bytes"] + manifest["total_installed_bytes"] + previous_margin
@@ -209,6 +332,8 @@ def main():
         "routes": len(routes),
         "routeable": routeable_count,
         "unique_stops": len(nodes),
+        "metro_exits": len(metro_exits),
+        "metro_exits_with_ref": sum(1 for item in metro_exits if item.get("ref")),
         "raw_bytes": len(raw),
         "compressed_bytes": len(compressed),
         "sha256_raw": sha256(raw),

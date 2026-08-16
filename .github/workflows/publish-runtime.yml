@@ -42,11 +42,28 @@ jobs:
             cp -f /tmp/hr-unpack/HumanRouter_RUNTIME_HOST_v0.4.3/* runtime/
           fi
 
-      - name: Build routeable rail graph
-        run: python tools/build_rail_graph.py --manifest manifest.json --root runtime --version moscow-runtime-2026-08-14-r3
+      - name: Build routeable rail graph with Moscow metro exits
+        run: python tools/build_rail_graph.py --manifest manifest.json --root runtime --version moscow-runtime-2026-08-15-r4
 
       - name: Verify runtime package set
         run: python tools/verify_runtime_release.py --manifest manifest.json --root runtime
+
+      - name: Verify generated rail exit payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip
+          import json
+          from pathlib import Path
+
+          graph = json.loads(gzip.decompress(Path('runtime/rail_graph.json.gz').read_bytes()))
+          exits = graph.get('exits', [])
+          if not exits:
+              raise SystemExit('rail graph contains no Moscow metro exits')
+          with_ref = sum(1 for row in exits if row.get('ref'))
+          print(f'rail exit payload OK: exits={len(exits)} with_ref={with_ref}')
+          PY
 
       - name: Determine immutable tag
         id: tag

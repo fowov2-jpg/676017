@@ -20,7 +20,13 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import app.humanrouter.routing.GeoPoint
 import app.humanrouter.routing.HumanRouterEngine
+import app.humanrouter.routing.LastPlanStore
+import app.humanrouter.routing.RankedRoute
+import app.humanrouter.routing.ReplanPolicy
+import app.humanrouter.routing.RouteCandidate
+import app.humanrouter.routing.RouteObjective
 import app.humanrouter.routing.RoutePreferences
+import app.humanrouter.routing.RouteRanker
 import app.humanrouter.routing.TransportMode
 import java.time.Instant
 import java.time.ZoneId
@@ -34,8 +40,8 @@ class TripNavigationService : Service(), LocationListener {
     private val handler = Handler(Looper.getMainLooper())
     private val planning = AtomicBoolean(false)
     private val locationManager by lazy { getSystemService(LocationManager::class.java) }
-    private val preferences = RoutePreferences()
-    private val engine by lazy { HumanRouterEngine(this, preferences) }
+    private var routingPreferences = RoutePreferences()
+    private var engine: HumanRouterEngine? = null
     private val zoneId = ZoneId.of("Europe/Moscow")
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
@@ -60,6 +66,9 @@ class TripNavigationService : Service(), LocationListener {
         super.onCreate()
         createNotificationChannel()
         loadState()
+        ActiveTripStore.load(this)?.route?.let { route ->
+            TripLiveState.publish(route, approximate(route), "Восстановлена активная поездка")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -69,12 +78,8 @@ class TripNavigationService : Service(), LocationListener {
                 return START_NOT_STICKY
             }
             ACTION_ACCEPT_REPLAN -> {
-                baselineArrivalEpochSec = intent.getLongExtra(EXTRA_BASELINE_ARRIVAL, baselineArrivalEpochSec)
-                currentRouteId = intent.getStringExtra(EXTRA_ROUTE_ID).orEmpty().ifBlank { currentRouteId }
-                lastSuggestedRouteId = null
-                persistState()
-                updateForegroundNotification("Маршрут обновлён · следим дальше")
-                return START_STICKY
+                acceptPendingReplan(intent.getStringExtra(EXTRA_ROUTE_ID))
+                return if (destination != null) START_STICKY else START_NOT_STICKY
             }
             ACTION_START -> {
                 val lat = intent.getDoubleExtra(EXTRA_DEST_LAT, Double.NaN)
@@ -85,12 +90,20 @@ class TripNavigationService : Service(), LocationListener {
                 routeSummary = intent.getStringExtra(EXTRA_ROUTE_SUMMARY).orEmpty()
                 nextStop = intent.getStringExtra(EXTRA_NEXT_STOP).orEmpty()
                 stopsRemaining = intent.getIntExtra(EXTRA_STOPS_REMAINING, 0).coerceAtLeast(0)
+                ActiveTripStore.load(this)?.route?.let { route ->
+                    currentRouteId = route.id
+                    baselineArrivalEpochSec = route.arrivalEpochSec
+                    destination = route.legs.last().to.point
+                    TripLiveState.publish(route, approximate(route), "Поездка запущена")
+                }
                 persistState()
             }
         }
 
         if (destination == null || baselineArrivalEpochSec <= 0L) {
             ActiveTripStore.clear(this)
+            PendingReplanStore.clear(this)
+            TripLiveState.clear()
             stopSelf()
             return START_NOT_STICKY
         }
@@ -150,6 +163,16 @@ class TripNavigationService : Service(), LocationListener {
             }
     }
 
+    private fun currentEngine(): HumanRouterEngine {
+        val updatedPreferences = AppPreferences.routePreferences(this)
+        val existing = engine
+        if (existing == null || updatedPreferences != routingPreferences) {
+            routingPreferences = updatedPreferences
+            engine = HumanRouterEngine(this, updatedPreferences)
+        }
+        return checkNotNull(engine)
+    }
+
     private fun replanNow() {
         val location = lastLocation ?: run {
             updateForegroundNotification("Ждём точную геопозицию…")
@@ -160,36 +183,30 @@ class TripNavigationService : Service(), LocationListener {
 
         executor.execute {
             try {
-                val result = engine.planFastest(
+                val result = currentEngine().planFastest(
                     origin = GeoPoint(location.latitude, location.longitude),
                     destination = target,
                     departureEpochSec = Instant.now().epochSecond
                 )
                 if (result is HumanRouterEngine.PlanResult.Success) {
-                    val fastest = result.fastest
-                    val route = fastest.route
-                    val arrival = route.arrivalEpochSec
-                    val approximate = route.legs.any { leg ->
-                        ((leg.mode == TransportMode.BUS || leg.mode == TransportMode.TRAM) && leg.realtimeConfidence < 0.8) ||
-                            leg.mode == TransportMode.METRO || leg.mode == TransportMode.MCC
+                    val alternative = result.fastest
+                    val route = alternative.route
+                    val summary = summarize(route)
+                    val active = ActiveTripStore.load(this)?.route
+                    if (active != null && route.id == currentRouteId) {
+                        replaceActiveRoute(route, "ETA обновлён")
                     }
-                    val etaText = (if (approximate) "≈ " else "") +
+                    val displayRoute = ActiveTripStore.load(this)?.route ?: active ?: route
+                    val arrival = displayRoute.arrivalEpochSec
+                    val etaText = (if (approximate(displayRoute)) "≈ " else "") +
                         Instant.ofEpochSecond(arrival).atZone(zoneId).format(timeFormatter)
-                    val remainingMin = maxOf(1, ceil((arrival - Instant.now().epochSecond).coerceAtLeast(60L) / 60.0).toInt())
-                    val summary = route.legs.joinToString(" → ") { leg ->
-                        when (leg.mode) {
-                            TransportMode.WALK -> "пешком"
-                            TransportMode.BUS -> "автобус ${leg.lineName ?: leg.lineId.orEmpty()}"
-                            TransportMode.TRAM -> "трамвай ${leg.lineName ?: leg.lineId.orEmpty()}"
-                            TransportMode.METRO -> "метро"
-                            TransportMode.MCC -> "МЦК"
-                            TransportMode.MCD -> "МЦД"
-                            TransportMode.TRAIN -> "поезд"
-                        }
-                    }
+                    val remainingMin = maxOf(
+                        1,
+                        ceil((arrival - Instant.now().epochSecond).coerceAtLeast(60L) / 60.0).toInt()
+                    )
                     handler.post {
-                        updateForegroundNotification("$remainingMin мин · прибытие $etaText · $summary")
-                        maybeSuggestReplan(route.id, arrival, summary)
+                        updateForegroundNotification("$remainingMin мин · прибытие $etaText · ${summarize(displayRoute)}")
+                        maybeSuggestReplan(alternative, summary)
                     }
                 }
             } finally {
@@ -198,21 +215,28 @@ class TripNavigationService : Service(), LocationListener {
         }
     }
 
-    private fun maybeSuggestReplan(routeId: String, newArrivalEpochSec: Long, summary: String) {
-        if (baselineArrivalEpochSec <= 0L) return
-        val saving = baselineArrivalEpochSec - newArrivalEpochSec
-        val now = Instant.now().epochSecond
-        val cooldownPassed = now - lastSuggestionEpochSec >= SUGGESTION_COOLDOWN_SECONDS
-        if (saving < preferences.minimumSuggestedSavingSeconds || routeId == currentRouteId) return
-        if (routeId == lastSuggestedRouteId && !cooldownPassed) return
+    private fun maybeSuggestReplan(alternative: RankedRoute, summary: String) {
+        val activeRoute = ActiveTripStore.load(this)?.route ?: return
+        if (activeRoute.id == alternative.route.id) return
+        val current = RouteRanker.score(activeRoute, RouteObjective.FASTEST, routingPreferences)
+        val lastSuggestion = lastSuggestionEpochSec.takeIf { it > 0L }
+        val decision = ReplanPolicy.evaluate(
+            nowEpochSec = Instant.now().epochSecond,
+            current = current,
+            alternative = alternative,
+            lastSuggestionEpochSec = lastSuggestion,
+            preferences = routingPreferences
+        )
+        if (!decision.shouldSuggest) return
 
-        lastSuggestedRouteId = routeId
-        lastSuggestionEpochSec = now
-        val minutes = maxOf(1, ceil(saving / 60.0).toInt())
+        val route = alternative.route
+        PendingReplanStore.save(this, route)
+        lastSuggestedRouteId = route.id
+        lastSuggestionEpochSec = Instant.now().epochSecond
+        val minutes = maxOf(1, ceil(decision.savingSeconds / 60.0).toInt())
         val acceptIntent = Intent(this, TripNavigationService::class.java).apply {
             action = ACTION_ACCEPT_REPLAN
-            putExtra(EXTRA_BASELINE_ARRIVAL, newArrivalEpochSec)
-            putExtra(EXTRA_ROUTE_ID, routeId)
+            putExtra(EXTRA_ROUTE_ID, route.id)
         }
         val acceptPending = PendingIntent.getService(
             this,
@@ -228,7 +252,7 @@ class TripNavigationService : Service(), LocationListener {
         )
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Есть маршрут быстрее на $minutes мин")
+            .setContentTitle(decision.reason.ifBlank { "Есть маршрут быстрее на $minutes мин" })
             .setContentText(summary)
             .setStyle(NotificationCompat.BigTextStyle().bigText("$summary\nЭкономия примерно $minutes мин."))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -237,6 +261,70 @@ class TripNavigationService : Service(), LocationListener {
             .addAction(0, "Принять", acceptPending)
             .build()
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID_SUGGESTION, notification)
+    }
+
+    private fun acceptPendingReplan(requestedRouteId: String?) {
+        val route = PendingReplanStore.load(this)
+        if (route == null || (!requestedRouteId.isNullOrBlank() && route.id != requestedRouteId)) {
+            updateForegroundNotification("Новый маршрут уже недоступен · продолжаем текущий")
+            PendingReplanStore.clear(this)
+            return
+        }
+        val existingSnapshot = ActiveTripStore.load(this)
+        destination = route.legs.last().to.point
+        currentRouteId = route.id
+        baselineArrivalEpochSec = route.arrivalEpochSec
+        routeSummary = summarize(route)
+        val firstTransit = route.legs.firstOrNull { it.mode != TransportMode.WALK }
+        nextStop = firstTransit?.to?.name.orEmpty()
+        stopsRemaining = firstTransit?.stopCount ?: 0
+        if (existingSnapshot != null) {
+            ActiveTripStore.save(this, existingSnapshot.copy(route = route))
+        }
+        LastPlanStore.select(route, checkNotNull(destination))
+        TripLiveState.publish(route, approximate(route), "Маршрут обновлён")
+        PendingReplanStore.clear(this)
+        lastSuggestedRouteId = null
+        persistState()
+        updateForegroundNotification("Маршрут обновлён · ${remainingText(route)}")
+    }
+
+    private fun replaceActiveRoute(route: RouteCandidate, status: String) {
+        val snapshot = ActiveTripStore.load(this) ?: return
+        ActiveTripStore.save(this, snapshot.copy(route = route))
+        destination = route.legs.last().to.point
+        currentRouteId = route.id
+        baselineArrivalEpochSec = route.arrivalEpochSec
+        LastPlanStore.select(route, checkNotNull(destination))
+        TripLiveState.publish(route, approximate(route), status)
+        persistState()
+    }
+
+    private fun remainingText(route: RouteCandidate): String {
+        val minutes = maxOf(1, ceil((route.arrivalEpochSec - Instant.now().epochSecond).coerceAtLeast(60L) / 60.0).toInt())
+        val eta = Instant.ofEpochSecond(route.arrivalEpochSec).atZone(zoneId).format(timeFormatter)
+        return "${if (approximate(route)) "≈ " else ""}$minutes мин · до $eta"
+    }
+
+    private fun summarize(route: RouteCandidate): String = route.legs.joinToString(" → ") { leg ->
+        when (leg.mode) {
+            TransportMode.WALK -> "пешком"
+            TransportMode.BUS -> "автобус ${leg.lineName ?: leg.lineId.orEmpty()}"
+            TransportMode.TRAM -> "трамвай ${leg.lineName ?: leg.lineId.orEmpty()}"
+            TransportMode.METRO -> "метро ${leg.lineName.orEmpty()}".trim()
+            TransportMode.MCC -> "МЦК"
+            TransportMode.MCD -> "МЦД ${leg.lineName.orEmpty()}".trim()
+            TransportMode.TRAIN -> "поезд ${leg.lineName.orEmpty()}".trim()
+        }
+    }
+
+    private fun approximate(route: RouteCandidate): Boolean = route.legs.any { leg ->
+        leg.realtimeConfidence < 0.85 || leg.mode in setOf(
+            TransportMode.BUS,
+            TransportMode.TRAM,
+            TransportMode.METRO,
+            TransportMode.MCC
+        )
     }
 
     private fun buildActiveNotification(text: String) = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -333,6 +421,8 @@ class TripNavigationService : Service(), LocationListener {
         if (hasLocationPermission()) runCatching { locationManager.removeUpdates(this) }
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().apply()
         ActiveTripStore.clear(this)
+        PendingReplanStore.clear(this)
+        TripLiveState.clear()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -362,7 +452,6 @@ class TripNavigationService : Service(), LocationListener {
         private const val REPLAN_INTERVAL_MS = 60_000L
         private const val LOCATION_MIN_TIME_MS = 20_000L
         private const val LOCATION_MIN_DISTANCE_METERS = 15f
-        private const val SUGGESTION_COOLDOWN_SECONDS = 5 * 60L
         private const val PREFS = "active_trip"
         private const val KEY_ACTIVE = "active"
         private const val KEY_DEST_LAT = "dest_lat"

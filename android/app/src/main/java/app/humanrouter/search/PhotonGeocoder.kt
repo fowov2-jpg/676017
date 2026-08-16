@@ -2,11 +2,12 @@ package app.humanrouter.search
 
 import app.humanrouter.routing.GeoPoint
 import org.json.JSONObject
-import java.net.HttpURLConnection
 import java.io.IOException
+import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.util.LinkedHashMap
 
 internal data class SearchPlace(
     val title: String,
@@ -15,15 +16,42 @@ internal data class SearchPlace(
 )
 
 internal object PhotonGeocoder {
+    private const val MAX_CACHE = 96
+    private const val RETRIES = 1
+    private val cache = object : LinkedHashMap<String, List<SearchPlace>>(MAX_CACHE, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<SearchPlace>>?): Boolean = size > MAX_CACHE
+    }
+
     fun search(query: String, focus: GeoPoint? = null, limit: Int = 6): List<SearchPlace> {
         val q = query.trim()
         if (q.length < 2) return emptyList()
+        val cacheKey = buildString {
+            append(q.lowercase()).append('|').append(limit.coerceIn(1, 10))
+            focus?.let { append('|').append("%.3f".format(it.lat)).append(':').append("%.3f".format(it.lon)) }
+        }
+        synchronized(cache) { cache[cacheKey]?.let { return it } }
 
+        var lastError: Throwable? = null
+        repeat(RETRIES) { attempt ->
+            try {
+                val result = request(q, focus, limit)
+                synchronized(cache) { cache[cacheKey] = result }
+                return result
+            } catch (error: IOException) {
+                lastError = error
+                if (attempt + 1 < RETRIES) Thread.sleep(120L * (attempt + 1))
+            }
+        }
+        throw IOException("Поиск адреса временно недоступен", lastError)
+    }
+
+    private fun request(q: String, focus: GeoPoint?, limit: Int): List<SearchPlace> {
         val params = ArrayList<String>()
         params += "q=${enc(q)}"
         params += "lang=ru"
         params += "limit=${limit.coerceIn(1, 10)}"
-        params += "bbox=36.75,55.45,38.35,56.05"
+        // Keep results relevant to the Moscow transport runtime while still covering the region.
+        params += "bbox=35.0,54.7,40.5,57.15"
         focus?.let {
             params += "lat=${it.lat}"
             params += "lon=${it.lon}"
@@ -31,9 +59,10 @@ internal object PhotonGeocoder {
         }
 
         val connection = (URL("https://photon.komoot.io/api?${params.joinToString("&")}").openConnection() as HttpURLConnection).apply {
-            connectTimeout = 6_000
-            readTimeout = 7_000
+            connectTimeout = 1_200
+            readTimeout = 1_600
             requestMethod = "GET"
+            instanceFollowRedirects = true
             setRequestProperty("Accept", "application/geo+json, application/json")
             setRequestProperty("Accept-Language", "ru")
             setRequestProperty("User-Agent", "VremyaHodom-Android/0.1")
@@ -42,7 +71,9 @@ internal object PhotonGeocoder {
         return try {
             val code = connection.responseCode
             if (code !in 200..299) throw IOException("Search HTTP $code")
-            check(connection.url.protocol.equals("https", ignoreCase = true)) { "Search redirected outside HTTPS" }
+            if (!connection.url.protocol.equals("https", ignoreCase = true)) {
+                throw IOException("Search redirected outside HTTPS")
+            }
             val json = connection.inputStream.bufferedReader().use { it.readText() }
             parse(json)
         } finally {

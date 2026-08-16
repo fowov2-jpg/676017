@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- getLastKnownLocation is wrapped in runCatching, so a revoked runtime permission is handled. -->
+    <issue id="MissingPermission">
+        <ignore path="src/main/java/app/humanrouter/VremyaHodomRuntimeFixes.kt" />
+    </issue>
+</lint>
