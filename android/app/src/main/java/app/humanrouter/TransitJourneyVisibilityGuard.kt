@@ -67,6 +67,7 @@ internal object TransitJourneyVisibilityGuard {
         }
 
         private fun needsChange(): Boolean {
+            if (hasHiddenLegacyActiveStatus()) return true
             var needs = false
             descendants(panel).filterIsInstance<HorizontalScrollView>().forEach { scroll ->
                 when (scroll.contentDescription?.toString().orEmpty()) {
@@ -82,6 +83,7 @@ internal object TransitJourneyVisibilityGuard {
         }
 
         private fun enforceNow() {
+            suppressHiddenLegacyActiveStatus()
             val v2 = descendants(panel).filterIsInstance<HorizontalScrollView>()
                 .firstOrNull { it.contentDescription?.toString() == V2_DESCRIPTION }
             if (v2 != null) {
@@ -94,6 +96,20 @@ internal object TransitJourneyVisibilityGuard {
                     scroll.visibility = View.GONE
                 }
             }
+        }
+
+        private fun hasHiddenLegacyActiveStatus(): Boolean = descendants(panel)
+            .filterIsInstance<TextView>()
+            .any { view -> view.visibility != View.VISIBLE && view.text?.toString() == ACTIVE_STATUS_TEXT }
+
+        private fun suppressHiddenLegacyActiveStatus() {
+            descendants(panel)
+                .filterIsInstance<TextView>()
+                .filter { view -> view.visibility != View.VISIBLE && view.text?.toString() == ACTIVE_STATUS_TEXT }
+                .forEach { view ->
+                    view.text = ""
+                    view.contentDescription = null
+                }
         }
 
         private fun isolateV2(scroll: HorizontalScrollView) {
@@ -184,5 +200,6 @@ internal object TransitJourneyVisibilityGuard {
 
     internal const val V2_DESCRIPTION = "Этапы маршрута с линиями и переходами"
     private const val LEGACY_DESCRIPTION = "Схема транспорта маршрута"
+    private const val ACTIVE_STATUS_TEXT = "В пути"
     private const val V2_WRAPPER_TAG = "vh-transit-strip-v2-wrapper"
 }
