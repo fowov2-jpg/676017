@@ -3,6 +3,7 @@ package app.humanrouter
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
+import android.widget.Button
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -12,11 +13,9 @@ import java.util.WeakHashMap
 /**
  * Keeps the V2 journey strip authoritative while legacy route visuals are still present.
  *
- * The guard is intentionally non-structural: it never reparents the V2 strip. Reparenting made the
- * coordinator believe the strip was missing and create another one on the next layout pass, which
- * could keep the main thread permanently non-idle. All mutations below converge after a finite
- * pass: stale legacy views are hidden, duplicate labels are suppressed, and the V2 strip remains a
- * direct child owned by the route coordinator.
+ * The strip is useful during an active trip, where it acts as a persistent stage summary. During
+ * route choice the approved reference puts each transport chain inside its own route card, so the
+ * global V2 strip is intentionally hidden there. The guard remains non-structural and convergent.
  */
 internal object TransitJourneyVisibilityGuard {
     private val controllers = WeakHashMap<MainActivity, Controller>()
@@ -40,6 +39,7 @@ internal object TransitJourneyVisibilityGuard {
     private class Controller(private val activity: MainActivity) {
         private val root = activity.findViewById<ViewGroup>(R.id.root)
         private val panel = activity.findViewById<LinearLayout>(R.id.routeResultsPanel)
+        private val primaryAction = activity.findViewById<Button>(R.id.routePrimaryAction)
         private var posted = false
         private var destroyed = false
 
@@ -74,11 +74,19 @@ internal object TransitJourneyVisibilityGuard {
             }
         }
 
+        private fun activeTrip(): Boolean =
+            primaryAction.visibility == View.VISIBLE &&
+                primaryAction.text?.toString()?.contains("Завершить", ignoreCase = true) == true
+
+        private fun desiredV2Visibility(): Int = if (activeTrip()) View.VISIBLE else View.GONE
+
         private fun needsVisualChange(): Boolean {
             if (hasHiddenLegacyActiveStatus()) return true
+            val desiredV2 = desiredV2Visibility()
             return descendants(panel).filterIsInstance<HorizontalScrollView>().any { scroll ->
                 when (scroll.contentDescription?.toString().orEmpty()) {
-                    V2_DESCRIPTION -> scroll.visibility != View.VISIBLE || hasDuplicateSecondary(scroll)
+                    V2_DESCRIPTION -> scroll.visibility != desiredV2 ||
+                        (desiredV2 == View.VISIBLE && hasDuplicateSecondary(scroll))
                     LEGACY_DESCRIPTION -> scroll.visibility != View.GONE
                     else -> false
                 }
@@ -87,11 +95,12 @@ internal object TransitJourneyVisibilityGuard {
 
         private fun enforceNow() {
             suppressHiddenLegacyActiveStatus()
+            val desiredV2 = desiredV2Visibility()
             descendants(panel).filterIsInstance<HorizontalScrollView>().forEach { scroll ->
                 when (scroll.contentDescription?.toString().orEmpty()) {
                     V2_DESCRIPTION -> {
-                        if (scroll.visibility != View.VISIBLE) scroll.visibility = View.VISIBLE
-                        suppressDuplicateSecondaryLabels(scroll)
+                        if (scroll.visibility != desiredV2) scroll.visibility = desiredV2
+                        if (desiredV2 == View.VISIBLE) suppressDuplicateSecondaryLabels(scroll)
                     }
                     LEGACY_DESCRIPTION -> {
                         if (scroll.visibility != View.GONE) scroll.visibility = View.GONE
