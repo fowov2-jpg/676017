@@ -3,6 +3,7 @@ package app.humanrouter
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.text.Editable
+import android.text.TextUtils
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
@@ -10,6 +11,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.widget.SwitchCompat
@@ -23,11 +25,13 @@ import kotlin.math.roundToInt
 internal object ReferenceVisualTuning {
     private val installed = WeakHashMap<MainActivity, Boolean>()
     private val nearbyObserversInstalled = WeakHashMap<MainActivity, Boolean>()
+    private val routeObserversInstalled = WeakHashMap<MainActivity, Boolean>()
 
     @Synchronized
     fun install(activity: MainActivity) {
         if (installed.put(activity, true) == true) return
         installNearbyObservers(activity)
+        installRouteObserver(activity)
         tune(activity)
         activity.window.decorView.postDelayed({ tune(activity) }, 220L)
         activity.window.decorView.postDelayed({ tune(activity) }, 720L)
@@ -39,6 +43,7 @@ internal object ReferenceVisualTuning {
         tuneSettingsSheet(activity)
         tuneNearbyPanel(activity)
         tuneRouteChrome(activity)
+        tuneRouteCards(activity)
         tuneActiveTripBadge(activity)
     }
 
@@ -59,13 +64,17 @@ internal object ReferenceVisualTuning {
         })
     }
 
+    private fun installRouteObserver(activity: MainActivity) {
+        if (routeObserversInstalled.put(activity, true) == true) return
+        val panel = activity.findViewById<View>(R.id.routeResultsPanel)
+        panel.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> tuneRouteCards(activity) }
+    }
+
     private fun tuneNearbyPanel(activity: MainActivity) {
         val panel = activity.findViewById<View>(R.id.nearbyPanel)
         val list = activity.findViewById<ViewGroup>(R.id.nearbyList)
         val state = activity.findViewById<TextView>(R.id.nearbyStateText).text?.toString().orEmpty()
 
-        // Keep real rows dense enough that the populated card preserves map context just like the
-        // approved reference. The list remains scrollable if there are more nearby results.
         val targetRowHeight = dp(activity, 50)
         for (index in 0 until list.childCount) {
             val row = list.getChildAt(index)
@@ -93,7 +102,7 @@ internal object ReferenceVisualTuning {
         val settingsPanel = activity.findViewById<ViewGroup>(R.id.settingsPanel)
         val scroll = settingsPanel.parent as? ScrollView ?: return
         val width = activity.resources.displayMetrics.widthPixels
-        val targetWidth = (width * 0.42f).roundToInt()
+        val targetWidth = (width * 0.47f).roundToInt()
         val params = scroll.layoutParams as? FrameLayout.LayoutParams ?: return
         if (params.width != targetWidth || params.gravity != Gravity.END) {
             params.width = targetWidth
@@ -102,8 +111,35 @@ internal object ReferenceVisualTuning {
             params.leftMargin = 0
             scroll.layoutParams = params
         }
-        if (settingsPanel.paddingLeft != dp(activity, 18) || settingsPanel.paddingRight != dp(activity, 16)) {
-            settingsPanel.setPadding(dp(activity, 18), settingsPanel.paddingTop, dp(activity, 16), settingsPanel.paddingBottom)
+        if (settingsPanel.paddingLeft != dp(activity, 12) || settingsPanel.paddingRight != dp(activity, 10)) {
+            settingsPanel.setPadding(dp(activity, 12), settingsPanel.paddingTop, dp(activity, 10), settingsPanel.paddingBottom)
+        }
+
+        val header = settingsPanel.getChildAt(0) as? ViewGroup
+        val title = header?.getChildAt(0) as? TextView
+        title?.apply {
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 19f)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            includeFontPadding = false
+        }
+        activity.findViewById<TextView>(R.id.closeSettingsButton).apply {
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 26f)
+            layoutParams = layoutParams.apply {
+                width = dp(activity, 40)
+                height = dp(activity, 40)
+            }
+        }
+
+        val sectionNames = setOf(
+            activity.getString(R.string.settings_map),
+            activity.getString(R.string.settings_routes)
+        )
+        for (index in 0 until settingsPanel.childCount) {
+            val child = settingsPanel.getChildAt(index)
+            if (child is TextView && child.text?.toString() in sectionNames) {
+                child.visibility = View.GONE
+            }
         }
 
         val switches = mapOf(
@@ -117,28 +153,107 @@ internal object ReferenceVisualTuning {
             activity.findViewById<SwitchCompat>(id).apply {
                 if (text?.toString() != copy.first) text = copy.first
                 contentDescription = "${copy.first}. ${copy.second}"
-                val targetTextPx = 12.5f * activity.resources.displayMetrics.scaledDensity
-                if (kotlin.math.abs(textSize - targetTextPx) > 0.5f) setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12.5f)
-                if (minimumHeight != dp(activity, 72)) minimumHeight = dp(activity, 72)
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                maxLines = 2
+                if (minimumHeight != dp(activity, 62)) minimumHeight = dp(activity, 62)
                 setLineSpacing(0f, 1f)
+                setPadding(0, dp(activity, 4), 0, dp(activity, 4))
             }
         }
+
+        // Keep the honest realtime disclosure, but stop it from dominating the narrow reference sheet.
+        descendants(settingsPanel)
+            .filterIsInstance<TextView>()
+            .firstOrNull { it.text?.toString()?.contains("Live-позиции", ignoreCase = true) == true }
+            ?.apply {
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 9.5f)
+                maxLines = 4
+            }
     }
 
-    private fun tuneRouteChrome(activity: MainActivity) {
+    private fun isRouteOptions(activity: MainActivity): Boolean {
         val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
         val filters = activity.findViewById<HorizontalScrollView>(R.id.routeFiltersScroll)
         val primaryAction = activity.findViewById<Button>(R.id.routePrimaryAction)
         val activeTrip = primaryAction.visibility == View.VISIBLE &&
             primaryAction.text?.toString()?.contains("Завершить", ignoreCase = true) == true
-        val routeOptions = sheet.visibility == View.VISIBLE && filters.visibility == View.VISIBLE && !activeTrip
-        if (!routeOptions) return
+        return sheet.visibility == View.VISIBLE && filters.visibility == View.VISIBLE && !activeTrip
+    }
 
+    private fun tuneRouteChrome(activity: MainActivity) {
+        if (!isRouteOptions(activity)) return
         hideIfVisible(activity.findViewById(R.id.searchPanel))
         hideIfVisible(activity.findViewById(R.id.quickActions))
         hideIfVisible(activity.findViewById(R.id.locationButton))
         hideIfVisible(activity.findViewById(R.id.settingsButton))
         hideIfVisible(activity.findViewById(R.id.bottomNav))
+    }
+
+    private fun tuneRouteCards(activity: MainActivity) {
+        if (!isRouteOptions(activity)) return
+        val panel = activity.findViewById<LinearLayout>(R.id.routeResultsPanel)
+        val primaryAction = activity.findViewById<Button>(R.id.routePrimaryAction)
+
+        primaryAction.apply {
+            val targetHeight = dp(activity, 46)
+            if (layoutParams.height != targetHeight) layoutParams = layoutParams.apply { height = targetHeight }
+            minimumHeight = targetHeight
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+        }
+
+        for (index in 0 until panel.childCount) {
+            when (val child = panel.getChildAt(index)) {
+                is TextView -> {
+                    if (child.text?.toString() == "Варианты маршрута") {
+                        child.visibility = View.GONE
+                    }
+                }
+                is LinearLayout -> if (child.isClickable) compactRouteCard(activity, child)
+            }
+        }
+    }
+
+    private fun compactRouteCard(activity: MainActivity, card: LinearLayout) {
+        card.setPadding(dp(activity, 12), dp(activity, 8), dp(activity, 12), dp(activity, 8))
+        (card.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
+            if (lp.topMargin != dp(activity, 6)) {
+                lp.topMargin = dp(activity, 6)
+                card.layoutParams = lp
+            }
+        }
+
+        // The old selected-card expansion repeated every timetable step and consumed almost the
+        // entire sheet. Route overview stays summary-first; detailed timeline belongs to the trip.
+        for (index in 0 until card.childCount) {
+            val child = card.getChildAt(index)
+            if (index >= 4 && child.visibility != View.GONE) child.visibility = View.GONE
+        }
+
+        (card.getChildAt(0) as? ViewGroup)?.let { top ->
+            (top.getChildAt(0) as? TextView)?.apply {
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20f)
+                includeFontPadding = false
+            }
+            (top.getChildAt(1) as? TextView)?.apply {
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                includeFontPadding = false
+            }
+        }
+        (card.getChildAt(1) as? TextView)?.apply {
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 9.5f)
+            setPadding(dp(activity, 7), dp(activity, 2), dp(activity, 7), dp(activity, 2))
+        }
+        (card.getChildAt(2) as? TextView)?.apply {
+            maxLines = 2
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setPadding(0, dp(activity, 4), 0, 0)
+        }
+        (card.getChildAt(3) as? TextView)?.apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 10.5f)
+            setPadding(0, dp(activity, 3), 0, 0)
+        }
     }
 
     private fun hideIfVisible(view: View) {
