@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">ВремяХодом</string>
+    <string name="app_name">Время ходом</string>
     <string name="search_destination">Куда едем?</string>
     <string name="search_origin">Откуда</string>
     <string name="search_action">Найти маршрут</string>
