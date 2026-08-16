@@ -1,0 +1,99 @@
+package app.humanrouter
+
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import androidx.appcompat.widget.SwitchCompat
+import app.humanrouter.routing.LastPlanStore
+import app.humanrouter.routing.TransportMode
+import java.time.Instant
+import java.util.WeakHashMap
+import kotlin.math.roundToInt
+
+/** Finite post-layout tuning for the approved reference proportions. */
+internal object ReferenceVisualTuning {
+    private val installed = WeakHashMap<MainActivity, Boolean>()
+
+    @Synchronized
+    fun install(activity: MainActivity) {
+        if (installed.put(activity, true) == true) return
+        tune(activity)
+        activity.window.decorView.postDelayed({ tune(activity) }, 220L)
+        activity.window.decorView.postDelayed({ tune(activity) }, 720L)
+    }
+
+    private fun tune(activity: MainActivity) {
+        tuneSettingsSheet(activity)
+        tuneActiveTripBadge(activity)
+    }
+
+    private fun tuneSettingsSheet(activity: MainActivity) {
+        val settingsPanel = activity.findViewById<ViewGroup>(R.id.settingsPanel)
+        val scroll = settingsPanel.parent as? ScrollView ?: return
+        val width = activity.resources.displayMetrics.widthPixels
+        val targetWidth = (width * 0.42f).roundToInt()
+        val params = scroll.layoutParams as? FrameLayout.LayoutParams ?: return
+        if (params.width != targetWidth || params.gravity != Gravity.END) {
+            params.width = targetWidth
+            params.height = FrameLayout.LayoutParams.MATCH_PARENT
+            params.gravity = Gravity.END
+            params.leftMargin = 0
+            scroll.layoutParams = params
+        }
+        settingsPanel.setPadding(dp(activity, 18), settingsPanel.paddingTop, dp(activity, 16), settingsPanel.paddingBottom)
+        intArrayOf(
+            R.id.showStopsSwitch,
+            R.id.showTransportSwitch,
+            R.id.darkThemeSwitch,
+            R.id.lessWalkingSwitch,
+            R.id.avoidTransfersSwitch
+        ).forEach { id ->
+            activity.findViewById<SwitchCompat>(id).apply {
+                textSize = 12.5f
+                minimumHeight = dp(activity, 72)
+            }
+        }
+    }
+
+    private fun tuneActiveTripBadge(activity: MainActivity) {
+        val root = activity.findViewById<FrameLayout>(R.id.root)
+        val top = root.findViewWithTag<ViewGroup>("reference_active_trip_top") ?: return
+        val route = LastPlanStore.seed?.route ?: return
+        val now = Instant.now().epochSecond
+        val leg = route.legs.firstOrNull { it.mode != TransportMode.WALK && now < it.arrivalEpochSec }
+            ?: route.legs.firstOrNull { it.mode != TransportMode.WALK }
+            ?: return
+        val line = leg.lineName?.takeIf(String::isNotBlank) ?: return
+        descendants(top)
+            .filterIsInstance<TextView>()
+            .firstOrNull { it.text?.toString() == line }
+            ?.apply {
+                setCompoundDrawablesRelativeWithIntrinsicBounds(iconForMode(leg.mode), 0, 0, 0)
+                compoundDrawableTintList = ColorStateList.valueOf(Color.WHITE)
+                compoundDrawablePadding = dp(activity, 5)
+            }
+    }
+
+    private fun iconForMode(mode: TransportMode): Int = when (mode) {
+        TransportMode.BUS -> R.drawable.ic_bus
+        TransportMode.TRAM -> R.drawable.ic_tram
+        TransportMode.METRO, TransportMode.MCC, TransportMode.MCD -> R.drawable.ic_metro
+        TransportMode.TRAIN -> R.drawable.ic_transport
+        TransportMode.WALK -> R.drawable.ic_routes
+    }
+
+    private fun descendants(view: View): Sequence<View> = sequence {
+        yield(view)
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) yieldAll(descendants(view.getChildAt(index)))
+        }
+    }
+
+    private fun dp(activity: MainActivity, value: Int): Int =
+        (value * activity.resources.displayMetrics.density + 0.5f).toInt()
+}
