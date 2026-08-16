@@ -63,6 +63,15 @@ internal object ReferenceVisualTuning {
         val panel = activity.findViewById<View>(R.id.nearbyPanel)
         val list = activity.findViewById<ViewGroup>(R.id.nearbyList)
         val state = activity.findViewById<TextView>(R.id.nearbyStateText).text?.toString().orEmpty()
+
+        // Keep real rows dense enough that the populated card preserves map context just like the
+        // approved reference. The list remains scrollable if there are more nearby results.
+        val targetRowHeight = dp(activity, 50)
+        for (index in 0 until list.childCount) {
+            val row = list.getChildAt(index)
+            if (row.minimumHeight != targetRowHeight) row.minimumHeight = targetRowHeight
+        }
+
         val compactState = list.childCount == 0 ||
             state.contains("Ищем", ignoreCase = true) ||
             state.contains("нет", ignoreCase = true) ||
@@ -70,7 +79,7 @@ internal object ReferenceVisualTuning {
         val targetDp = if (compactState) {
             158
         } else {
-            (158 + list.childCount.coerceAtMost(2) * 38).coerceAtMost(226)
+            (158 + list.childCount.coerceAtMost(3) * 10).coerceAtMost(188)
         }
         val targetHeight = dp(activity, targetDp)
         val params = panel.layoutParams as? FrameLayout.LayoutParams ?: return
