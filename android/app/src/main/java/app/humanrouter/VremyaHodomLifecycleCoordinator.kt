@@ -15,6 +15,7 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
         VremyaHodomUiCoordinator.onActivityResumed(activity)
         if (activity is MainActivity) {
             ReferenceProductUiV2.install(activity)
+            TransitJourneyVisibilityGuard.install(activity)
             ReferenceVisualTuning.install(activity)
         }
     }
@@ -25,6 +26,7 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
 
     override fun onActivityDestroyed(activity: Activity) {
         VremyaHodomUiCoordinator.onActivityDestroyed(activity)
+        if (activity is MainActivity) TransitJourneyVisibilityGuard.destroy(activity)
     }
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
