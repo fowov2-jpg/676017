@@ -53,8 +53,14 @@ internal object ReferenceVisualTuning {
         val list = activity.findViewById<ViewGroup>(R.id.nearbyList)
         val state = activity.findViewById<TextView>(R.id.nearbyStateText)
 
-        panel.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> tuneNearbyPanel(activity) }
-        list.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> tuneNearbyPanel(activity) }
+        // V2 can update bottom-sheet geometry from a posted composition pass. Re-assert the
+        // approved 158–188dp range after that layout finishes; the next pass is then a no-op.
+        panel.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            panel.post { tuneNearbyPanel(activity) }
+        }
+        list.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            panel.post { tuneNearbyPanel(activity) }
+        }
         state.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
