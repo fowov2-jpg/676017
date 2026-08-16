@@ -28,18 +28,11 @@ import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 
 /**
  * Material 3 bottom navigation used while the rest of the legacy View hierarchy is
- * migrated incrementally to Compose.
- *
- * This is a FrameLayout host instead of subclassing ComposeView: ComposeView is final.
- * MainActivity currently adds the navigation-bar inset as root padding. NavigationBar
- * also owns that inset, so the host translates itself down by exactly that inset. This
- * removes the duplicated visual "second floor" above the system gesture/navigation area
- * without hard-coding a system-bar height.
+ * migrated incrementally to Compose. The host itself does not fake or translate system
+ * insets: Material 3 NavigationBar owns the bottom navigation-bar/gesture inset.
  */
 class ModernBottomNavigationView @JvmOverloads constructor(
     context: Context,
@@ -55,16 +48,6 @@ class ModernBottomNavigationView @JvmOverloads constructor(
 
     init {
         addView(composeView)
-        ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
-            val navigationBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
-            view.translationY = navigationBars.bottom.toFloat()
-            insets
-        }
-    }
-
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        ViewCompat.requestApplyInsets(this)
     }
 
     @Composable
