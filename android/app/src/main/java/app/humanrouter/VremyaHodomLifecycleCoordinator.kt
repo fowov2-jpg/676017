@@ -13,7 +13,10 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
     override fun onActivityResumed(activity: Activity) {
         if (activity is MainActivity) UiPolish.install(activity)
         VremyaHodomUiCoordinator.onActivityResumed(activity)
-        if (activity is MainActivity) ReferenceProductUiV2.install(activity)
+        if (activity is MainActivity) {
+            ReferenceProductUiV2.install(activity)
+            ReferenceVisualTuning.install(activity)
+        }
     }
 
     override fun onActivityPaused(activity: Activity) {
