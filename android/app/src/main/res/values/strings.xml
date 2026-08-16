@@ -36,5 +36,5 @@
     <string name="close">Закрыть</string>
     <string name="favorites_empty">Здесь появятся сохранённые маршруты.</string>
     <string name="transport_hint">Выберите остановку или станцию поблизости.</string>
-    <string name="journey_progress">Собираем поездку</string>
+    <string name="journey_progress">Строим маршрут</string>
 </resources>
