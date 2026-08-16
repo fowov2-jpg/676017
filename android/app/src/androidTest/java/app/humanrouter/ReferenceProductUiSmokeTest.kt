@@ -28,7 +28,8 @@ class ReferenceProductUiSmokeTest {
                 val nav = activity.findViewById<View>(R.id.bottomNav)
                 assertTrue(search.width < root.width * 0.90f)
                 assertTrue(search.height >= dp(activity, 58))
-                assertTrue(nearby.height >= dp(activity, 200))
+                assertTrue(nearby.height >= dp(activity, 140))
+                assertTrue(nearby.height <= dp(activity, 190))
                 assertTrue(nav.height >= dp(activity, 64))
             }
         }
