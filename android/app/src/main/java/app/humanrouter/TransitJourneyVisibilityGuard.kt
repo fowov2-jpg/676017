@@ -51,9 +51,6 @@ internal object TransitJourneyVisibilityGuard {
 
         private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
             if (!destroyed && hasHiddenLegacyActiveStatus()) {
-                // ReferenceProductUiV2 hides the old title late in its composition pass. Clear the
-                // stale semantic text synchronously before the frame becomes observable so the
-                // invisible legacy label cannot duplicate the authoritative V2 "В пути" title.
                 suppressHiddenLegacyActiveStatus()
             }
             true

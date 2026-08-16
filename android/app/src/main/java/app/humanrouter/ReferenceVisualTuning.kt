@@ -2,6 +2,8 @@ package app.humanrouter
 
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -20,10 +22,12 @@ import kotlin.math.roundToInt
 /** Finite post-layout tuning for the approved reference proportions. */
 internal object ReferenceVisualTuning {
     private val installed = WeakHashMap<MainActivity, Boolean>()
+    private val nearbyObserversInstalled = WeakHashMap<MainActivity, Boolean>()
 
     @Synchronized
     fun install(activity: MainActivity) {
         if (installed.put(activity, true) == true) return
+        installNearbyObservers(activity)
         tune(activity)
         activity.window.decorView.postDelayed({ tune(activity) }, 220L)
         activity.window.decorView.postDelayed({ tune(activity) }, 720L)
@@ -33,8 +37,48 @@ internal object ReferenceVisualTuning {
 
     private fun tune(activity: MainActivity) {
         tuneSettingsSheet(activity)
+        tuneNearbyPanel(activity)
         tuneRouteChrome(activity)
         tuneActiveTripBadge(activity)
+    }
+
+    private fun installNearbyObservers(activity: MainActivity) {
+        if (nearbyObserversInstalled.put(activity, true) == true) return
+        val panel = activity.findViewById<View>(R.id.nearbyPanel)
+        val list = activity.findViewById<ViewGroup>(R.id.nearbyList)
+        val state = activity.findViewById<TextView>(R.id.nearbyStateText)
+
+        panel.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> tuneNearbyPanel(activity) }
+        list.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> tuneNearbyPanel(activity) }
+        state.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                panel.post { tuneNearbyPanel(activity) }
+            }
+        })
+    }
+
+    private fun tuneNearbyPanel(activity: MainActivity) {
+        val panel = activity.findViewById<View>(R.id.nearbyPanel)
+        if (panel.visibility != View.VISIBLE) return
+        val list = activity.findViewById<ViewGroup>(R.id.nearbyList)
+        val state = activity.findViewById<TextView>(R.id.nearbyStateText).text?.toString().orEmpty()
+        val compactState = list.childCount == 0 ||
+            state.contains("Ищем", ignoreCase = true) ||
+            state.contains("нет", ignoreCase = true) ||
+            state.contains("ошиб", ignoreCase = true)
+        val targetDp = if (compactState) {
+            158
+        } else {
+            (158 + list.childCount.coerceAtMost(2) * 38).coerceAtMost(226)
+        }
+        val targetHeight = dp(activity, targetDp)
+        val params = panel.layoutParams as? FrameLayout.LayoutParams ?: return
+        if (params.height != targetHeight) {
+            params.height = targetHeight
+            panel.layoutParams = params
+        }
     }
 
     private fun tuneSettingsSheet(activity: MainActivity) {
