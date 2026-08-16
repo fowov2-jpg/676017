@@ -4,12 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.os.Bundle
 
-/**
- * The single Application lifecycle entry-point for phone UI behavior.
- *
- * Visual helpers are one-shot components, not independent lifecycle registrations. Route/journey/map
- * behavior and the reference product presentation are all driven through this owner.
- */
+/** Single Application lifecycle entry-point for phone UI behavior. */
 internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleCallbacks {
     fun install(application: Application) {
         application.registerActivityLifecycleCallbacks(this)
@@ -18,10 +13,7 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
     override fun onActivityResumed(activity: Activity) {
         if (activity is MainActivity) UiPolish.install(activity)
         VremyaHodomUiCoordinator.onActivityResumed(activity)
-        if (activity is MainActivity) {
-            ReferenceProductUi.install(activity)
-            ReferenceProductUiRefinement.install(activity)
-        }
+        if (activity is MainActivity) ReferenceProductUiV2.install(activity)
     }
 
     override fun onActivityPaused(activity: Activity) {
