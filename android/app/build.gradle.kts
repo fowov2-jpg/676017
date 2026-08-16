@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 val ciVersionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
@@ -45,13 +46,23 @@ android {
         jvmTarget = "17"
     }
 
-    buildFeatures { buildConfig = true }
+    buildFeatures {
+        buildConfig = true
+        compose = true
+    }
 }
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.activity:activity-ktx:1.13.0")
     implementation("androidx.work:work-runtime:2.11.2")
     implementation("org.maplibre.gl:android-sdk:11.8.0")
+
+    implementation("androidx.compose.ui:ui:1.11.4")
+    implementation("androidx.compose.ui:ui-tooling-preview:1.11.4")
+    implementation("androidx.compose.material3:material3:1.4.0")
+    debugImplementation("androidx.compose.ui:ui-tooling:1.11.4")
+
     testImplementation("junit:junit:4.13.2")
 }
