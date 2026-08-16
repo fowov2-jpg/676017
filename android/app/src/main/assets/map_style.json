@@ -1,23 +1,26 @@
 {
   "version": 8,
-  "name": "VremyaHodom Base Map",
+  "name": "VremyaHodom Light Vector",
+  "glyphs": "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
   "sources": {
-    "osm": {
-      "type": "raster",
-      "tiles": [
-        "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-      ],
-      "tileSize": 256,
-      "attribution": "© OpenStreetMap contributors"
+    "openmaptiles": {
+      "type": "vector",
+      "url": "https://tiles.openfreemap.org/planet"
     }
   },
   "layers": [
-    {
-      "id": "osm",
-      "type": "raster",
-      "source": "osm",
-      "minzoom": 0,
-      "maxzoom": 19
-    }
+    {"id":"background","type":"background","paint":{"background-color":"#F4F6F8"}},
+    {"id":"landcover-wood","type":"fill","source":"openmaptiles","source-layer":"landcover","filter":["==",["get","class"],"wood"],"paint":{"fill-color":"#DCEBD8","fill-opacity":0.72}},
+    {"id":"landcover-grass","type":"fill","source":"openmaptiles","source-layer":"landcover","filter":["==",["get","class"],"grass"],"paint":{"fill-color":"#E6F0DD","fill-opacity":0.68}},
+    {"id":"park","type":"fill","source":"openmaptiles","source-layer":"park","paint":{"fill-color":"#D9EBD5","fill-opacity":0.76}},
+    {"id":"water","type":"fill","source":"openmaptiles","source-layer":"water","paint":{"fill-color":"#C8DFF5"}},
+    {"id":"building","type":"fill","source":"openmaptiles","source-layer":"building","minzoom":13,"paint":{"fill-color":"#E5E7EB","fill-outline-color":"#D2D6DC"}},
+    {"id":"rail","type":"line","source":"openmaptiles","source-layer":"transportation","filter":["match",["get","class"],["rail","transit"],true,false],"paint":{"line-color":"#ADB5C2","line-width":["interpolate",["linear"],["zoom"],10,0.5,16,1.6],"line-opacity":0.72}},
+    {"id":"road-path","type":"line","source":"openmaptiles","source-layer":"transportation","minzoom":13,"filter":["match",["get","class"],["path","pedestrian","service","track"],true,false],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#FFFFFF","line-width":["interpolate",["linear"],["zoom"],13,0.5,18,4]}},
+    {"id":"road-minor","type":"line","source":"openmaptiles","source-layer":"transportation","minzoom":11,"filter":["match",["get","class"],["minor","street","street_limited"],true,false],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#FFFFFF","line-width":["interpolate",["linear"],["zoom"],11,0.7,18,7]}},
+    {"id":"road-major","type":"line","source":"openmaptiles","source-layer":"transportation","filter":["match",["get","class"],["secondary","tertiary","primary","trunk"],true,false],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#FFF2C9","line-width":["interpolate",["linear"],["zoom"],7,0.7,18,10]}},
+    {"id":"road-motorway","type":"line","source":"openmaptiles","source-layer":"transportation","filter":["==",["get","class"],"motorway"],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#FFD39B","line-width":["interpolate",["linear"],["zoom"],5,0.7,18,12]}},
+    {"id":"road-name","type":"symbol","source":"openmaptiles","source-layer":"transportation_name","minzoom":12,"filter":["match",["geometry-type"],["LineString","MultiLineString"],true,false],"layout":{"symbol-placement":"line","text-field":["coalesce",["get","name:nonlatin"],["get","name"],["get","name:latin"]],"text-font":["Noto Sans Regular"],"text-size":["interpolate",["linear"],["zoom"],12,10,17,13],"text-max-width":10},"paint":{"text-color":"#5B6472","text-halo-color":"#FFFFFF","text-halo-width":1.2}},
+    {"id":"place-label","type":"symbol","source":"openmaptiles","source-layer":"place","minzoom":4,"filter":["match",["get","class"],["city","town","village"],true,false],"layout":{"text-field":["coalesce",["get","name:nonlatin"],["get","name"],["get","name:latin"]],"text-font":["Noto Sans Regular"],"text-size":["interpolate",["linear"],["zoom"],4,11,12,16],"text-max-width":9},"paint":{"text-color":"#253047","text-halo-color":"#F4F6F8","text-halo-width":1.5}}
   ]
 }
