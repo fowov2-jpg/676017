@@ -67,7 +67,11 @@ internal object ReferenceVisualTuning {
     private fun installRouteObserver(activity: MainActivity) {
         if (routeObserversInstalled.put(activity, true) == true) return
         val panel = activity.findViewById<View>(R.id.routeResultsPanel)
-        panel.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> tuneRouteCards(activity) }
+        panel.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            // This listener is safe because tuneRouteCards mutates each generated card once and
+            // marks it. A second layout pass observes an already converged tree and does nothing.
+            tuneRouteCards(activity)
+        }
     }
 
     private fun tuneNearbyPanel(activity: MainActivity) {
@@ -118,16 +122,25 @@ internal object ReferenceVisualTuning {
         val header = settingsPanel.getChildAt(0) as? ViewGroup
         val title = header?.getChildAt(0) as? TextView
         title?.apply {
-            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 19f)
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-            includeFontPadding = false
+            val targetPx = 19f * activity.resources.displayMetrics.scaledDensity
+            if (kotlin.math.abs(textSize - targetPx) > 0.5f) {
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 19f)
+            }
+            if (maxLines != 1) maxLines = 1
+            if (ellipsize != TextUtils.TruncateAt.END) ellipsize = TextUtils.TruncateAt.END
+            if (includeFontPadding) includeFontPadding = false
         }
         activity.findViewById<TextView>(R.id.closeSettingsButton).apply {
-            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 26f)
-            layoutParams = layoutParams.apply {
-                this.width = dp(activity, 40)
-                this.height = dp(activity, 40)
+            val targetPx = 26f * activity.resources.displayMetrics.scaledDensity
+            if (kotlin.math.abs(textSize - targetPx) > 0.5f) {
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 26f)
+            }
+            val lp = layoutParams
+            val target = dp(activity, 40)
+            if (lp.width != target || lp.height != target) {
+                lp.width = target
+                lp.height = target
+                layoutParams = lp
             }
         }
 
@@ -137,7 +150,7 @@ internal object ReferenceVisualTuning {
         )
         for (index in 0 until settingsPanel.childCount) {
             val child = settingsPanel.getChildAt(index)
-            if (child is TextView && child.text?.toString() in sectionNames) {
+            if (child is TextView && child.text?.toString() in sectionNames && child.visibility != View.GONE) {
                 child.visibility = View.GONE
             }
         }
@@ -152,12 +165,19 @@ internal object ReferenceVisualTuning {
         switches.forEach { (id, copy) ->
             activity.findViewById<SwitchCompat>(id).apply {
                 if (text?.toString() != copy.first) text = copy.first
-                contentDescription = "${copy.first}. ${copy.second}"
-                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11.5f)
-                maxLines = 2
+                val description = "${copy.first}. ${copy.second}"
+                if (contentDescription?.toString() != description) contentDescription = description
+                val targetTextPx = 11.5f * activity.resources.displayMetrics.scaledDensity
+                if (kotlin.math.abs(textSize - targetTextPx) > 0.5f) {
+                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                }
+                if (maxLines != 2) maxLines = 2
                 if (minimumHeight != dp(activity, 62)) minimumHeight = dp(activity, 62)
                 setLineSpacing(0f, 1f)
-                setPadding(0, dp(activity, 4), 0, dp(activity, 4))
+                val vertical = dp(activity, 4)
+                if (paddingTop != vertical || paddingBottom != vertical) {
+                    setPadding(0, vertical, 0, vertical)
+                }
             }
         }
 
@@ -165,8 +185,11 @@ internal object ReferenceVisualTuning {
             .filterIsInstance<TextView>()
             .firstOrNull { it.text?.toString()?.contains("Live-позиции", ignoreCase = true) == true }
             ?.apply {
-                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 9.5f)
-                maxLines = 4
+                val targetPx = 9.5f * activity.resources.displayMetrics.scaledDensity
+                if (kotlin.math.abs(textSize - targetPx) > 0.5f) {
+                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 9.5f)
+                }
+                if (maxLines != 4) maxLines = 4
             }
     }
 
@@ -195,19 +218,29 @@ internal object ReferenceVisualTuning {
 
         primaryAction.apply {
             val targetHeight = dp(activity, 46)
-            if (layoutParams.height != targetHeight) layoutParams = layoutParams.apply { height = targetHeight }
-            minimumHeight = targetHeight
-            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+            val lp = layoutParams
+            if (lp.height != targetHeight) {
+                lp.height = targetHeight
+                layoutParams = lp
+            }
+            if (minimumHeight != targetHeight) minimumHeight = targetHeight
+            val targetPx = 14f * activity.resources.displayMetrics.scaledDensity
+            if (kotlin.math.abs(textSize - targetPx) > 0.5f) {
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+            }
         }
 
         for (index in 0 until panel.childCount) {
             when (val child = panel.getChildAt(index)) {
                 is TextView -> {
-                    if (child.text?.toString() == "Варианты маршрута") {
+                    if (child.text?.toString() == "Варианты маршрута" && child.visibility != View.GONE) {
                         child.visibility = View.GONE
                     }
                 }
-                is LinearLayout -> if (child.isClickable) compactRouteCard(activity, child)
+                is LinearLayout -> if (child.isClickable && child.getTag(ROUTE_CARD_POLISH_TAG_KEY) != true) {
+                    compactRouteCard(activity, child)
+                    child.setTag(ROUTE_CARD_POLISH_TAG_KEY, true)
+                }
             }
         }
     }
@@ -215,15 +248,14 @@ internal object ReferenceVisualTuning {
     private fun compactRouteCard(activity: MainActivity, card: LinearLayout) {
         card.setPadding(dp(activity, 12), dp(activity, 8), dp(activity, 12), dp(activity, 8))
         (card.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
-            if (lp.topMargin != dp(activity, 6)) {
-                lp.topMargin = dp(activity, 6)
-                card.layoutParams = lp
-            }
+            lp.topMargin = dp(activity, 6)
+            card.layoutParams = lp
         }
 
+        // The route overview is summary-first. Detailed timetable rows are preserved in the route
+        // model and active trip, but hidden in the choice card so 2–3 alternatives fit at once.
         for (index in 0 until card.childCount) {
-            val child = card.getChildAt(index)
-            if (index >= 4 && child.visibility != View.GONE) child.visibility = View.GONE
+            if (index >= 4) card.getChildAt(index).visibility = View.GONE
         }
 
         (card.getChildAt(0) as? ViewGroup)?.let { top ->
@@ -295,4 +327,7 @@ internal object ReferenceVisualTuning {
 
     private fun dp(activity: MainActivity, value: Int): Int =
         (value * activity.resources.displayMetrics.density + 0.5f).toInt()
+
+    // Keyed tag is local to each generated route card; it does not replace the card's normal tag.
+    private const val ROUTE_CARD_POLISH_TAG_KEY = R.id.routeFiltersPanel
 }
