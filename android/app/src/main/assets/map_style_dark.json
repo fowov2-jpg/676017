@@ -16,7 +16,7 @@
       "id": "background",
       "type": "background",
       "paint": {
-        "background-color": "#0E1622"
+        "background-color": "#0B111A"
       }
     },
     {
@@ -26,10 +26,12 @@
       "minzoom": 0,
       "maxzoom": 19,
       "paint": {
-        "raster-brightness-max": 0.48,
-        "raster-brightness-min": 0.08,
-        "raster-contrast": 0.24,
-        "raster-saturation": -0.62
+        "raster-brightness-max": 0.34,
+        "raster-brightness-min": 0.035,
+        "raster-contrast": 0.42,
+        "raster-saturation": -0.82,
+        "raster-opacity": 0.96,
+        "raster-fade-duration": 0
       }
     }
   ]

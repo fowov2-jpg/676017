@@ -4,6 +4,16 @@ plugins {
 }
 
 val ciVersionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+val releaseKeystorePath = System.getenv("VH_RELEASE_KEYSTORE")
+val releaseStorePassword = System.getenv("VH_RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = System.getenv("VH_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = System.getenv("VH_RELEASE_KEY_PASSWORD")
+val releaseSigningConfigured = listOf(
+    releaseKeystorePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).all { !it.isNullOrBlank() }
 
 android {
     namespace = "app.humanrouter"
@@ -19,6 +29,18 @@ android {
                 keyPassword = "android"
             }
         }
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = file(checkNotNull(releaseKeystorePath))
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = true
+            }
+        }
     }
 
     defaultConfig {
@@ -29,11 +51,17 @@ android {
         versionName = "0.1.$ciVersionCode"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "RUNTIME_BASE_URL", "\"https://github.com/fowov2-jpg/676017/releases/download/runtime-current/\"")
+        buildConfigField("boolean", "REALTIME_TRANSIT_CONFIGURED", "false")
     }
 
     buildTypes {
         getByName("debug") {
             signingConfig = signingConfigs.getByName("debug")
+        }
+        getByName("release") {
+            isMinifyEnabled = false
+            isShrinkResources = false
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 
@@ -69,3 +97,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }
+
+// `assembleRelease` is intentionally allowed to produce an unsigned APK when the four
+// VH_RELEASE_* environment variables are absent. A production publish job must require those
+// secrets and verify the final signature; QA/debug signing is never silently reused for release.

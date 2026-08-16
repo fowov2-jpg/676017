@@ -12,7 +12,10 @@ class VremyaHodomApp : Application() {
             AppCompatDelegate.MODE_NIGHT_NO
         }
         AppCompatDelegate.setDefaultNightMode(mode)
-        VremyaHodomSafeRuntimeFixes.install(this)
+
+        // One lifecycle owner for cross-cutting UI behavior. The previous chain of patch objects
+        // remains in history for comparison but is no longer installed in production execution.
+        VremyaHodomUiCoordinator.install(this)
         RuntimeUpdateScheduler.schedule(this)
     }
 }
