@@ -98,9 +98,9 @@ capture_fixture() {
     start_output=$(adb shell am start -W -n "$activity_name" --es qa_screen "$screen")
   fi
   grep -F 'Status: ok' <<<"$start_output"
-  # MapLibre can restore the route overlay before raster tiles finish loading,
+  # MapLibre can restore the route overlay before vector tiles finish loading,
   # especially on API 35. Give screenshot fixtures enough time to represent
-  # the settled UI instead of capturing a transient black map surface.
+  # the settled UI instead of capturing a transient map surface.
   sleep 5
   adb exec-out screencap -p >"$output_dir/${name}.png"
   test -s "$output_dir/${name}.png"
@@ -112,7 +112,7 @@ capture_fixture() {
 capture_fixture home home 'Куда едем?'
 capture_fixture nearby nearby 'Театральная площадь'
 capture_fixture error plan-error 'Проверьте адрес'
-capture_fixture routes route-options 'Варианты маршрута'
+capture_fixture routes route-options 'Бабушкинская'
 capture_fixture route_map selected-route-map 'Бабушкинская'
 capture_fixture trip active-trip 'В пути'
 capture_fixture settings settings 'Настройки'
@@ -126,7 +126,7 @@ adb exec-out screencap -p >"$output_dir/launcher-icon-app-info.png"
 test -s "$output_dir/launcher-icon-app-info.png"
 adb shell uiautomator dump /sdcard/vremyahodom-app-info.xml >/dev/null
 adb pull /sdcard/vremyahodom-app-info.xml "$output_dir/launcher-icon-app-info.xml" >/dev/null
-grep -F 'ВремяХодом' "$output_dir/launcher-icon-app-info.xml"
+grep -F 'Время ходом' "$output_dir/launcher-icon-app-info.xml"
 
 if adb logcat -d -v brief | grep -A 12 'FATAL EXCEPTION' | grep -F "$package_name"; then
   echo 'Fatal VremyaHodom exception detected in emulator logcat' >&2
