@@ -251,11 +251,15 @@ jobs:
 
   publish-qa-release:
     needs: [build, emulator-smoke]
-    if: ${{ always() && needs.build.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ always() && needs.build.result == 'success' && needs.emulator-smoke.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           name: vremyahodom-debug-apk
@@ -278,17 +282,61 @@ jobs:
           SHA_OUT="VremyaHodom-${VERSION}-qa.sha256.txt"
           cp "$APK_SRC" "$APK_OUT"
           sha256sum "$APK_OUT" > "$SHA_OUT"
+          APK_SHA=$(cut -d' ' -f1 "$SHA_OUT")
+
+          git fetch --tags --force
+          PREV_TAG=$(git tag --list 'qa-v*' --sort=-creatordate | head -n 1 || true)
+          if [ -n "$PREV_TAG" ]; then
+            CHANGE_RANGE="${PREV_TAG}..${GITHUB_SHA}"
+          else
+            CHANGE_RANGE="${GITHUB_SHA}^..${GITHUB_SHA}"
+          fi
+
+          CHANGES=$(git log --no-merges --pretty='- %s (%h)' "$CHANGE_RANGE" || true)
+          if [ -z "$CHANGES" ]; then
+            CHANGES="- Изменения отсутствуют в истории commit; проверьте diff вручную."
+          fi
+
+          FIXES=$(git log --no-merges --pretty='%s' "$CHANGE_RANGE" \
+            | grep -Ei 'fix|исправ|bug|crash|ошиб' \
+            | sed 's/^/- /' || true)
+          if [ -z "$FIXES" ]; then
+            FIXES="- Отдельные исправления не выделены commit-сообщениями."
+          fi
 
           cat > release-notes.txt <<EOF
-          VremyaHodom QA build ${VERSION}
+          # ВремяХодом QA ${VERSION}
 
           Source commit: ${GITHUB_SHA}
           GitHub Actions run: ${GITHUB_RUN_ID}
-          Build/unit/lint/APK verification: success
-          Emulator smoke aggregate result: ${EMULATOR_RESULT}
-          Signing: CI debug signer (QA, not production signing)
+          Previous QA release: ${PREV_TAG:-нет}
 
-          This release is retained in GitHub Releases so a previously shared APK version can be found later.
+          ## Что изменилось
+          ${CHANGES}
+
+          ## Исправлено
+          ${FIXES}
+
+          ## Тестирование
+          - [x] Runtime integration smoke test
+          - [x] Published runtime-current smoke
+          - [x] Unit tests
+          - [x] assembleDebug / androidTest APK build
+          - [x] Android Lint
+          - [x] APK ZIP integrity
+          - [x] apksigner verify
+          - [x] Emulator/instrumentation API 26
+          - [x] Emulator/instrumentation API 35
+          - [x] SHA-256 generated
+
+          ## Известные ограничения
+          - QA APK подписан CI debug signer, а не production key.
+          - Ограничения транспортного покрытия и достоверности данных описаны в docs/VREMYAHODOM_SPEC.md и TRANSPORT_SCOPE.md.
+
+          ## Артефакт
+          - APK: ${APK_OUT}
+          - SHA-256: ${APK_SHA}
+          - Signing: CI debug signer (QA, not production signing)
           EOF
 
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
