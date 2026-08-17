@@ -1,6 +1,7 @@
 package app.humanrouter.search
 
 import app.humanrouter.routing.GeoPoint
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -20,6 +21,26 @@ class FastAddressResolverTest {
 
         assertTrue(variants.any { it.contains("1-я Тверская-Ямская") && it.contains("дом 13") })
         assertFalse(variants.any { it.contains("дом 1,") })
+    }
+
+    @Test
+    fun corpusAndBuildingNumbersAreNotMistakenForHouse() {
+        val variants = FastAddressResolver.queryVariantsForTest("Тверская 10 корп. 2 стр. 1")
+
+        assertTrue(variants.any { it.contains("Москва") && it.contains("10") })
+        assertFalse(variants.any { it.contains("дом 2") || it.contains("дом 1") })
+        assertTrue(variants.any { it.contains("корпус 2") && it.contains("строение 1") })
+    }
+
+    @Test
+    fun offlineParserAcceptsCorpusBuildingAndOwnershipForms() {
+        val structured = OfflineAddressIndex.parse("Москва, ул. Тверская, д. 10 корп. 2 стр. 1")
+        val ownership = OfflineAddressIndex.parse("Тверская улица, владение 5")
+
+        assertEquals("тверская", structured?.street)
+        assertEquals("10к2с1", structured?.house)
+        assertEquals("тверская", ownership?.street)
+        assertEquals("5", ownership?.house)
     }
 
     @Test
