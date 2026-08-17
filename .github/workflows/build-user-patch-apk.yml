@@ -1,0 +1,82 @@
+name: Build supplied patch APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - chatgpt/user-patch-0.1.468-apk
+    paths:
+      - .github/user-patch/**
+      - .github/workflows/build-user-patch-apk.yml
+
+concurrency:
+  group: supplied-patch-apk-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify patch payload and base
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 63fcfd6a8a6205ef60ad9c93c9c4fd726c4336b5 HEAD
+          echo 'f76037764043285484a088ac57d3045cfa895cab10c59226bcd6c980f081a7af  .github/user-patch/01-big-pass-core.patch' | sha256sum -c -
+          echo 'ca4b93e021e29ad43088851fc4d390616d5a4d33aac49ac2f31ecf08f6e875e5  .github/user-patch/04-screenshot-reference-ui.patch' | sha256sum -c -
+
+      - name: Apply supplied context patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/user-patch/apply_context_patch.py \
+            .github/user-patch/01-big-pass-core.patch \
+            .github/user-patch/04-screenshot-reference-ui.patch
+          git diff --check
+          git status --short
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install verified Gradle
+        shell: bash
+        run: |
+          set -euo pipefail
+          wget -q https://services.gradle.org/distributions/gradle-8.9-bin.zip -O /tmp/gradle.zip
+          echo 'd725d707bfabd4dfdc958c624003b3c80accc03f7037b5122c4b1d0ef15cecab  /tmp/gradle.zip' | sha256sum -c -
+          unzip -q /tmp/gradle.zip -d /tmp
+          echo "/tmp/gradle-8.9/bin" >> "$GITHUB_PATH"
+
+      - name: Prepare CI debug signing key
+        working-directory: android
+        shell: bash
+        run: base64 --decode ci-debug.keystore.b64 > ci-debug.keystore
+
+      - name: Test, lint and build patched APKs
+        working-directory: android
+        run: gradle --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest lintDebug
+
+      - name: Package APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          src='android/app/build/outputs/apk/debug/app-debug.apk'
+          test -s "$src"
+          unzip -tq "$src" >/dev/null
+          mkdir -p out
+          cp "$src" out/VremyaHodom-0.1.468-SCREENSHOT-UI-PASS.apk
+          sha256sum out/VremyaHodom-0.1.468-SCREENSHOT-UI-PASS.apk > out/VremyaHodom-0.1.468-SCREENSHOT-UI-PASS.apk.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VremyaHodom-0.1.468-SCREENSHOT-UI-PASS
+          path: out/*
+          if-no-files-found: error
+          retention-days: 90
