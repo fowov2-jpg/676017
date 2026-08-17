@@ -17,10 +17,11 @@ import kotlin.math.roundToInt
 /**
  * Final interaction owner for the route sheet.
  *
- * Route choices start in a compact medium state so the map remains the primary context. Until the
- * user grabs the handle, the coordinator also verifies that compact state immediately before draw;
- * this prevents an earlier presentation pass from flashing a tall sheet for a frame. On ACTION_DOWN
- * the height becomes fully user-owned and automatic clamping stops until route options are reopened.
+ * The presentation layer keeps enough measured height for the fully expanded content. This owner
+ * exposes only a compact portion initially by translating the sheet below the viewport, then moves
+ * that same already-laid-out surface through collapsed / medium / expanded offsets. This avoids
+ * relayout fights and keeps drags smooth. Once route options close, translation is reset so active
+ * trip and error sheets are never inherited from the route-choice offset.
  */
 internal object RouteSheetInteractionCoordinator {
     private val controllers = WeakHashMap<MainActivity, Controller>()
@@ -44,28 +45,17 @@ internal object RouteSheetInteractionCoordinator {
         private val primary = activity.findViewById<Button>(R.id.routePrimaryAction)
 
         private var routeOptionsVisible = false
-        private var userOwnsHeight = false
-        private var applying = false
+        private var userOwnsOffset = false
         private var downY = 0f
-        private var startHeight = 0
+        private var startTranslation = 0f
         private var animator: ValueAnimator? = null
 
         private val layoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            reconcileInitialRouteSize()
+            reconcileInitialOffset()
         }
         private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
             if (activity.isFinishing || activity.isDestroyed) return@OnPreDrawListener true
-            val routes = isRouteOptions()
-            if (!routes) {
-                routeOptionsVisible = false
-                userOwnsHeight = false
-                return@OnPreDrawListener true
-            }
-            if (!routeOptionsVisible) {
-                routeOptionsVisible = true
-                userOwnsHeight = false
-            }
-            if (!userOwnsHeight && applyMediumRouteGeometry()) return@OnPreDrawListener false
+            reconcileInitialOffset()
             true
         }
 
@@ -73,7 +63,7 @@ internal object RouteSheetInteractionCoordinator {
             sheet.addOnLayoutChangeListener(layoutListener)
             root.viewTreeObserver.addOnPreDrawListener(preDrawListener)
             installGesture()
-            root.post(::reconcileInitialRouteSize)
+            root.post(::reconcileInitialOffset)
         }
 
         fun destroy() {
@@ -81,93 +71,106 @@ internal object RouteSheetInteractionCoordinator {
             sheet.removeOnLayoutChangeListener(layoutListener)
             if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnPreDrawListener(preDrawListener)
             sheet.setOnTouchListener(null)
+            sheet.translationY = 0f
         }
 
         private fun isActiveTrip(): Boolean =
             primary.visibility == View.VISIBLE &&
-                primary.contentDescription?.toString()?.contains("Заверш", ignoreCase = true) == true
+                primary.text?.toString()?.contains("Заверш", ignoreCase = true) == true
 
         private fun isRouteOptions(): Boolean =
             sheet.visibility == View.VISIBLE && filters.visibility == View.VISIBLE && !isActiveTrip()
 
-        private fun reconcileInitialRouteSize() {
-            if (applying) return
+        private fun reconcileInitialOffset() {
             val routes = isRouteOptions()
             if (!routes) {
+                if (routeOptionsVisible || sheet.translationY != 0f) {
+                    animator?.cancel()
+                    sheet.translationY = 0f
+                }
                 routeOptionsVisible = false
-                userOwnsHeight = false
+                userOwnsOffset = false
                 return
             }
             if (!routeOptionsVisible) {
                 routeOptionsVisible = true
-                userOwnsHeight = false
+                userOwnsOffset = false
             }
-            if (!userOwnsHeight) applyMediumRouteGeometry()
+            applyTabletWidthIfNeeded()
+            if (!userOwnsOffset && sheet.height > 0) {
+                sheet.translationY = offsets().medium
+            }
         }
 
-        /** Returns true when layout params were changed and another layout pass is required. */
-        private fun applyMediumRouteGeometry(): Boolean {
-            if (applying) return false
-            val widthPx = root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels
-            val heightPx = root.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels
-            val widthDp = widthPx / density
-            val heightDp = heightPx / density
+        private data class Offsets(val expanded: Float, val medium: Float, val collapsed: Float) {
+            fun ordered(): List<Float> = listOf(expanded, medium, collapsed)
+        }
+
+        private fun offsets(): Offsets {
+            val rootHeight = root.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels
+            val sheetHeight = sheet.height.takeIf { it > 0 } ?: max(1, sheet.layoutParams.height)
+            val widthDp = (root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels) / density
+            val heightDp = rootHeight / density
             val tablet = widthDp >= 600f
             val landscape = widthDp > heightDp
 
-            val targetDp = when {
+            val mediumVisibleDp = when {
                 tablet && landscape -> (heightDp * 0.35f).roundToInt().coerceIn(270, 320)
                 tablet -> min(420, (heightDp * 0.34f).roundToInt()).coerceAtLeast(320)
                 widthDp < 380f || heightDp < 700f -> (heightDp * 0.36f).roundToInt().coerceIn(270, 310)
                 else -> (heightDp * 0.35f).roundToInt().coerceIn(292, 340)
             }
-            val targetHeight = dp(targetDp)
-            val lp = sheet.layoutParams as? FrameLayout.LayoutParams ?: return false
-            var changed = lp.height != targetHeight
-            lp.height = targetHeight
+            val collapsedVisibleDp = if (tablet) 190 else 164
+            val mediumVisible = min(sheetHeight, dp(mediumVisibleDp))
+            val collapsedVisible = min(mediumVisible, dp(collapsedVisibleDp))
+            return Offsets(
+                expanded = 0f,
+                medium = (sheetHeight - mediumVisible).coerceAtLeast(0).toFloat(),
+                collapsed = (sheetHeight - collapsedVisible).coerceAtLeast(0).toFloat()
+            )
+        }
 
-            if (tablet) {
-                val maxWidthDp = if (landscape) 560 else 600
-                val targetWidth = min(widthPx - dp(48), dp(maxWidthDp))
-                changed = changed || lp.width != targetWidth || lp.gravity != (Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
-                lp.width = targetWidth
-                lp.leftMargin = 0
-                lp.rightMargin = 0
-                lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            }
-
-            if (changed) {
-                applying = true
-                sheet.layoutParams = lp
-                sheet.post { applying = false }
-            }
-            return changed
+        private fun applyTabletWidthIfNeeded() {
+            val widthPx = root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels
+            val heightPx = root.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels
+            val widthDp = widthPx / density
+            if (widthDp < 600f) return
+            val landscape = widthPx > heightPx
+            val maxWidthDp = if (landscape) 560 else 600
+            val targetWidth = min(widthPx - dp(48), dp(maxWidthDp))
+            val lp = sheet.layoutParams as? FrameLayout.LayoutParams ?: return
+            if (lp.width == targetWidth && lp.gravity == (Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL) && lp.leftMargin == 0 && lp.rightMargin == 0) return
+            lp.width = targetWidth
+            lp.leftMargin = 0
+            lp.rightMargin = 0
+            lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            sheet.layoutParams = lp
         }
 
         private fun installGesture() {
             sheet.setOnTouchListener { view, event ->
-                if (view.visibility != View.VISIBLE) return@setOnTouchListener false
+                if (!isRouteOptions()) return@setOnTouchListener false
                 val handleZone = dp(56)
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
                         if (event.y > handleZone) return@setOnTouchListener false
                         animator?.cancel()
-                        if (isRouteOptions()) userOwnsHeight = true
+                        userOwnsOffset = true
                         downY = event.rawY
-                        startHeight = view.height.takeIf { it > 0 } ?: view.layoutParams.height
+                        startTranslation = view.translationY
                         true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        val delta = (event.rawY - downY).roundToInt()
-                        val heights = sheetHeights()
-                        setHeight((startHeight - delta).coerceIn(heights.first(), heights.last()))
+                        val delta = event.rawY - downY
+                        val positions = offsets()
+                        view.translationY = (startTranslation + delta).coerceIn(positions.expanded, positions.collapsed)
                         true
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        val heights = sheetHeights()
-                        val current = view.height
-                        val target = heights.minByOrNull { abs(it - current) } ?: heights[1]
-                        animateHeight(target)
+                        val positions = offsets()
+                        val current = view.translationY
+                        val target = positions.ordered().minByOrNull { abs(it - current) } ?: positions.medium
+                        animateTranslation(target)
                         true
                     }
                     else -> false
@@ -175,34 +178,13 @@ internal object RouteSheetInteractionCoordinator {
             }
         }
 
-        private fun sheetHeights(): IntArray {
-            val rootHeight = root.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels
-            val widthDp = (root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels) / density
-            val tablet = widthDp >= 600f
-            val collapsed = dp(if (tablet) 190 else 164)
-            val medium = if (tablet) {
-                min(dp(420), max(dp(300), (rootHeight * 0.34f).roundToInt()))
-            } else {
-                max(dp(278), (rootHeight * 0.34f).roundToInt())
-            }
-            val expanded = max(medium + dp(92), min(dp(if (tablet) 640 else 560), (rootHeight * 0.56f).roundToInt()))
-            return intArrayOf(collapsed, medium, expanded)
-        }
-
-        private fun setHeight(height: Int) {
-            if (sheet.layoutParams.height == height) return
-            applying = true
-            sheet.layoutParams = sheet.layoutParams.apply { this.height = height }
-            applying = false
-        }
-
-        private fun animateHeight(target: Int) {
-            val start = sheet.height.takeIf { it > 0 } ?: sheet.layoutParams.height
-            if (start == target) return
+        private fun animateTranslation(target: Float) {
+            val start = sheet.translationY
+            if (abs(start - target) < 0.5f) return
             animator?.cancel()
-            animator = ValueAnimator.ofInt(start, target).apply {
-                duration = 180L
-                addUpdateListener { animation -> setHeight(animation.animatedValue as Int) }
+            animator = ValueAnimator.ofFloat(start, target).apply {
+                duration = 190L
+                addUpdateListener { animation -> sheet.translationY = animation.animatedValue as Float }
                 start()
             }
         }
