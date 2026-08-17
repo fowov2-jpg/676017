@@ -90,6 +90,15 @@ run_test_selector() {
   rm -f "$one_log"
 }
 
+pull_stop_sheet_screenshots() {
+  local out=$1
+  local device_dir="/sdcard/Android/data/${package_name}/files/stop-sheet"
+  mkdir -p "$out/stop-sheet"
+  adb pull "$device_dir/." "$out/stop-sheet/" >/dev/null
+  test -s "$out/stop-sheet/stop-bus-directions.png"
+  test -s "$out/stop-sheet/stop-metro-directions.png"
+}
+
 run_offline_address_gate() {
   local log=$1
   adb shell svc wifi disable >/dev/null 2>&1 || true
@@ -162,6 +171,10 @@ run_viewport() {
 
   for selector in "${selectors[@]}"; do
     run_test_selector "$selector" "$instrumentation_output"
+    if [[ "$selector" == 'app.humanrouter.TransitStopInteractionInstrumentationTest' ]]; then
+      # Pull immediately: the next isolated scenario clears app data by design.
+      pull_stop_sheet_screenshots "$out"
+    fi
   done
 
   local expected_completed=27
