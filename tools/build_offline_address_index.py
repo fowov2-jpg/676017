@@ -19,7 +19,6 @@ import re
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Iterable
 
 try:
     import osmium
@@ -37,7 +36,6 @@ STREET_TYPE_WORDS = (
     "улица",
     "ул",
     "проспект",
-    "пр-т",
     "пр-т",
     "переулок",
     "пер",
@@ -146,6 +144,9 @@ def create_database(path: Path, source_url: str, source_md5: str) -> sqlite3.Con
             source_md5,
         ),
     )
+    # sqlite3 opens a transaction for the metadata INSERT. Close it before main() starts the single
+    # large import transaction so BEGIN cannot fail with "cannot start a transaction within a transaction".
+    connection.commit()
     return connection
 
 
