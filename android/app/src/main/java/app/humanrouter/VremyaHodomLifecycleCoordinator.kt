@@ -4,7 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.os.Bundle
 
-/** Single Application lifecycle entry-point for phone UI behavior. */
+/** Single Application lifecycle entry-point for phone and tablet UI behavior. */
 internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleCallbacks {
     fun install(application: Application) {
         application.registerActivityLifecycleCallbacks(this)
@@ -14,9 +14,10 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
         if (activity is MainActivity) UiPolish.install(activity)
         VremyaHodomUiCoordinator.onActivityResumed(activity)
         if (activity is MainActivity) {
-            ReferenceProductUiV2.install(activity)
-            TransitJourneyVisibilityGuard.install(activity)
-            ReferenceVisualTuning.install(activity)
+            // ResponsiveProductUi is the only presentation owner allowed to change sheet/card
+            // geometry. The old ReferenceProductUiV2 + ReferenceVisualTuning + visibility guard
+            // combination could fight over the same LayoutParams on different screen sizes.
+            ResponsiveProductUi.install(activity)
         }
     }
 
@@ -26,7 +27,6 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
 
     override fun onActivityDestroyed(activity: Activity) {
         VremyaHodomUiCoordinator.onActivityDestroyed(activity)
-        if (activity is MainActivity) TransitJourneyVisibilityGuard.destroy(activity)
     }
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
