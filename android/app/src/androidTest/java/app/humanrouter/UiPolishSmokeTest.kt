@@ -9,6 +9,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,7 +47,10 @@ class UiPolishSmokeTest {
 
                 assertTrue(activity.findViewById<View>(R.id.locationButton).height >= minTouch)
                 assertTrue(activity.findViewById<View>(R.id.settingsButton).height >= minTouch)
-                assertNotNull(activity.findViewById<ViewGroup>(R.id.searchPanel).layoutTransition)
+                // Screen-level search visibility is owned by ResponsiveProductUi and deliberately
+                // has no LayoutTransition: Android 8 can otherwise leave newly-visible children at
+                // zero size during rapid state changes. Dynamic list containers still animate.
+                assertNull(activity.findViewById<ViewGroup>(R.id.searchPanel).layoutTransition)
                 assertNotNull(activity.findViewById<ViewGroup>(R.id.routeResultsPanel).layoutTransition)
 
                 activity.findViewById<View>(R.id.compactSearchRow).performClick()
