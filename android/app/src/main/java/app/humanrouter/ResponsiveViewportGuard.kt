@@ -9,12 +9,13 @@ import java.util.WeakHashMap
 import kotlin.math.roundToInt
 
 /**
- * Final viewport invariant guard for transient animation/compact-window edge cases.
+ * Final viewport invariant guard for transient animation/viewport edge cases.
  *
  * This is deliberately not a styling layer: it owns no colors, text, padding or hierarchy. It
- * only prevents (1) a side sheet from being translated completely outside the visible viewport
- * during its entrance animation, and (2) compact route options from consuming more than 59% of
- * the window. Both checks are convergent and become no-ops as soon as the invariant is satisfied.
+ * only prevents (1) a side sheet from being translated completely outside the visible viewport,
+ * (2) compact route options from consuming more than 59% of the window, and (3) tablet portrait
+ * route options from becoming too short to keep the alternatives usable. All checks converge and
+ * become no-ops as soon as their viewport invariant is satisfied.
  */
 internal object ResponsiveViewportGuard {
     private val installed = WeakHashMap<MainActivity, Boolean>()
@@ -53,18 +54,28 @@ internal object ResponsiveViewportGuard {
                 val widthDp = widthPx / density
                 val heightDp = heightPx / density
                 val compact = widthDp < 380f || heightDp < 700f
+                val tabletPortrait = widthDp >= 600f && heightDp > widthDp
                 val activeTrip = primaryAction.visibility == View.VISIBLE &&
                     primaryAction.contentDescription?.toString()?.contains("Заверш", ignoreCase = true) == true
                 val routeOptions = routeSheet.visibility == View.VISIBLE &&
                     routeFilters.visibility == View.VISIBLE && !activeTrip
 
-                if (compact && routeOptions) {
-                    val target = (heightPx * 0.59f).roundToInt()
+                if (routeOptions) {
                     val lp = routeSheet.layoutParams as? FrameLayout.LayoutParams
-                    if (lp != null && lp.height != target) {
-                        lp.height = target
-                        routeSheet.layoutParams = lp
-                        return false
+                    if (compact) {
+                        val target = (heightPx * 0.59f).roundToInt()
+                        if (lp != null && lp.height != target) {
+                            lp.height = target
+                            routeSheet.layoutParams = lp
+                            return false
+                        }
+                    } else if (tabletPortrait) {
+                        val minimum = (heightPx * 0.52f).roundToInt()
+                        if (lp != null && lp.height < minimum) {
+                            lp.height = minimum
+                            routeSheet.layoutParams = lp
+                            return false
+                        }
                     }
                 }
                 return true
