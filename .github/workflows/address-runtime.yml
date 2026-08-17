@@ -1,0 +1,142 @@
+name: Build Moscow offline address pack
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - chatgpt/responsive-full-pass-20260817
+    paths:
+      - tools/build_offline_address_index.py
+      - .github/workflows/address-runtime.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build-address-pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned OSM reader
+        run: python -m pip install --disable-pip-version-check 'osmium==4.3.1'
+
+      - name: Download and verify current Moscow OSM extract
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://download.bbbike.org/osm/bbbike/Moscow'
+          curl --fail --location --retry 4 --retry-delay 4 --output /tmp/CHECKSUM.txt "$base/CHECKSUM.txt"
+          expected=$(awk '$2 == "Moscow.osm.pbf" {print $1}' /tmp/CHECKSUM.txt)
+          test -n "$expected"
+          curl --fail --location --retry 4 --retry-delay 4 --output /tmp/Moscow.osm.pbf "$base/Moscow.osm.pbf"
+          printf '%s  %s\n' "$expected" /tmp/Moscow.osm.pbf | md5sum --check -
+          echo "OSM_MD5=$expected" >> "$GITHUB_ENV"
+
+      - name: Build offline address SQLite and candidate manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p address-artifact runtime
+          cp manifest.json address-artifact/manifest.json
+          python tools/build_offline_address_index.py \
+            --pbf /tmp/Moscow.osm.pbf \
+            --database runtime/address_moscow.sqlite \
+            --gzip runtime/address_moscow.sqlite.gz \
+            --manifest address-artifact/manifest.json \
+            --version moscow-runtime-2026-08-17-address-r1 \
+            --source-md5 "$OSM_MD5" \
+            --min-addresses 20000 \
+            | tee address-artifact/producer-report.json
+          cp runtime/address_moscow.sqlite.gz address-artifact/address_moscow.sqlite.gz
+
+      - name: Audit address contents and query plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import sqlite3
+          from pathlib import Path
+
+          path = Path('runtime/address_moscow.sqlite')
+          db = sqlite3.connect(path)
+          try:
+              version, count = db.execute(
+                  'SELECT schema_version,address_count FROM metadata LIMIT 1'
+              ).fetchone()
+              if version != 1:
+                  raise SystemExit(f'bad address schema: {version}')
+              actual = db.execute('SELECT count(*) FROM addresses').fetchone()[0]
+              if count != actual or actual < 20000:
+                  raise SystemExit(f'bad address count metadata={count} actual={actual}')
+
+              indexes = {row[1] for row in db.execute("PRAGMA index_list('addresses')")}
+              required = {'address_street_house', 'address_street_only'}
+              if not required.issubset(indexes):
+                  raise SystemExit(f'missing address indexes: {required - indexes}')
+
+              # Moscow's central streets are a useful normalization smoke check. Do not require a
+              # particular house number because OSM contents legitimately change between extracts.
+              tverskaya = db.execute(
+                  "SELECT count(*) FROM addresses WHERE norm_street='тверская'"
+              ).fetchone()[0]
+              leningradsky = db.execute(
+                  "SELECT count(*) FROM addresses WHERE norm_street='ленинградский'"
+              ).fetchone()[0]
+              if tverskaya < 3 or leningradsky < 3:
+                  raise SystemExit(
+                      f'normalization smoke failed: tverskaya={tverskaya}, leningradsky={leningradsky}'
+                  )
+
+              plan = list(db.execute(
+                  "EXPLAIN QUERY PLAN SELECT street,house FROM addresses "
+                  "WHERE norm_street LIKE 'тверская%' AND norm_house LIKE '7%' LIMIT 6"
+              ))
+              print(json.dumps({
+                  'addresses': actual,
+                  'tverskaya': tverskaya,
+                  'leningradsky': leningradsky,
+                  'indexes': sorted(indexes),
+                  'query_plan': plan,
+              }, ensure_ascii=False))
+          finally:
+              db.close()
+          PY
+
+      - name: Verify gzip payload matches candidate manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip
+          import hashlib
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path('address-artifact/manifest.json').read_text(encoding='utf-8'))
+          pack = next(p for p in manifest['packs'] if p.get('role') == 'address_index')
+          compressed = Path('address-artifact/address_moscow.sqlite.gz')
+          raw = gzip.decompress(compressed.read_bytes())
+          if len(compressed.read_bytes()) != pack['compressed_bytes']:
+              raise SystemExit('compressed size mismatch')
+          if len(raw) != pack['raw_bytes']:
+              raise SystemExit('raw size mismatch')
+          if hashlib.sha256(compressed.read_bytes()).hexdigest() != pack['sha256_compressed']:
+              raise SystemExit('compressed sha256 mismatch')
+          if hashlib.sha256(raw).hexdigest() != pack['sha256_raw']:
+              raise SystemExit('raw sha256 mismatch')
+          print(f"address pack OK: compressed={pack['compressed_bytes']} raw={pack['raw_bytes']}")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vremyahodom-offline-address-pack
+          path: address-artifact/
+          if-no-files-found: error
+          retention-days: 30
