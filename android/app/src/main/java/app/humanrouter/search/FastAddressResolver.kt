@@ -136,22 +136,36 @@ internal object FastAddressResolver {
 
     private fun queryVariants(query: String): List<String> {
         val compact = query.replace(Regex("\\s+"), " ").trim().trim(',')
-        val lower = normalize(compact)
+        val canonical = canonicalProviderVariant(compact)
+        val lower = normalize(canonical)
         val hasMoscow = lower.contains("москва") || lower.contains("московская область")
         val hasStreetType = STREET_WORDS.any(lower::contains)
-        val house = extractHouseToken(compact)
+        val house = extractHouseToken(canonical)
         return buildList {
             if (!hasMoscow && house != null && !hasStreetType) {
-                val streetPart = compact.substringBeforeLast(house).trim().trim(',', '.', ' ')
+                val streetPart = canonical.substringBeforeLast(house).trim().trim(',', '.', ' ')
                 if (streetPart.isNotBlank()) {
                     add("Москва, улица $streetPart, дом $house")
-                    add("Москва, улица $compact")
                 }
             }
-            if (!hasMoscow) add("Москва, $compact")
-            add(compact)
+            if (!hasMoscow) add("Москва, $canonical")
+            if (canonical != compact && !hasMoscow) add("Москва, $compact")
+            add(canonical)
+            if (canonical != compact) add(compact)
         }.distinct()
     }
+
+    private fun canonicalProviderVariant(query: String): String = query
+        .replace(Regex("(?i)(?:^|\\s)ул\\.?\\s+")) { match -> match.value.substringBefore("ул") + "улица " }
+        .replace(Regex("(?i)(?:^|\\s)пр-?т\\.?\\s+")) { match -> match.value.substringBefore("пр") + "проспект " }
+        .replace(Regex("(?i)(?:^|\\s)пер\\.?\\s+")) { match -> match.value.substringBefore("пер") + "переулок " }
+        .replace(Regex("(?i)(?:^|\\s)наб\\.?\\s+")) { match -> match.value.substringBefore("наб") + "набережная " }
+        .replace(Regex("(?i)(?:^|\\s)пл\\.?\\s+")) { match -> match.value.substringBefore("пл") + "площадь " }
+        .replace(Regex("(?i)\\bкорп\\.?\\s*"), "корпус ")
+        .replace(Regex("(?i)\\bстр\\.?\\s*"), "строение ")
+        .replace(Regex("(?i)\\bвл\\.?\\s*"), "владение ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
 
     private fun rank(query: String, places: Collection<SearchPlace>): List<SearchPlace> =
         places.sortedWith(compareByDescending<SearchPlace> { score(query, it) }.thenBy { it.title.length })
@@ -165,7 +179,7 @@ internal object FastAddressResolver {
             // A base-house query such as "13" must match real Moscow addresses "13к1" and
             // "13 корпус 2". Those are distinct suggestions, not a reason to drop the result.
             val houseRegex = Regex(
-                "(^|\\D)${Regex.escape(house)}(?:[а-яa-z]\\d*|\\s*(?:к|корпус|стр|строение)\\s*\\d+)?(\\D|$)",
+                "(^|\\D)${Regex.escape(house)}(?:[а-яa-z]\\d*|\\s*(?:к|корп|корпус|с|стр|строение)\\s*\\d+)?(\\D|$)",
                 RegexOption.IGNORE_CASE
             )
             if (houseRegex.containsMatchIn(address)) result += 90 else result -= 35
@@ -183,15 +197,22 @@ internal object FastAddressResolver {
 
     private fun extractHouseToken(query: String): String? {
         val normalized = normalize(query)
-        val explicit = Regex("(?:^|\\s)(?:д|дом)\\s*(\\d+[а-яa-z]?)", RegexOption.IGNORE_CASE)
+        val explicit = Regex("(?:^|\\s)(?:д|дом|вл|владение)\\s*(\\d+[а-яa-z]?)", RegexOption.IGNORE_CASE)
             .find(normalized)
             ?.groupValues
             ?.getOrNull(1)
             ?.takeIf(String::isNotBlank)
         if (explicit != null) return explicit
 
-        // Use the last numeric token. This correctly treats the 13 in "1-я Тверская-Ямская 13"
-        // as the house number instead of mistaking the street ordinal for the house.
+        // A suffix such as "10 корпус 2" belongs to house 10. Do not mistake the corpus/building
+        // number for the base house number merely because it is the last numeric token.
+        val trailingAddress = Regex(
+            "(?:^|\\s)(\\d+[а-яa-z]?)(?:\\s*(?:к|корп|корпус)\\s*\\d+[а-яa-z]?)?(?:\\s*(?:с|стр|строение)\\s*\\d+[а-яa-z]?)?\\s*$",
+            RegexOption.IGNORE_CASE
+        ).find(normalized)
+        trailingAddress?.groupValues?.getOrNull(1)?.takeIf(String::isNotBlank)?.let { return it }
+
+        // Fall back to the last numeric token for simple input such as "1-я Тверская-Ямская 13".
         return Regex("(?:^|\\s)(\\d+[а-яa-z]?)", RegexOption.IGNORE_CASE)
             .findAll(normalized)
             .mapNotNull { it.groupValues.getOrNull(1)?.takeIf(String::isNotBlank) }
@@ -229,8 +250,13 @@ internal object FastAddressResolver {
 
     internal fun rankForTest(query: String, places: Collection<SearchPlace>): List<SearchPlace> = rank(query, places)
 
-    private val STREET_WORDS = listOf("улица", "ул ", "проспект", "пр т", "переулок", "шоссе", "бульвар", "набережная")
-    private val STOP_WORDS = setOf("москва", "улица", "дом", "корпус", "строение")
+    private val STREET_WORDS = listOf(
+        "улица", "ул ", "проспект", "пр т", "переулок", "шоссе", "бульвар", "набережная",
+        "проезд", "площадь", "аллея", "линия", "тупик", "квартал", "микрорайон", "мкр"
+    )
+    private val STOP_WORDS = setOf(
+        "москва", "улица", "дом", "владение", "корпус", "корп", "строение", "стр"
+    )
 
     // Routing runtime is Moscow-focused, while fallback geocoding intentionally includes the nearby
     // Moscow region so border addresses are not silently rejected.
