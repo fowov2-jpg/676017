@@ -1,6 +1,7 @@
 package app.humanrouter
 
 import android.content.Intent
+import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -27,8 +28,21 @@ class InteractionStabilitySmokeTest {
 
     @Test
     fun repeatedSearchSettingsAndNavigationReturnToIdle() {
-        launch("home").use { scenario ->
+        // Use the deterministic QA location state here. This test is about repeated app-owned
+        // transitions, not the Android runtime-permission window (covered by MainActivitySmokeTest).
+        // Starting from location_allowed prevents a system permission surface from stealing focus
+        // while the emulator is still settling after pm clear / Activity launch.
+        launch("location_allowed").use { scenario ->
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity { activity ->
+                // location_allowed intentionally starts with the expanded destination search.
+                // Collapse it directly once so every loop begins from the same map-first state.
+                activity.findViewById<View>(R.id.closeSearchButton).performClick()
+            }
+            waitForWindowFocus(scenario)
+
             repeat(4) {
+                waitForWindowFocus(scenario)
                 onView(withId(R.id.compactSearchButton)).perform(click())
                 onView(withId(R.id.routeButton)).check(matches(isDisplayed()))
                 onView(withId(R.id.closeSearchButton)).perform(click())
@@ -76,6 +90,22 @@ class InteractionStabilitySmokeTest {
                 }
             }
         }
+    }
+
+    private fun waitForWindowFocus(scenario: ActivityScenario<MainActivity>) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val deadline = SystemClock.uptimeMillis() + 15_000L
+        var ready = false
+        while (SystemClock.uptimeMillis() < deadline) {
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                val decor = activity.window.decorView
+                ready = decor.hasWindowFocus() && !decor.isLayoutRequested
+            }
+            if (ready) return
+            SystemClock.sleep(75L)
+        }
+        assertTrue("MainActivity window did not regain focus before stability interaction", ready)
     }
 
     private fun waitForUi(milliseconds: Long): ViewAction = object : ViewAction {
