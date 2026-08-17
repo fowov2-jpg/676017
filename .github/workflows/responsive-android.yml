@@ -61,7 +61,15 @@ jobs:
   form-factor-smoke:
     needs: responsive-build
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        viewport:
+          - compact-phone
+          - compact-phone-large-text
+          - tablet-portrait
+          - tablet-landscape
     steps:
       - uses: actions/checkout@v4
 
@@ -78,7 +86,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run compact-phone, large-text and tablet matrix
+      - name: Run responsive viewport ${{ matrix.viewport }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -87,13 +95,13 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash .github/scripts/android_responsive_smoke.sh android-ci 35
+          script: bash .github/scripts/android_responsive_smoke.sh android-ci 35 ${{ matrix.viewport }}
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: vremyahodom-responsive-phone-tablet
-          path: android/emulator-artifacts/responsive-api-35
+          name: vremyahodom-responsive-${{ matrix.viewport }}
+          path: android/emulator-artifacts/responsive-api-35/${{ matrix.viewport }}
           if-no-files-found: error
           retention-days: 90
 
