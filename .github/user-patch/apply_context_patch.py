@@ -70,11 +70,42 @@ def parse_patch(path: Path):
     return result
 
 
-def find_subsequence(lines: list[str], needle: list[str]) -> list[int]:
+def exact_matches(lines: list[str], needle: list[str]) -> list[tuple[int, int]]:
     if not needle:
-        return [0]
+        return [(0, 0)]
     n = len(needle)
-    return [i for i in range(len(lines) - n + 1) if lines[i : i + n] == needle]
+    return [(i, i + n) for i in range(len(lines) - n + 1) if lines[i : i + n] == needle]
+
+
+def blank_tolerant_matches(lines: list[str], needle: list[str]) -> list[tuple[int, int]]:
+    """Match exact context while tolerating omitted blank source lines in this malformed patch."""
+    if not needle:
+        return [(0, 0)]
+    matches: list[tuple[int, int]] = []
+    for start in range(len(lines)):
+        i = start
+        j = 0
+        while i < len(lines) and j < len(needle):
+            if lines[i] == needle[j]:
+                i += 1
+                j += 1
+                continue
+            if lines[i] == "" and needle[j] != "":
+                i += 1
+                continue
+            break
+        if j == len(needle):
+            matches.append((start, i))
+    return matches
+
+
+def locate(lines: list[str], needle: list[str]) -> tuple[int, int]:
+    matches = exact_matches(lines, needle)
+    if not matches:
+        matches = blank_tolerant_matches(lines, needle)
+    if len(matches) != 1:
+        raise ValueError(len(matches))
+    return matches[0]
 
 
 def apply_patch(path: Path) -> None:
@@ -93,15 +124,15 @@ def apply_patch(path: Path) -> None:
             lines = text.splitlines()
 
         for index, (old, new) in enumerate(hunks, start=1):
-            matches = find_subsequence(lines, old)
-            if len(matches) != 1:
+            try:
+                start, end = locate(lines, old)
+            except ValueError as error:
                 preview = "\n".join(old[:8])
                 raise RuntimeError(
-                    f"{path.name}: {relative} hunk {index}: expected one exact match, "
-                    f"found {len(matches)}. Context starts with:\n{preview}"
-                )
-            start = matches[0]
-            lines[start : start + len(old)] = new
+                    f"{path.name}: {relative} hunk {index}: expected one exact/blank-tolerant match, "
+                    f"found {error.args[0]}. Context starts with:\n{preview}"
+                ) from None
+            lines[start:end] = new
 
         rendered = "\n".join(lines)
         if had_final_newline:
