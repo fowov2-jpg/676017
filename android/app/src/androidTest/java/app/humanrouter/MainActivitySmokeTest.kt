@@ -6,7 +6,6 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.SystemClock
-import android.view.MotionEvent
 import android.view.View
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -16,10 +15,14 @@ import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.UiController
 import androidx.test.espresso.ViewAction
+import androidx.test.espresso.action.CoordinatesProvider
+import androidx.test.espresso.action.GeneralSwipeAction
+import androidx.test.espresso.action.Press
+import androidx.test.espresso.action.Swipe
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.scrollTo
-import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
+import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.isRoot
 import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
@@ -158,6 +161,7 @@ class MainActivitySmokeTest {
         // Route options intentionally start map-first/compact. Expand through the real handle
         // before exercising controls that live below the initially visible route-card viewport.
         onView(withId(R.id.routeResultsContainer)).perform(dragRouteSheetHandle(expand = true))
+        onView(isRoot()).perform(waitForUi(260L))
         onView(withText("☆ Сохранить маршрут")).perform(scrollTo(), click())
         onView(withText("✓ Маршрут сохранён")).perform(scrollTo()).check(matches(isDisplayed()))
 
@@ -231,45 +235,28 @@ class MainActivitySmokeTest {
         launch(screen, dark)
     }
 
-    private fun dragRouteSheetHandle(expand: Boolean): ViewAction = object : ViewAction {
-        override fun getConstraints(): Matcher<View> = isDisplayed()
-
-        override fun getDescription(): String = if (expand) {
-            "drag route sheet handle up"
-        } else {
-            "drag route sheet handle down"
-        }
-
-        override fun perform(uiController: UiController, view: View) {
+    private fun dragRouteSheetHandle(expand: Boolean): ViewAction {
+        val start = CoordinatesProvider { view ->
             val location = IntArray(2)
             view.getLocationOnScreen(location)
             val density = view.resources.displayMetrics.density
-            val x = location[0] + view.width / 2f
+            floatArrayOf(
+                location[0] + view.width / 2f,
+                location[1] + minOf(view.height * 0.08f, 28f * density)
+            )
+        }
+        val end = CoordinatesProvider { view ->
+            val location = IntArray(2)
+            view.getLocationOnScreen(location)
+            val density = view.resources.displayMetrics.density
             val startY = location[1] + minOf(view.height * 0.08f, 28f * density)
             val distance = view.rootView.height * 0.28f * if (expand) -1f else 1f
-            val endY = startY + distance
-            val downTime = SystemClock.uptimeMillis()
-            val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
-
-            fun inject(action: Int, y: Float, eventTime: Long) {
-                MotionEvent.obtain(downTime, eventTime, action, x, y, 0).also { event ->
-                    automation.injectInputEvent(event, true)
-                    event.recycle()
-                }
-            }
-
-            inject(MotionEvent.ACTION_DOWN, startY, downTime)
-            repeat(8) { index ->
-                val fraction = (index + 1) / 8f
-                inject(
-                    MotionEvent.ACTION_MOVE,
-                    startY + distance * fraction,
-                    downTime + (index + 1) * 18L
-                )
-            }
-            inject(MotionEvent.ACTION_UP, endY, downTime + 180L)
-            uiController.loopMainThreadForAtLeast(260L)
+            floatArrayOf(
+                location[0] + view.width / 2f,
+                startY + distance
+            )
         }
+        return GeneralSwipeAction(Swipe.FAST, start, end, Press.FINGER)
     }
 
     private fun waitForUi(milliseconds: Long): ViewAction = object : ViewAction {
