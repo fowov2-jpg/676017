@@ -103,6 +103,7 @@ class OfflineAddressIndexInstrumentationTest {
         lat: Double,
         lon: Double
     ) {
+        val normalizedStreet = OfflineAddressIndex.parse(street)?.street ?: street
         database.insertOrThrow(
             "addresses",
             null,
@@ -115,7 +116,7 @@ class OfflineAddressIndexInstrumentationTest {
                 put("postcode", "")
                 put("lat", lat)
                 put("lon", lon)
-                put("norm_street", OfflineAddressIndex.compact(street))
+                put("norm_street", OfflineAddressIndex.compact(normalizedStreet))
                 put("norm_house", OfflineAddressIndex.compact(house))
             }
         )
