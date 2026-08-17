@@ -13,6 +13,7 @@ import java.util.concurrent.ExecutorCompletionService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.PI
 import kotlin.math.asin
 import kotlin.math.ceil
@@ -39,6 +40,7 @@ internal class FastMeetRouter private constructor(
     private val runtimeRoot = File(appContext.filesDir, "runtime")
     private val zoneId = ZoneId.of("Europe/Moscow")
     private val workers = Executors.newFixedThreadPool(3)
+    private val prewarmStarted = AtomicBoolean(false)
 
     private val railIndex: FastRailMeetIndex? by lazy {
         FastRailMeetIndex.openOrNull(File(runtimeRoot, "rail/graph.json"), preferences)
@@ -48,6 +50,11 @@ internal class FastMeetRouter private constructor(
     private var surfaceSession: SurfaceSession? = null
 
     fun prewarm() {
+        // MainActivity can be recreated repeatedly by configuration changes, tests and process UI
+        // flows. Re-scheduling the same rail/surface preload on every Activity instance wastes heap
+        // and worker queue capacity. A runtime/preferences change creates a new FastMeetRouter, so
+        // the new instance still gets exactly one fresh prewarm.
+        if (!prewarmStarted.compareAndSet(false, true)) return
         workers.execute { runCatching { railIndex } }
         workers.execute { runCatching { getSurfaceSession() } }
     }
