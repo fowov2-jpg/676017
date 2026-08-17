@@ -15,11 +15,14 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * Interaction owner for the route-options bottom sheet.
+ * Interaction and final geometry owner for the route-options bottom sheet.
  *
  * The sheet keeps enough measured content for an expanded state, but the user initially sees only
  * a compact map-first portion. Dragging the handle moves the same laid-out surface through
- * collapsed / medium / expanded offsets, so no second controller fights over LayoutParams.
+ * collapsed / medium / expanded offsets. Older presentation code may still request a legacy fixed
+ * height while route data is rendered; this coordinator reconciles that request back to the
+ * responsive expanded capacity before applying the user's offset, so LayoutParams no longer depend
+ * on callback ordering.
  */
 internal object RouteSheetInteractionCoordinator {
     private val controllers = WeakHashMap<MainActivity, Controller>()
@@ -94,6 +97,13 @@ internal object RouteSheetInteractionCoordinator {
                 routeOptionsVisible = true
                 userOwnsOffset = false
             }
+
+            // MainActivity still owns route state and may set a legacy 228-324dp height while it is
+            // rebuilding route cards. The approved route-options reference needs room for the
+            // endpoints, filters and three alternatives, especially at 1.25x text and on tablets.
+            // Correct the underlying measured surface here; map-first behavior is controlled by
+            // translation below, not by throwing away the expanded content area.
+            ensureExpandedSheetCapacity()
             applyTabletWidthIfNeeded()
             if (!userOwnsOffset && sheet.height > 0) {
                 sheet.translationY = offsets().medium
@@ -128,6 +138,38 @@ internal object RouteSheetInteractionCoordinator {
                 medium = (sheetHeight - mediumVisible).coerceAtLeast(0).toFloat(),
                 collapsed = (sheetHeight - collapsedVisible).coerceAtLeast(0).toFloat()
             )
+        }
+
+        private fun ensureExpandedSheetCapacity() {
+            val rootHeight = root.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels
+            val rootWidth = root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels
+            if (rootHeight <= 0 || rootWidth <= 0) return
+
+            val widthDp = rootWidth / density
+            val heightDp = rootHeight / density
+            val tablet = widthDp >= 600f
+            val landscape = widthDp > heightDp
+            val compact = widthDp < 380f || heightDp < 700f
+
+            val preferredRatio = when {
+                tablet && landscape -> 0.58f
+                tablet -> 0.52f
+                compact -> 0.62f
+                heightDp >= 850f -> 0.56f
+                else -> 0.59f
+            }
+            val minimumRatio = if (heightDp < 700f) 0.58f else 0.50f
+            val ratio = preferredRatio.coerceIn(minimumRatio, MAX_EXPANDED_RATIO)
+            val targetHeight = (rootHeight * ratio).roundToInt()
+                .coerceIn(
+                    (rootHeight * minimumRatio).roundToInt(),
+                    (rootHeight * MAX_EXPANDED_RATIO).roundToInt()
+                )
+
+            val lp = sheet.layoutParams as? FrameLayout.LayoutParams ?: return
+            if (lp.height == targetHeight) return
+            lp.height = targetHeight
+            sheet.layoutParams = lp
         }
 
         private fun applyTabletWidthIfNeeded() {
@@ -191,4 +233,6 @@ internal object RouteSheetInteractionCoordinator {
 
         private fun dp(value: Int): Int = (value * density).roundToInt()
     }
+
+    private const val MAX_EXPANDED_RATIO = 0.66f
 }
