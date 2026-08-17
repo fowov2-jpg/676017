@@ -19,6 +19,11 @@
         android:enabled="true"
         android:usesCleartextTraffic="false"
         android:supportsRtl="true">
+        <meta-data
+            android:name="io.sentry.auto-init"
+            android:value="false"
+            tools:replace="android:value" />
+
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
