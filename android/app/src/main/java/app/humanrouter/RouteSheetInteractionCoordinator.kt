@@ -15,13 +15,11 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * Final interaction owner for the route sheet.
+ * Interaction owner for the route-options bottom sheet.
  *
- * The presentation layer keeps enough measured height for the fully expanded content. This owner
- * exposes only a compact portion initially by translating the sheet below the viewport, then moves
- * that same already-laid-out surface through collapsed / medium / expanded offsets. This avoids
- * relayout fights and keeps drags smooth. Once route options close, translation is reset so active
- * trip and error sheets are never inherited from the route-choice offset.
+ * The sheet keeps enough measured content for an expanded state, but the user initially sees only
+ * a compact map-first portion. Dragging the handle moves the same laid-out surface through
+ * collapsed / medium / expanded offsets, so no second controller fights over LayoutParams.
  */
 internal object RouteSheetInteractionCoordinator {
     private val controllers = WeakHashMap<MainActivity, Controller>()
@@ -114,13 +112,15 @@ internal object RouteSheetInteractionCoordinator {
             val tablet = widthDp >= 600f
             val landscape = widthDp > heightDp
 
+            // Map-first default: roughly one third of the viewport remains occupied by route choices.
+            // Full route details are still available by dragging the handle upward.
             val mediumVisibleDp = when {
-                tablet && landscape -> (heightDp * 0.35f).roundToInt().coerceIn(270, 320)
-                tablet -> min(420, (heightDp * 0.34f).roundToInt()).coerceAtLeast(320)
-                widthDp < 380f || heightDp < 700f -> (heightDp * 0.36f).roundToInt().coerceIn(270, 310)
-                else -> (heightDp * 0.35f).roundToInt().coerceIn(292, 340)
+                tablet && landscape -> (heightDp * 0.30f).roundToInt().coerceIn(230, 280)
+                tablet -> min(380, (heightDp * 0.30f).roundToInt()).coerceAtLeast(290)
+                widthDp < 380f || heightDp < 700f -> (heightDp * 0.32f).roundToInt().coerceIn(245, 285)
+                else -> (heightDp * 0.33f).roundToInt().coerceIn(270, 320)
             }
-            val collapsedVisibleDp = if (tablet) 190 else 164
+            val collapsedVisibleDp = if (tablet) 168 else 150
             val mediumVisible = min(sheetHeight, dp(mediumVisibleDp))
             val collapsedVisible = min(mediumVisible, dp(collapsedVisibleDp))
             return Offsets(
@@ -136,7 +136,7 @@ internal object RouteSheetInteractionCoordinator {
             val widthDp = widthPx / density
             if (widthDp < 600f) return
             val landscape = widthPx > heightPx
-            val maxWidthDp = if (landscape) 560 else 600
+            val maxWidthDp = if (landscape) 540 else 580
             val targetWidth = min(widthPx - dp(48), dp(maxWidthDp))
             val lp = sheet.layoutParams as? FrameLayout.LayoutParams ?: return
             if (lp.width == targetWidth && lp.gravity == (Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL) && lp.leftMargin == 0 && lp.rightMargin == 0) return
