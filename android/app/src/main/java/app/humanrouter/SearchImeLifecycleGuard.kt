@@ -4,6 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.view.ViewTreeObserver
+import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.core.view.WindowCompat
@@ -16,8 +17,8 @@ import java.util.WeakHashMap
  * EditText.showSoftInput() is asynchronous. If the user closes search immediately after it opens,
  * the queued IME request can arrive after MainActivity has already hidden the search and called
  * hideSoftInputFromWindow(), leaving an invisible field focused and the Activity without stable
- * window focus. Observe the real search visibility transition and enforce the collapsed state after
- * the queued IME transaction has had a chance to run.
+ * window focus. Observe the real search visibility transition and enforce the collapsed state over
+ * several UI frames so late IME transactions cannot win, including landscape/extract-mode devices.
  */
 internal object SearchImeLifecycleGuard {
     private val guards = WeakHashMap<MainActivity, Guard>()
@@ -41,40 +42,78 @@ internal object SearchImeLifecycleGuard {
         private val toField = activity.findViewById<EditText>(R.id.toField)
         private val inputMethodManager = activity.getSystemService(InputMethodManager::class.java)
         private var wasExpanded = expandedSearch.visibility == View.VISIBLE
+        private var remainingCollapseGuards = 0
 
-        private val ensureCollapsedImeState = Runnable {
-            if (expandedSearch.visibility != View.VISIBLE) hideImeAndClearSearchFocus()
+        private val ensureCollapsedImeState = object : Runnable {
+            override fun run() {
+                if (activity.isFinishing || activity.isDestroyed) return
+                if (expandedSearch.visibility == View.VISIBLE) {
+                    remainingCollapseGuards = 0
+                    return
+                }
+
+                hideImeAndReturnAppFocus()
+                remainingCollapseGuards -= 1
+                if (remainingCollapseGuards > 0) {
+                    handler.postDelayed(this, IME_RECHECK_MS)
+                }
+            }
         }
 
         private val globalLayoutListener = ViewTreeObserver.OnGlobalLayoutListener {
             val expandedNow = expandedSearch.visibility == View.VISIBLE
             if (wasExpanded && !expandedNow) {
-                // Hide now, then once more after any showSoftInput() posted by the opening frame.
-                hideImeAndClearSearchFocus()
+                beginCollapsedImeGuard()
+            } else if (!wasExpanded && expandedNow) {
                 handler.removeCallbacks(ensureCollapsedImeState)
-                handler.postDelayed(ensureCollapsedImeState, IME_SETTLE_GUARD_MS)
+                remainingCollapseGuards = 0
             }
             wasExpanded = expandedNow
         }
 
         init {
+            // Landscape keyboards are allowed to use a fullscreen extract editor unless the app
+            // explicitly opts out. Search is a map overlay and must remain in-place on every form
+            // factor, so keep the normal keyboard without giving it a separate fullscreen window.
+            fromField.imeOptions = fromField.imeOptions or EditorInfo.IME_FLAG_NO_EXTRACT_UI
+            toField.imeOptions = toField.imeOptions or EditorInfo.IME_FLAG_NO_EXTRACT_UI
             root.viewTreeObserver.addOnGlobalLayoutListener(globalLayoutListener)
         }
 
         fun destroy() {
             handler.removeCallbacks(ensureCollapsedImeState)
+            remainingCollapseGuards = 0
             if (root.viewTreeObserver.isAlive) {
                 root.viewTreeObserver.removeOnGlobalLayoutListener(globalLayoutListener)
             }
         }
 
-        private fun hideImeAndClearSearchFocus() {
+        private fun beginCollapsedImeGuard() {
+            handler.removeCallbacks(ensureCollapsedImeState)
+            remainingCollapseGuards = IME_RECHECK_COUNT
+            // Enforce immediately, then over subsequent frames. A queued showSoftInput() from the
+            // opening frame can otherwise run after the first hideSoftInputFromWindow() call.
+            hideImeAndReturnAppFocus()
+            handler.postDelayed(ensureCollapsedImeState, IME_RECHECK_MS)
+        }
+
+        private fun hideImeAndReturnAppFocus() {
             fromField.clearFocus()
             toField.clearFocus()
             WindowCompat.getInsetsController(activity.window, root).hide(WindowInsetsCompat.Type.ime())
-            root.windowToken?.let { token -> inputMethodManager.hideSoftInputFromWindow(token, 0) }
+            val token = activity.window.decorView.windowToken ?: root.windowToken
+            token?.let { inputMethodManager.hideSoftInputFromWindow(it, 0) }
+
+            // Clearing the EditText focus is not enough on some landscape IMEs: the input window can
+            // stay the focused window even after it starts hiding. Give focus to an app-owned view so
+            // keyboard dismissal deterministically returns interaction to MainActivity.
+            root.isFocusableInTouchMode = true
+            root.requestFocus()
+            activity.window.decorView.isFocusableInTouchMode = true
+            activity.window.decorView.requestFocus()
         }
     }
 
-    private const val IME_SETTLE_GUARD_MS = 180L
+    private const val IME_RECHECK_COUNT = 8
+    private const val IME_RECHECK_MS = 120L
 }
