@@ -19,14 +19,19 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             // two viewport invariants before draw and becomes a no-op once they are satisfied.
             ResponsiveProductUi.install(activity)
             ResponsiveViewportGuard.install(activity)
+            // GPS progress only binds passenger state to already-composed trip chrome. It never
+            // owns sheet geometry or screen visibility.
+            TripProgressUiController.install(activity)
         }
     }
 
     override fun onActivityPaused(activity: Activity) {
+        if (activity is MainActivity) TripProgressUiController.pause(activity)
         VremyaHodomUiCoordinator.onActivityPaused(activity)
     }
 
     override fun onActivityDestroyed(activity: Activity) {
+        if (activity is MainActivity) TripProgressUiController.destroy(activity)
         VremyaHodomUiCoordinator.onActivityDestroyed(activity)
     }
 
