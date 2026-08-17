@@ -3,6 +3,7 @@ set -euo pipefail
 
 artifact_dir=${1:?artifact directory is required}
 api_level=${2:-35}
+viewport_filter=${3:-all}
 package_name='app.humanrouter'
 activity_name='app.humanrouter/.MainActivity'
 test_runner='app.humanrouter.test/androidx.test.runner.AndroidJUnitRunner'
@@ -13,6 +14,14 @@ output_root="android/emulator-artifacts/responsive-api-${api_level}"
 test -s "$app_apk"
 test -s "$test_apk"
 mkdir -p "$output_root"
+
+case "$viewport_filter" in
+  all|compact-phone|compact-phone-large-text|tablet-portrait|tablet-landscape) ;;
+  *)
+    echo "Unknown responsive viewport: $viewport_filter" >&2
+    exit 2
+    ;;
+esac
 
 adb wait-for-device
 adb shell settings put global hide_error_dialogs 1
@@ -203,18 +212,26 @@ run_viewport() {
   fi
 }
 
+run_if_selected() {
+  local label=$1
+  shift
+  if [[ "$viewport_filter" == all || "$viewport_filter" == "$label" ]]; then
+    run_viewport "$label" "$@"
+  fi
+}
+
 # Narrow phone: catches wrapping, overlapping sheets and small touch targets.
 # 720/320 = 360dp, 1600/320 = 800dp.
-run_viewport compact-phone 720x1600 320 360 800 1.0
+run_if_selected compact-phone 720x1600 320 360 800 1.0
 
 # Same narrow phone with accessibility-sized text. This specifically catches labels such as
 # «Работа», «Рядом» and long transit names wrapping into neighboring controls.
-run_viewport compact-phone-large-text 720x1600 320 360 800 1.25
+run_if_selected compact-phone-large-text 720x1600 320 360 800 1.25
 
 # Tablet portrait. 1080/216 = 800dp, 1728/216 = 1280dp.
-run_viewport tablet-portrait 1080x1728 216 800 1280 1.0
+run_if_selected tablet-portrait 1080x1728 216 800 1280 1.0
 
 # Tablet landscape using the same APK and density: 1728/216 = 1280dp, 1080/216 = 800dp.
-run_viewport tablet-landscape 1728x1080 216 1280 800 1.0
+run_if_selected tablet-landscape 1728x1080 216 1280 800 1.0
 
-echo "Responsive phone/large-text/tablet smoke passed on API $api_level"
+echo "Responsive viewport $viewport_filter smoke passed on API $api_level"
