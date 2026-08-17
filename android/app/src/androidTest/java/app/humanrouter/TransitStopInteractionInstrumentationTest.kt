@@ -1,6 +1,7 @@
 package app.humanrouter
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.os.SystemClock
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -12,10 +13,13 @@ import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withSubstring
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
+import java.io.FileOutputStream
 
 @RunWith(AndroidJUnit4::class)
 class TransitStopInteractionInstrumentationTest {
@@ -35,6 +39,7 @@ class TransitStopInteractionInstrumentationTest {
         onView(withText("Театральная площадь")).check(matches(isDisplayed()))
         onView(withSubstring("→ Лубянка · в центр")).check(matches(isDisplayed()))
         onView(withSubstring("→ Фили · из центра")).check(matches(isDisplayed()))
+        capture("stop-bus-directions")
         onView(withText("Отсюда")).check(matches(isDisplayed())).perform(click())
 
         onView(withId(R.id.fromField)).check(matches(withSubstring("Театральная площадь")))
@@ -48,6 +53,7 @@ class TransitStopInteractionInstrumentationTest {
 
         onView(withText("Охотный Ряд")).check(matches(isDisplayed()))
         onView(withSubstring("→ Бульвар Рокоссовского")).check(matches(isDisplayed()))
+        capture("stop-metro-directions")
         onView(withText("Сюда")).check(matches(isDisplayed())).perform(click())
 
         onView(withId(R.id.toField)).check(matches(withSubstring("Охотный Ряд")))
@@ -61,14 +67,33 @@ class TransitStopInteractionInstrumentationTest {
             }
         )
         SystemClock.sleep(1_250L)
+        scenario!!.onActivity { activity ->
+            assertTrue(
+                "typed transport marker layer did not receive QA places",
+                TransitStopMapControllerV3.markerCountForQa(activity) >= 4
+            )
+        }
     }
 
     private fun openStop(id: String) {
         var opened = false
         scenario!!.onActivity { activity ->
-            opened = TransitStopMapControllerV2.openForQa(activity, id)
+            opened = TransitStopMapControllerV3.openForQa(activity, id)
         }
         assertTrue("QA stop $id was not available", opened)
         SystemClock.sleep(350L)
+    }
+
+    private fun capture(name: String) {
+        val application = ApplicationProvider.getApplicationContext<VremyaHodomApp>()
+        val directory = File(checkNotNull(application.getExternalFilesDir(null)), "stop-sheet")
+        assertTrue(directory.exists() || directory.mkdirs())
+        val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        val output = File(directory, "$name.png")
+        FileOutputStream(output).use { stream ->
+            screenshot.compress(Bitmap.CompressFormat.PNG, 100, stream)
+        }
+        screenshot.recycle()
+        assertTrue("stop sheet screenshot missing: $output", output.isFile && output.length() > 1_000L)
     }
 }
