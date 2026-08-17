@@ -20,10 +20,9 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             ResponsiveProductUi.install(activity)
             ResponsiveViewportGuard.install(activity)
             RouteSheetInteractionCoordinator.install(activity)
-            // Typed stop/station symbols and the compact "Отсюда / Сюда" sheet are map-owned UI.
-            // They consume the same local NearbyRepository/runtime data as routing and never fake
-            // vehicle locations.
-            TransitStopMapControllerV2.install(activity)
+            // Typed stop/station symbols use a separate map spatial index, so the "Рядом" card can
+            // stay short while the map shows a useful number of tappable transport points.
+            TransitStopMapControllerV3.install(activity)
             // GPS progress binders only update content inside already-composed trip views; they do
             // not own sheet geometry or visibility. The same state receives real foreground
             // LocationManager samples and deterministic CI replay samples.
@@ -47,7 +46,7 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             PassengerGpsProgressCoordinator.destroy(activity)
             TripProgressDetailBinder.destroy(activity)
             TripProgressUiController.destroy(activity)
-            TransitStopMapControllerV2.destroy(activity)
+            TransitStopMapControllerV3.destroy(activity)
             RouteSheetInteractionCoordinator.destroy(activity)
         }
         VremyaHodomUiCoordinator.onActivityDestroyed(activity)
