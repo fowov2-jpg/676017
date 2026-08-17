@@ -14,11 +14,12 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
         if (activity is MainActivity) ResponsiveMotion.install(activity)
         VremyaHodomUiCoordinator.onActivityResumed(activity)
         if (activity is MainActivity) {
-            // ResponsiveProductUi is the only owner allowed to compose screen geometry/visibility.
-            // ResponsiveMotion adds geometry-free feedback. ResponsiveViewportGuard only clamps
-            // two viewport invariants before draw and becomes a no-op once they are satisfied.
+            // ResponsiveProductUi composes the screen; RouteSheetInteractionCoordinator is the
+            // final owner of the draggable route-sheet size so automatic restyling cannot fight
+            // the user's gesture. ResponsiveViewportGuard only protects the settings entrance.
             ResponsiveProductUi.install(activity)
             ResponsiveViewportGuard.install(activity)
+            RouteSheetInteractionCoordinator.install(activity)
             // GPS progress binders only update content inside already-composed trip views; they do
             // not own sheet geometry or visibility. The same state receives real foreground
             // LocationManager samples and deterministic CI replay samples.
@@ -42,6 +43,7 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             PassengerGpsProgressCoordinator.destroy(activity)
             TripProgressDetailBinder.destroy(activity)
             TripProgressUiController.destroy(activity)
+            RouteSheetInteractionCoordinator.destroy(activity)
         }
         VremyaHodomUiCoordinator.onActivityDestroyed(activity)
     }
