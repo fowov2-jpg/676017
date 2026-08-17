@@ -46,6 +46,9 @@ internal object FastSearchController {
         bind(activity, activity.findViewById(R.id.toField), isOrigin = false)
     }
 
+    @Synchronized
+    internal fun isInstalled(activity: MainActivity): Boolean = installed[activity] == true
+
     private fun bind(activity: MainActivity, field: EditText, isOrigin: Boolean) {
         field.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
