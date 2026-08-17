@@ -66,7 +66,7 @@ class TransitStopInteractionInstrumentationTest {
     private fun openStop(id: String) {
         var opened = false
         scenario!!.onActivity { activity ->
-            opened = TransitStopMapController.openForQa(activity, id)
+            opened = TransitStopMapControllerV2.openForQa(activity, id)
         }
         assertTrue("QA stop $id was not available", opened)
         SystemClock.sleep(350L)
