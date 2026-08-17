@@ -17,6 +17,7 @@ import androidx.test.espresso.matcher.ViewMatchers.isRoot
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import app.humanrouter.routing.LastPlanStore
 import org.hamcrest.Matcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -28,6 +29,12 @@ class InteractionStabilitySmokeTest {
 
     @Test
     fun repeatedSearchSettingsAndNavigationReturnToIdle() {
+        // This class also runs inside the long all-tests instrumentation process. Explicitly clear
+        // persistent/static route state left by an earlier independent scenario so "no built route"
+        // means exactly that here. The interaction assertions below are unchanged and still exercise
+        // four complete search/settings/routes/map cycles in one Activity.
+        resetIndependentScenarioState()
+
         // Use the deterministic QA location state here. This test is about repeated app-owned
         // transitions, not the Android runtime-permission window (covered by MainActivitySmokeTest).
         // Starting from location_allowed prevents a system permission surface from stealing focus
@@ -90,6 +97,13 @@ class InteractionStabilitySmokeTest {
                 }
             }
         }
+    }
+
+    private fun resetIndependentScenarioState() {
+        val context = ApplicationProvider.getApplicationContext<VremyaHodomApp>()
+        LastPlanStore.seed = null
+        TripProgressState.clear()
+        ActiveTripStore.clear(context)
     }
 
     private fun waitForWindowFocus(scenario: ActivityScenario<MainActivity>) {
