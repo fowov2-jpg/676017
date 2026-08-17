@@ -20,9 +20,9 @@ import kotlin.math.roundToInt
  * The sheet keeps enough measured content for an expanded state, but the user initially sees only
  * a compact map-first portion. Dragging the handle moves the same laid-out surface through
  * collapsed / medium / expanded offsets. Older presentation code may still request a legacy fixed
- * height while route data is rendered; this coordinator reconciles that request back to the
- * responsive expanded capacity before applying the user's offset, so LayoutParams no longer depend
- * on callback ordering.
+ * height while route data or system insets are rendered; this coordinator reconciles that request
+ * back to the responsive expanded capacity before a frame is allowed to draw, so LayoutParams no
+ * longer depend on callback ordering or font scale.
  */
 internal object RouteSheetInteractionCoordinator {
     private val controllers = WeakHashMap<MainActivity, Controller>()
@@ -54,14 +54,26 @@ internal object RouteSheetInteractionCoordinator {
         private val layoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             reconcileInitialOffset()
         }
+        private val filtersLayoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            reconcileInitialOffset()
+        }
         private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
             if (activity.isFinishing || activity.isDestroyed) return@OnPreDrawListener true
-            reconcileInitialOffset()
-            true
+
+            // A late WindowInsets / legacy route-state callback can put the sheet back to a fixed
+            // 228-324dp height after ResponsiveProductUi already applied the correct ratio. Merely
+            // calling requestLayout here and returning true exposes one bad frame and, on large-text
+            // devices, ActivityScenario can observe that stale measured height. If geometry changed
+            // (or LayoutParams are correct but the old measurement is still on screen), cancel this
+            // draw. Android performs the requested traversal and the next pre-draw is admitted only
+            // once measured geometry matches the responsive policy.
+            val geometryPending = reconcileInitialOffset()
+            !geometryPending
         }
 
         init {
             sheet.addOnLayoutChangeListener(layoutListener)
+            filters.addOnLayoutChangeListener(filtersLayoutListener)
             root.viewTreeObserver.addOnPreDrawListener(preDrawListener)
             installGesture()
             root.post(::reconcileInitialOffset)
@@ -70,6 +82,7 @@ internal object RouteSheetInteractionCoordinator {
         fun destroy() {
             animator?.cancel()
             sheet.removeOnLayoutChangeListener(layoutListener)
+            filters.removeOnLayoutChangeListener(filtersLayoutListener)
             if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnPreDrawListener(preDrawListener)
             sheet.setOnTouchListener(null)
             sheet.translationY = 0f
@@ -82,7 +95,10 @@ internal object RouteSheetInteractionCoordinator {
         private fun isRouteOptions(): Boolean =
             sheet.visibility == View.VISIBLE && filters.visibility == View.VISIBLE && !isActiveTrip()
 
-        private fun reconcileInitialOffset() {
+        /**
+         * @return true when another layout traversal is required before the current frame is safe.
+         */
+        private fun reconcileInitialOffset(): Boolean {
             val routes = isRouteOptions()
             if (!routes) {
                 if (routeOptionsVisible || sheet.translationY != 0f) {
@@ -91,7 +107,7 @@ internal object RouteSheetInteractionCoordinator {
                 }
                 routeOptionsVisible = false
                 userOwnsOffset = false
-                return
+                return false
             }
             if (!routeOptionsVisible) {
                 routeOptionsVisible = true
@@ -99,15 +115,18 @@ internal object RouteSheetInteractionCoordinator {
             }
 
             // MainActivity still owns route state and may set a legacy 228-324dp height while it is
-            // rebuilding route cards. The approved route-options reference needs room for the
-            // endpoints, filters and three alternatives, especially at 1.25x text and on tablets.
-            // Correct the underlying measured surface here; map-first behavior is controlled by
-            // translation below, not by throwing away the expanded content area.
-            ensureExpandedSheetCapacity()
-            applyTabletWidthIfNeeded()
-            if (!userOwnsOffset && sheet.height > 0) {
+            // rebuilding route cards or applying system insets. The approved route-options reference
+            // needs room for endpoints, filters and alternatives, especially at 1.25x text and on
+            // tablets. Correct the underlying measured surface here; map-first behavior is controlled
+            // by translation below, not by throwing away the expanded content area.
+            val heightPending = ensureExpandedSheetCapacity()
+            val widthPending = applyTabletWidthIfNeeded()
+            val geometryPending = heightPending || widthPending
+
+            if (!userOwnsOffset && sheet.height > 0 && !geometryPending) {
                 sheet.translationY = offsets().medium
             }
+            return geometryPending
         }
 
         private data class Offsets(val expanded: Float, val medium: Float, val collapsed: Float) {
@@ -140,10 +159,17 @@ internal object RouteSheetInteractionCoordinator {
             )
         }
 
-        private fun ensureExpandedSheetCapacity() {
+        /**
+         * Keeps LayoutParams and the measured height on the same responsive value.
+         *
+         * Returning true when LayoutParams already contain the target but the current measurement is
+         * stale is intentional: the pre-draw listener then blocks that stale frame until the pending
+         * requestLayout has completed.
+         */
+        private fun ensureExpandedSheetCapacity(): Boolean {
             val rootHeight = root.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels
             val rootWidth = root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels
-            if (rootHeight <= 0 || rootWidth <= 0) return
+            if (rootHeight <= 0 || rootWidth <= 0) return false
 
             val widthDp = rootWidth / density
             val heightDp = rootHeight / density
@@ -166,27 +192,44 @@ internal object RouteSheetInteractionCoordinator {
                     (rootHeight * MAX_EXPANDED_RATIO).roundToInt()
                 )
 
-            val lp = sheet.layoutParams as? FrameLayout.LayoutParams ?: return
-            if (lp.height == targetHeight) return
-            lp.height = targetHeight
-            sheet.layoutParams = lp
+            val lp = sheet.layoutParams as? FrameLayout.LayoutParams ?: return false
+            var changed = false
+            if (lp.height != targetHeight) {
+                lp.height = targetHeight
+                sheet.layoutParams = lp
+                changed = true
+            }
+
+            // If the new LayoutParams were installed from an OnLayout/OnPreDraw callback, sheet.height
+            // can still represent the previous traversal. Do not let that stale measurement draw.
+            val measuredPending = sheet.isLaidOut && sheet.height > 0 && abs(sheet.height - targetHeight) > 1
+            return changed || measuredPending
         }
 
-        private fun applyTabletWidthIfNeeded() {
+        private fun applyTabletWidthIfNeeded(): Boolean {
             val widthPx = root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels
             val heightPx = root.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels
             val widthDp = widthPx / density
-            if (widthDp < 600f) return
+            if (widthDp < 600f) return false
             val landscape = widthPx > heightPx
             val maxWidthDp = if (landscape) 540 else 580
             val targetWidth = min(widthPx - dp(48), dp(maxWidthDp))
-            val lp = sheet.layoutParams as? FrameLayout.LayoutParams ?: return
-            if (lp.width == targetWidth && lp.gravity == (Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL) && lp.leftMargin == 0 && lp.rightMargin == 0) return
+            val lp = sheet.layoutParams as? FrameLayout.LayoutParams ?: return false
+            if (
+                lp.width == targetWidth &&
+                lp.gravity == (Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL) &&
+                lp.leftMargin == 0 &&
+                lp.rightMargin == 0
+            ) {
+                val measuredPending = sheet.isLaidOut && sheet.width > 0 && abs(sheet.width - targetWidth) > 1
+                return measuredPending
+            }
             lp.width = targetWidth
             lp.leftMargin = 0
             lp.rightMargin = 0
             lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             sheet.layoutParams = lp
+            return true
         }
 
         private fun installGesture() {
