@@ -69,19 +69,22 @@ def parse_patch(path: Path):
     return result
 
 
-def exact_matches(lines: list[str], needle: list[str]) -> list[tuple[int, int]]:
+def exact_matches(lines: list[str], needle: list[str], start_at: int) -> list[tuple[int, int]]:
     if not needle:
-        return [(0, 0)]
+        return [(start_at, start_at)]
     n = len(needle)
-    return [(i, i + n) for i in range(len(lines) - n + 1) if lines[i : i + n] == needle]
+    return [
+        (i, i + n)
+        for i in range(start_at, len(lines) - n + 1)
+        if lines[i : i + n] == needle
+    ]
 
 
-def blank_tolerant_matches(lines: list[str], needle: list[str]) -> list[tuple[int, int]]:
+def blank_tolerant_matches(lines: list[str], needle: list[str], start_at: int) -> list[tuple[int, int]]:
     if not needle:
-        return [(0, 0)]
+        return [(start_at, start_at)]
     matches: list[tuple[int, int]] = []
-    for start in range(len(lines)):
-        # Do not manufacture duplicate matches by skipping blank lines before the first context line.
+    for start in range(start_at, len(lines)):
         if lines[start] != needle[0]:
             continue
         i = start
@@ -100,12 +103,14 @@ def blank_tolerant_matches(lines: list[str], needle: list[str]) -> list[tuple[in
     return matches
 
 
-def locate(lines: list[str], needle: list[str]) -> tuple[int, int]:
-    matches = exact_matches(lines, needle)
+def locate(lines: list[str], needle: list[str], start_at: int) -> tuple[int, int]:
+    matches = exact_matches(lines, needle, start_at)
     if not matches:
-        matches = blank_tolerant_matches(lines, needle)
-    if len(matches) != 1:
-        raise ValueError(len(matches))
+        matches = blank_tolerant_matches(lines, needle, start_at)
+    if not matches:
+        raise ValueError(0)
+    # Hunks in a diff are ordered. The first valid occurrence after the prior hunk is the
+    # deterministic target when a very short malformed hunk context appears more than once.
     return matches[0]
 
 
@@ -124,16 +129,18 @@ def apply_patch(path: Path) -> None:
             had_final_newline = text.endswith("\n")
             lines = text.splitlines()
 
+        cursor = 0
         for index, (old, new) in enumerate(hunks, start=1):
             try:
-                start, end = locate(lines, old)
+                start, end = locate(lines, old, cursor)
             except ValueError as error:
                 preview = "\n".join(old[:8])
                 raise RuntimeError(
-                    f"{path.name}: {relative} hunk {index}: expected one exact/blank-tolerant match, "
-                    f"found {error.args[0]}. Context starts with:\n{preview}"
+                    f"{path.name}: {relative} hunk {index}: no exact/blank-tolerant match "
+                    f"after line {cursor}. Context starts with:\n{preview}"
                 ) from None
             lines[start:end] = new
+            cursor = start + len(new)
 
         rendered = "\n".join(lines)
         if had_final_newline:
