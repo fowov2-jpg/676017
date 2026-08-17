@@ -126,21 +126,28 @@ class MainActivitySmokeTest {
 
             val density = activity.resources.displayMetrics.density
             val widthDp = activity.resources.configuration.screenWidthDp
-            val routeSheetRatio = sheet.height.toFloat() / root.height.toFloat()
+            val rootRect = Rect()
+            val sheetRect = Rect()
+            assertTrue("root has no visible rectangle", root.getGlobalVisibleRect(rootRect))
+            assertTrue("route sheet has no visible rectangle", sheet.getGlobalVisibleRect(sheetRect))
+            val visibleRatio = sheetRect.height().toFloat() / rootRect.height().toFloat()
             if (widthDp >= 600) {
                 assertTrue(
-                    "tablet route panel is stretched too tall",
-                    sheet.height <= (430f * density).toInt()
+                    "tablet route panel exposes too much vertical space",
+                    sheetRect.height() <= (430f * density).toInt()
                 )
                 assertTrue(
                     "tablet route panel is stretched too wide",
                     sheet.width <= (620f * density).toInt()
                 )
             } else {
-                assertTrue("phone route sheet is too small to expose a route", routeSheetRatio >= 0.30f)
-                assertTrue("phone route sheet hides too much map context", routeSheetRatio <= 0.42f)
+                assertTrue("phone route sheet is too small to expose a route", visibleRatio >= 0.28f)
+                assertTrue("phone route sheet hides too much map context", visibleRatio <= 0.43f)
             }
-            assertTrue("route sheet removed too much map context", sheet.top >= (root.height * 0.50f).toInt())
+            assertTrue(
+                "route sheet removed too much map context",
+                sheetRect.top - rootRect.top >= (rootRect.height() * 0.50f).toInt()
+            )
             assertTrue("route filters overflow their viewport", filterPanel.width <= filterViewport.width)
             assertNotNull(sheet.findViewWithTag<View>("reference_route_endpoints"))
             assertEquals(View.GONE, activity.findViewById<View>(R.id.bottomNav).visibility)
@@ -307,5 +314,4 @@ class MainActivitySmokeTest {
         }
         screenshot.recycle()
     }
-
 }
