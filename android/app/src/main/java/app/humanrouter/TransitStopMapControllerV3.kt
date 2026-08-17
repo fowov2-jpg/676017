@@ -239,7 +239,7 @@ internal object TransitStopMapControllerV3 {
                 return
             }
 
-            val center = activeMap.cameraPosition.target
+            val center = activeMap.cameraPosition.target ?: return
             val zoom = activeMap.cameraPosition.zoom
             val request = markerSerial.incrementAndGet()
             val radius = radiusForZoom(zoom)
