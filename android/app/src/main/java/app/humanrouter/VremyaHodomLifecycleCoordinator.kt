@@ -14,9 +14,11 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
         if (activity is MainActivity) ResponsiveMotion.install(activity)
         VremyaHodomUiCoordinator.onActivityResumed(activity)
         if (activity is MainActivity) {
-            // ResponsiveProductUi is the only owner allowed to mutate screen geometry/visibility.
-            // ResponsiveMotion provides press/container animation only and never touches LayoutParams.
+            // ResponsiveProductUi is the only owner allowed to compose screen geometry/visibility.
+            // ResponsiveMotion adds geometry-free feedback. ResponsiveViewportGuard only clamps
+            // two viewport invariants before draw and becomes a no-op once they are satisfied.
             ResponsiveProductUi.install(activity)
+            ResponsiveViewportGuard.install(activity)
         }
     }
 
