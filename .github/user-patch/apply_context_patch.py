@@ -51,7 +51,6 @@ def parse_patch(path: Path):
 
         old, new = current_hunk
         if line == "":
-            # The supplied patch has two blank context lines without the normal leading space.
             old.append("")
             new.append("")
         elif line.startswith(" "):
@@ -78,11 +77,13 @@ def exact_matches(lines: list[str], needle: list[str]) -> list[tuple[int, int]]:
 
 
 def blank_tolerant_matches(lines: list[str], needle: list[str]) -> list[tuple[int, int]]:
-    """Match exact context while tolerating omitted blank source lines in this malformed patch."""
     if not needle:
         return [(0, 0)]
     matches: list[tuple[int, int]] = []
     for start in range(len(lines)):
+        # Do not manufacture duplicate matches by skipping blank lines before the first context line.
+        if lines[start] != needle[0]:
+            continue
         i = start
         j = 0
         while i < len(lines) and j < len(needle):
