@@ -68,7 +68,17 @@ internal object PassengerGpsProgressCoordinator {
         }
 
         private fun startTrackingIfNeeded() {
-            if (!resumed || listening || currentRoute() == null || !hasPermission()) return
+            if (!resumed || listening || currentRoute() == null) return
+            val fineGranted = ContextCompat.checkSelfPermission(
+                activity,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            val coarseGranted = ContextCompat.checkSelfPermission(
+                activity,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!fineGranted && !coarseGranted) return
+
             val providers = runCatching { manager.getProviders(true) }.getOrDefault(emptyList())
             providers.mapNotNull { provider ->
                 runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
@@ -92,7 +102,15 @@ internal object PassengerGpsProgressCoordinator {
 
         private fun stopTracking() {
             if (!listening) return
-            if (hasPermission()) runCatching { manager.removeUpdates(this) }
+            val fineGranted = ContextCompat.checkSelfPermission(
+                activity,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            val coarseGranted = ContextCompat.checkSelfPermission(
+                activity,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            if (fineGranted || coarseGranted) runCatching { manager.removeUpdates(this) }
             listening = false
         }
 
@@ -116,10 +134,6 @@ internal object PassengerGpsProgressCoordinator {
 
         private fun currentRoute(): RouteCandidate? =
             TripLiveState.current()?.route ?: ActiveTripStore.load(activity)?.route
-
-        private fun hasPermission(): Boolean =
-            ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
     private const val MIN_TIME_MS = 2_000L
