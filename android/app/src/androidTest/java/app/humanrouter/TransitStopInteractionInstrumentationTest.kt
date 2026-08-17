@@ -11,9 +11,12 @@ import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withSubstring
+import androidx.test.espresso.matcher.ViewMatchers.withTagValue
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.hamcrest.Matchers.allOf
+import org.hamcrest.Matchers.`is`
 import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -36,7 +39,7 @@ class TransitStopInteractionInstrumentationTest {
         launchNearby()
         openStop("qa:bus")
 
-        onView(withText("Театральная площадь")).check(matches(isDisplayed()))
+        onView(stopCardTitle("Театральная площадь")).check(matches(isDisplayed()))
         onView(withSubstring("→ Лубянка · в центр")).check(matches(isDisplayed()))
         onView(withSubstring("→ Фили · из центра")).check(matches(isDisplayed()))
         capture("stop-bus-directions")
@@ -51,13 +54,18 @@ class TransitStopInteractionInstrumentationTest {
         launchNearby()
         openStop("qa:metro")
 
-        onView(withText("Охотный Ряд")).check(matches(isDisplayed()))
+        onView(stopCardTitle("Охотный Ряд")).check(matches(isDisplayed()))
         onView(withSubstring("→ Бульвар Рокоссовского")).check(matches(isDisplayed()))
         capture("stop-metro-directions")
         onView(withText("Сюда")).check(matches(isDisplayed())).perform(click())
 
         onView(withId(R.id.toField)).check(matches(withSubstring("Охотный Ряд")))
     }
+
+    private fun stopCardTitle(title: String) = allOf(
+        withText(title),
+        withTagValue(`is`("vh_transit_stop_title"))
+    )
 
     private fun launchNearby() {
         scenario = ActivityScenario.launch(
