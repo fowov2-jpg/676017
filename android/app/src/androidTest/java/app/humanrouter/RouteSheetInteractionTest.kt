@@ -1,6 +1,7 @@
 package app.humanrouter
 
 import android.content.Intent
+import android.graphics.Rect
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
@@ -49,30 +50,39 @@ class RouteSheetInteractionTest {
 
     @Test
     fun routeSheetStartsCompactAndRespondsToUserGestures() {
-        var initialHeight = 0
-        var rootHeight = 0
+        var initialVisibleHeight = 0
+        var rootVisibleHeight = 0
         scenario!!.onActivity { activity ->
             val root = activity.findViewById<View>(R.id.root)
             val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
-            rootHeight = root.height
-            initialHeight = sheet.height
-            assertTrue("route sheet does not start compact", initialHeight < rootHeight * 0.45f)
-            assertTrue("route sheet is too small to be useful", initialHeight > rootHeight * 0.28f)
+            rootVisibleHeight = visibleHeight(root)
+            initialVisibleHeight = visibleHeight(sheet)
+            assertTrue("route sheet does not start compact", initialVisibleHeight < rootVisibleHeight * 0.45f)
+            assertTrue("route sheet is too small to be useful", initialVisibleHeight > rootVisibleHeight * 0.28f)
         }
 
         onView(withId(R.id.routeResultsContainer)).perform(dragHandle(expand = true))
-        var expandedHeight = 0
+        var expandedVisibleHeight = 0
         scenario!!.onActivity { activity ->
-            expandedHeight = activity.findViewById<View>(R.id.routeResultsContainer).height
-            assertTrue("drag up did not expand route sheet", expandedHeight > initialHeight + rootHeight * 0.08f)
+            expandedVisibleHeight = visibleHeight(activity.findViewById(R.id.routeResultsContainer))
+            assertTrue(
+                "drag up did not expose more of the route sheet",
+                expandedVisibleHeight > initialVisibleHeight + rootVisibleHeight * 0.08f
+            )
         }
 
         onView(withId(R.id.routeResultsContainer)).perform(dragHandle(expand = false))
         scenario!!.onActivity { activity ->
-            val collapsedHeight = activity.findViewById<View>(R.id.routeResultsContainer).height
-            assertTrue("drag down did not reduce route sheet", collapsedHeight < expandedHeight)
-            assertTrue("collapsed route sheet hides too much map", collapsedHeight < rootHeight * 0.45f)
+            val collapsedVisibleHeight = visibleHeight(activity.findViewById(R.id.routeResultsContainer))
+            assertTrue("drag down did not reduce visible route sheet", collapsedVisibleHeight < expandedVisibleHeight)
+            assertTrue("collapsed route sheet hides too much map", collapsedVisibleHeight < rootVisibleHeight * 0.45f)
         }
+    }
+
+    private fun visibleHeight(view: View): Int {
+        val rect = Rect()
+        check(view.getGlobalVisibleRect(rect)) { "${view.javaClass.simpleName} has no visible rectangle" }
+        return rect.height()
     }
 
     private fun dragHandle(expand: Boolean): ViewAction = object : ViewAction {
