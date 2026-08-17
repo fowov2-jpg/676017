@@ -113,6 +113,22 @@ class GpsRouteReplayInstrumentationTest {
                         "GPS status card missing at ${step.name}"
                     }
                     assertTrue("GPS card does not describe current stage at ${step.name}", gps.text.contains("этап ${step.legIndex + 1}"))
+
+                    val detail = checkNotNull(findByTag(root, "vh_gps_current_stage_card") as? ViewGroup) {
+                        "detailed GPS stage card missing at ${step.name}"
+                    }
+                    assertEquals(
+                        "detailed sheet is not GPS-owned at ${step.name}",
+                        "Текущий этап по GPS",
+                        (detail.getChildAt(0) as? TextView)?.text?.toString()
+                    )
+                    val detailTitle = (detail.getChildAt(1) as? TextView)?.text?.toString().orEmpty()
+                    if (step.expectedPhase == TripProgressPhase.TRANSFER) {
+                        assertTrue("transfer detail does not point to metro: $detailTitle", detailTitle.contains("Метро", ignoreCase = true))
+                    }
+                    if (step.legIndex == 4) {
+                        assertTrue("metro GPS stage is not shown as metro: $detailTitle", detailTitle.contains("Метро", ignoreCase = true))
+                    }
                     assertNoVerticalOverlap(top, mini, "active chrome overlaps at ${step.name}")
                 }
 
