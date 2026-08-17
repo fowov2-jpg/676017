@@ -2,6 +2,8 @@ package app.humanrouter
 
 import android.content.Intent
 import android.graphics.Rect
+import android.os.SystemClock
+import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import androidx.test.core.app.ActivityScenario
@@ -11,6 +13,7 @@ import androidx.test.espresso.UiController
 import androidx.test.espresso.ViewAction
 import androidx.test.espresso.matcher.ViewMatchers.isRoot
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.hamcrest.Matcher
 import org.junit.After
 import org.junit.Assert.assertTrue
@@ -57,7 +60,7 @@ class RouteSheetInteractionTest {
             assertTrue("route sheet is too small to be useful", initialVisibleHeight > rootVisibleHeight * 0.28f)
         }
 
-        scenario!!.onActivity { activity -> dragRouteSheet(activity, expand = true) }
+        dragRouteSheet(expand = true)
         onView(isRoot()).perform(waitForUi(260L))
         var expandedVisibleHeight = 0
         scenario!!.onActivity { activity ->
@@ -68,7 +71,7 @@ class RouteSheetInteractionTest {
             )
         }
 
-        scenario!!.onActivity { activity -> dragRouteSheet(activity, expand = false) }
+        dragRouteSheet(expand = false)
         onView(isRoot()).perform(waitForUi(260L))
         scenario!!.onActivity { activity ->
             val collapsedVisibleHeight = visibleHeight(activity.findViewById(R.id.routeResultsContainer))
@@ -83,19 +86,38 @@ class RouteSheetInteractionTest {
         return rect.height()
     }
 
-    private fun dragRouteSheet(activity: MainActivity, expand: Boolean) {
-        val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
-        val location = IntArray(2)
-        sheet.getLocationOnScreen(location)
-        val density = sheet.resources.displayMetrics.density
-        val startX = location[0] + sheet.width / 2f
-        val startY = location[1] + minOf(sheet.height * 0.08f, 28f * density)
-        val endY = startY + sheet.rootView.height * 0.28f * if (expand) -1f else 1f
-        val now = android.os.SystemClock.uptimeMillis()
-        sheet.dispatchTouchEvent(MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, startX, startY, 0))
-        sheet.dispatchTouchEvent(MotionEvent.obtain(now, now + 16L, MotionEvent.ACTION_MOVE, startX, (startY + endY) / 2f, 0))
-        sheet.dispatchTouchEvent(MotionEvent.obtain(now, now + 32L, MotionEvent.ACTION_MOVE, startX, endY, 0))
-        sheet.dispatchTouchEvent(MotionEvent.obtain(now, now + 48L, MotionEvent.ACTION_UP, startX, endY, 0))
+    private fun dragRouteSheet(expand: Boolean) {
+        var startX = 0f
+        var startY = 0f
+        var endY = 0f
+        scenario!!.onActivity { activity ->
+            val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
+            val location = IntArray(2)
+            sheet.getLocationOnScreen(location)
+            val density = sheet.resources.displayMetrics.density
+            startX = location[0] + sheet.width / 2f
+            startY = location[1] + minOf(sheet.height * 0.08f, 28f * density)
+            endY = startY + sheet.rootView.height * 0.28f * if (expand) -1f else 1f
+        }
+
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val downTime = SystemClock.uptimeMillis()
+        fun send(action: Int, y: Float, offsetMs: Long) {
+            val event = MotionEvent.obtain(downTime, downTime + offsetMs, action, startX, y, 0).apply {
+                source = InputDevice.SOURCE_TOUCHSCREEN
+            }
+            instrumentation.sendPointerSync(event)
+            event.recycle()
+        }
+
+        send(MotionEvent.ACTION_DOWN, startY, 0L)
+        val steps = 6
+        for (step in 1..steps) {
+            val fraction = step / steps.toFloat()
+            send(MotionEvent.ACTION_MOVE, startY + (endY - startY) * fraction, step * 16L)
+        }
+        send(MotionEvent.ACTION_UP, endY, (steps + 1) * 16L)
+        instrumentation.waitForIdleSync()
     }
 
     private fun waitForUi(milliseconds: Long): ViewAction = object : ViewAction {
