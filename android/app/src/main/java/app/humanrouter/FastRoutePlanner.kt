@@ -1,6 +1,7 @@
 package app.humanrouter
 
 import android.os.SystemClock
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -25,9 +26,9 @@ import java.util.concurrent.atomic.AtomicInteger
  * the expensive exact multimodal alternatives are calculated in the background.
  */
 internal object FastRoutePlanner {
-    private const val GEOCODE_BUDGET_MS = 780L
-    private const val PREVIEW_BUDGET_MS = 820L
-    private const val FIRST_RESULT_TARGET_MS = 2_000L
+    internal const val GEOCODE_BUDGET_MS = 780L
+    internal const val PREVIEW_BUDGET_MS = 820L
+    internal const val FIRST_RESULT_TARGET_MS = 2_000L
     private val io = Executors.newFixedThreadPool(4)
     private val installed = WeakHashMap<MainActivity, Boolean>()
     private val requestSerial = AtomicInteger()
@@ -36,8 +37,17 @@ internal object FastRoutePlanner {
     fun install(activity: MainActivity) {
         polishButtons(activity)
         if (installed.put(activity, true) == true) return
-        activity.findViewById<Button>(R.id.routeButton).setOnClickListener {
-            plan(activity)
+
+        val routeButton = activity.findViewById<Button>(R.id.routeButton)
+        val toField = activity.findViewById<EditText>(R.id.toField)
+        routeButton.setOnClickListener { plan(activity) }
+        toField.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
+                plan(activity)
+                true
+            } else {
+                false
+            }
         }
 
         // Build rail/surface indexes before the user presses the route button. This moves most
@@ -50,6 +60,9 @@ internal object FastRoutePlanner {
             }
         }
     }
+
+    @Synchronized
+    internal fun isInstalled(activity: MainActivity): Boolean = installed[activity] == true
 
     private fun plan(activity: MainActivity) {
         val fromField = activity.findViewById<EditText>(R.id.fromField)
