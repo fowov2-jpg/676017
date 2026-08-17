@@ -8,12 +8,18 @@ val releaseKeystorePath = System.getenv("VH_RELEASE_KEYSTORE")
 val releaseStorePassword = System.getenv("VH_RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = System.getenv("VH_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = System.getenv("VH_RELEASE_KEY_PASSWORD")
+val sentryDsn = System.getenv("SENTRY_DSN").orEmpty()
+val gitSha = System.getenv("GITHUB_SHA").orEmpty()
 val releaseSigningConfigured = listOf(
     releaseKeystorePath,
     releaseStorePassword,
     releaseKeyAlias,
     releaseKeyPassword
 ).all { !it.isNullOrBlank() }
+
+fun String.asBuildConfigString(): String = "\"" +
+    replace("\\", "\\\\").replace("\"", "\\\"") +
+    "\""
 
 android {
     namespace = "app.humanrouter"
@@ -52,6 +58,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "RUNTIME_BASE_URL", "\"https://github.com/fowov2-jpg/676017/releases/download/runtime-current/\"")
         buildConfigField("boolean", "REALTIME_TRANSIT_CONFIGURED", "false")
+        buildConfigField("String", "SENTRY_DSN", sentryDsn.asBuildConfigString())
+        buildConfigField("String", "GIT_SHA", gitSha.asBuildConfigString())
     }
 
     buildTypes {
@@ -90,6 +98,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.work:work-runtime:2.11.2")
     implementation("org.maplibre.gl:android-sdk:11.8.0")
+    implementation("io.sentry:sentry-android:8.50.1")
     androidTestImplementation("androidx.test:core-ktx:1.7.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
