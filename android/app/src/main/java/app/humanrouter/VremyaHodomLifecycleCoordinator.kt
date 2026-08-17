@@ -11,12 +11,11 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
     }
 
     override fun onActivityResumed(activity: Activity) {
-        if (activity is MainActivity) UiPolish.install(activity)
+        if (activity is MainActivity) ResponsiveMotion.install(activity)
         VremyaHodomUiCoordinator.onActivityResumed(activity)
         if (activity is MainActivity) {
-            // ResponsiveProductUi is the only presentation owner allowed to change sheet/card
-            // geometry. The old ReferenceProductUiV2 + ReferenceVisualTuning + visibility guard
-            // combination could fight over the same LayoutParams on different screen sizes.
+            // ResponsiveProductUi is the only owner allowed to mutate screen geometry/visibility.
+            // ResponsiveMotion provides press/container animation only and never touches LayoutParams.
             ResponsiveProductUi.install(activity)
         }
     }
