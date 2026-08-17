@@ -21,6 +21,9 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             // addresses use the resilient resolver and the first route uses the bounded fast preview.
             FastSearchController.install(activity)
             FastRoutePlanner.install(activity)
+            // A queued showSoftInput() from the expanded-search frame must never reopen the IME after
+            // the user has already collapsed search. This guard owns that visibility/focus boundary.
+            SearchImeLifecycleGuard.install(activity)
 
             // ResponsiveProductUi composes the screen; RouteSheetInteractionCoordinator is the
             // final owner of the draggable route-sheet size so automatic restyling cannot fight
@@ -56,6 +59,7 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             TripProgressUiController.destroy(activity)
             TransitStopMapControllerV3.destroy(activity)
             RouteSheetInteractionCoordinator.destroy(activity)
+            SearchImeLifecycleGuard.destroy(activity)
         }
         VremyaHodomUiCoordinator.onActivityDestroyed(activity)
     }
