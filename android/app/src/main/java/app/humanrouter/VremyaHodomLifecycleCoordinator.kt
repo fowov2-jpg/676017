@@ -14,6 +14,14 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
         if (activity is MainActivity) ResponsiveMotion.install(activity)
         VremyaHodomUiCoordinator.onActivityResumed(activity)
         if (activity is MainActivity) {
+            // Core search/routing interactions must be installed by the single active lifecycle owner.
+            // These controllers used to be installed by VremyaHodomSafeRuntimeFixes. When the app
+            // moved to this coordinator, omitting them silently restored MainActivity's legacy
+            // Photon-only search and synchronous planRouteNow() path. Install them here so typed
+            // addresses use the resilient resolver and the first route uses the bounded fast preview.
+            FastSearchController.install(activity)
+            FastRoutePlanner.install(activity)
+
             // ResponsiveProductUi composes the screen; RouteSheetInteractionCoordinator is the
             // final owner of the draggable route-sheet size so automatic restyling cannot fight
             // the user's gesture. ResponsiveViewportGuard only protects the settings entrance.
