@@ -74,13 +74,31 @@ class TransitStopInteractionInstrumentationTest {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
         )
-        SystemClock.sleep(1_250L)
-        scenario!!.onActivity { activity ->
-            assertTrue(
-                "typed transport marker layer did not receive QA places",
-                TransitStopMapControllerV3.markerCountForQa(activity) >= 4
-            )
+        waitForTypedMarkers()
+    }
+
+    /**
+     * MapLibre style attachment is asynchronous and can take longer after an Activity recreation on
+     * newer Android images. Wait for the actual product condition instead of assuming that a fixed
+     * sleep means the marker source is ready. The assertion is unchanged: four QA transport places
+     * must reach the typed marker controller, otherwise this still fails hard at the deadline.
+     */
+    private fun waitForTypedMarkers() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val deadline = SystemClock.uptimeMillis() + MARKER_READY_TIMEOUT_MS
+        var markerCount = 0
+        while (SystemClock.uptimeMillis() < deadline) {
+            instrumentation.waitForIdleSync()
+            scenario!!.onActivity { activity ->
+                markerCount = TransitStopMapControllerV3.markerCountForQa(activity)
+            }
+            if (markerCount >= 4) return
+            SystemClock.sleep(MARKER_POLL_MS)
         }
+        assertTrue(
+            "typed transport marker layer did not receive QA places before timeout; count=$markerCount",
+            markerCount >= 4
+        )
     }
 
     private fun openStop(id: String) {
@@ -103,5 +121,10 @@ class TransitStopInteractionInstrumentationTest {
         }
         screenshot.recycle()
         assertTrue("stop sheet screenshot missing: $output", output.isFile && output.length() > 1_000L)
+    }
+
+    private companion object {
+        const val MARKER_READY_TIMEOUT_MS = 8_000L
+        const val MARKER_POLL_MS = 100L
     }
 }
