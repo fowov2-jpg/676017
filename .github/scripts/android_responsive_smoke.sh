@@ -118,7 +118,8 @@ run_viewport() {
   # One long instrumentation process can retain a system/IME/permission window between independent
   # test classes. Run every scenario in a clean target process instead. MainActivitySmokeTest is
   # split per method because it deliberately covers unrelated permission, error, route and rotation
-  # states. The total remains the same 24 required tests.
+  # states. RouteSheetInteractionTest additionally proves that the compact sheet can be expanded and
+  # collapsed by the real handle on every viewport.
   local selectors=(
     'app.humanrouter.GpsRouteReplayInstrumentationTest'
     'app.humanrouter.InteractionStabilitySmokeTest'
@@ -129,6 +130,7 @@ run_viewport() {
     'app.humanrouter.MainActivitySmokeTest#darkThemeAndRotationPreserveTheMainScreen'
     'app.humanrouter.MainActivitySmokeTest#addressErrorUsesACompactSheet'
     'app.humanrouter.ReferenceProductUiSmokeTest'
+    'app.humanrouter.RouteSheetInteractionTest'
     'app.humanrouter.TransitVisualSystemSmokeTest'
     'app.humanrouter.UiPolishSmokeTest'
     'app.humanrouter.UnifiedUiSmokeTest'
@@ -139,11 +141,11 @@ run_viewport() {
     run_test_selector "$selector" "$instrumentation_output"
   done
 
-  # Explicitly assert all expected test completions so accidental selector loss cannot make this gate
-  # look green. Counts by selector: 1 + 2 + 1 + five singles + 4 + 3 + 1 + 3 + 4 = 24.
+  # Explicitly assert all expected completions so accidental selector loss cannot look green.
+  # Counts by selector: 1 + 2 + 1 + five singles + 4 + 1 + 3 + 1 + 3 + 4 = 25.
   completed=$(grep -c '^INSTRUMENTATION_STATUS_CODE: 0$' "$instrumentation_output" || true)
-  if (( completed != 24 )); then
-    echo "Expected 24 completed responsive tests, got $completed for $label" >&2
+  if (( completed != 25 )); then
+    echo "Expected 25 completed responsive tests, got $completed for $label" >&2
     exit 1
   fi
 
