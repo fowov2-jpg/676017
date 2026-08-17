@@ -2,18 +2,14 @@ package app.humanrouter
 
 import android.content.Intent
 import android.graphics.Rect
+import android.view.MotionEvent
 import android.view.View
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.UiController
 import androidx.test.espresso.ViewAction
-import androidx.test.espresso.action.CoordinatesProvider
-import androidx.test.espresso.action.GeneralSwipeAction
-import androidx.test.espresso.action.Press
-import androidx.test.espresso.action.Swipe
 import androidx.test.espresso.matcher.ViewMatchers.isRoot
-import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.hamcrest.Matcher
 import org.junit.After
@@ -61,7 +57,7 @@ class RouteSheetInteractionTest {
             assertTrue("route sheet is too small to be useful", initialVisibleHeight > rootVisibleHeight * 0.28f)
         }
 
-        onView(withId(R.id.routeResultsContainer)).perform(dragHandle(expand = true))
+        scenario!!.onActivity { activity -> dragRouteSheet(activity, expand = true) }
         onView(isRoot()).perform(waitForUi(260L))
         var expandedVisibleHeight = 0
         scenario!!.onActivity { activity ->
@@ -72,7 +68,7 @@ class RouteSheetInteractionTest {
             )
         }
 
-        onView(withId(R.id.routeResultsContainer)).perform(dragHandle(expand = false))
+        scenario!!.onActivity { activity -> dragRouteSheet(activity, expand = false) }
         onView(isRoot()).perform(waitForUi(260L))
         scenario!!.onActivity { activity ->
             val collapsedVisibleHeight = visibleHeight(activity.findViewById(R.id.routeResultsContainer))
@@ -87,28 +83,19 @@ class RouteSheetInteractionTest {
         return rect.height()
     }
 
-    private fun dragHandle(expand: Boolean): ViewAction {
-        val start = CoordinatesProvider { view ->
-            val location = IntArray(2)
-            view.getLocationOnScreen(location)
-            val density = view.resources.displayMetrics.density
-            floatArrayOf(
-                location[0] + view.width / 2f,
-                location[1] + minOf(view.height * 0.08f, 28f * density)
-            )
-        }
-        val end = CoordinatesProvider { view ->
-            val location = IntArray(2)
-            view.getLocationOnScreen(location)
-            val density = view.resources.displayMetrics.density
-            val startY = location[1] + minOf(view.height * 0.08f, 28f * density)
-            val distance = view.rootView.height * 0.28f * if (expand) -1f else 1f
-            floatArrayOf(
-                location[0] + view.width / 2f,
-                startY + distance
-            )
-        }
-        return GeneralSwipeAction(Swipe.FAST, start, end, Press.FINGER)
+    private fun dragRouteSheet(activity: MainActivity, expand: Boolean) {
+        val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
+        val location = IntArray(2)
+        sheet.getLocationOnScreen(location)
+        val density = sheet.resources.displayMetrics.density
+        val startX = location[0] + sheet.width / 2f
+        val startY = location[1] + minOf(sheet.height * 0.08f, 28f * density)
+        val endY = startY + sheet.rootView.height * 0.28f * if (expand) -1f else 1f
+        val now = android.os.SystemClock.uptimeMillis()
+        sheet.dispatchTouchEvent(MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, startX, startY, 0))
+        sheet.dispatchTouchEvent(MotionEvent.obtain(now, now + 16L, MotionEvent.ACTION_MOVE, startX, (startY + endY) / 2f, 0))
+        sheet.dispatchTouchEvent(MotionEvent.obtain(now, now + 32L, MotionEvent.ACTION_MOVE, startX, endY, 0))
+        sheet.dispatchTouchEvent(MotionEvent.obtain(now, now + 48L, MotionEvent.ACTION_UP, startX, endY, 0))
     }
 
     private fun waitForUi(milliseconds: Long): ViewAction = object : ViewAction {
