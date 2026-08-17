@@ -166,6 +166,13 @@ internal class FastMeetRouter private constructor(
         }.getOrNull()
     }
 
+    @Synchronized
+    private fun close() {
+        surfaceSession?.let { session -> runCatching { session.repository.close() } }
+        surfaceSession = null
+        workers.shutdownNow()
+    }
+
     private fun approximateDirectWalk(
         origin: GeoPoint,
         destination: GeoPoint,
@@ -253,11 +260,26 @@ internal class FastMeetRouter private constructor(
                 preferences.walkingSpeedMetersPerSecond,
                 preferences.maxWalkMeters
             ).joinToString(":")
-            cached?.let { if (key == cachedKey) return it }
+            cached?.let { current ->
+                if (key == cachedKey) return current
+                // A runtime refresh or route-preference change must not leave the old router's
+                // executor/repository alive. The previous implementation replaced the singleton
+                // without closing it, which accumulated worker threads across recreations/updates.
+                current.close()
+                cached = null
+                cachedKey = ""
+            }
             return FastMeetRouter(context, preferences).also {
                 cached = it
                 cachedKey = key
             }
+        }
+
+        @Synchronized
+        internal fun clearCachedForTest() {
+            cached?.close()
+            cached = null
+            cachedKey = ""
         }
 
         private fun haversineMeters(from: GeoPoint, to: GeoPoint): Double {
@@ -367,50 +389,51 @@ private class FastRailMeetIndex private constructor(
 
         var best = inf
         var meeting = -1
+        while (qF.isNotEmpty() || qB.isNotEmpty()) {
+            val minF = qF.peek()?.seconds ?: inf
+            val minB = qB.peek()?.seconds ?: inf
+            if (minF.toLong() + minB.toLong() >= best.toLong()) break
 
-        fun consider(node: Int) {
-            if (distF[node] >= inf || distB[node] >= inf) return
-            val total = distF[node] + distB[node]
-            if (total < best) {
-                best = total
-                meeting = node
-            }
-        }
-
-        while (qF.isNotEmpty() && qB.isNotEmpty()) {
-            while (qF.isNotEmpty() && qF.peek().seconds != distF[qF.peek().node]) qF.remove()
-            while (qB.isNotEmpty() && qB.peek().seconds != distB[qB.peek().node]) qB.remove()
-            if (qF.isEmpty() || qB.isEmpty()) break
-            if (qF.peek().seconds.toLong() + qB.peek().seconds.toLong() >= best.toLong()) break
-
-            if (qF.peek().seconds <= qB.peek().seconds) {
-                val item = qF.remove()
-                if (settledF[item.node]) continue
+            if (minF <= minB) {
+                val item = qF.poll() ?: break
+                if (item.seconds != distF[item.node] || settledF[item.node]) continue
                 settledF[item.node] = true
-                consider(item.node)
+                if (distB[item.node] < inf) {
+                    val combined = item.seconds + distB[item.node]
+                    if (combined < best) {
+                        best = combined
+                        meeting = item.node
+                    }
+                }
                 for (edge in forward[item.node]) {
-                    val candidate = item.seconds + edge.seconds
-                    if (candidate < distF[edge.to]) {
-                        distF[edge.to] = candidate
+                    val next = item.seconds + edge.seconds
+                    if (next < distF[edge.to]) {
+                        distF[edge.to] = next
                         prevNode[edge.to] = item.node
                         prevEdge[edge.to] = edge
                         rootAccess[edge.to] = rootAccess[item.node]
-                        qF += QueueItem(edge.to, candidate)
+                        qF += QueueItem(edge.to, next)
                     }
                 }
             } else {
-                val item = qB.remove()
-                if (settledB[item.node]) continue
+                val item = qB.poll() ?: break
+                if (item.seconds != distB[item.node] || settledB[item.node]) continue
                 settledB[item.node] = true
-                consider(item.node)
+                if (distF[item.node] < inf) {
+                    val combined = item.seconds + distF[item.node]
+                    if (combined < best) {
+                        best = combined
+                        meeting = item.node
+                    }
+                }
                 for (edge in reverse[item.node]) {
-                    val candidate = item.seconds + edge.seconds
-                    if (candidate < distB[edge.from]) {
-                        distB[edge.from] = candidate
+                    val next = item.seconds + edge.seconds
+                    if (next < distB[edge.from]) {
+                        distB[edge.from] = next
                         nextNode[edge.from] = item.node
                         nextEdge[edge.from] = edge
                         rootEgress[edge.from] = rootEgress[item.node]
-                        qB += QueueItem(edge.from, candidate)
+                        qB += QueueItem(edge.from, next)
                     }
                 }
             }
@@ -419,7 +442,6 @@ private class FastRailMeetIndex private constructor(
         if (meeting < 0) return null
         val accessUsed = rootAccess[meeting] ?: return null
         val egressUsed = rootEgress[meeting] ?: return null
-
         val firstHalf = ArrayList<Edge>()
         var cursor = meeting
         while (prevNode[cursor] >= 0) {
@@ -694,8 +716,7 @@ private class FastRailMeetIndex private constructor(
         val p2 = to.lat * PI / 180.0
         val dLat = (to.lat - from.lat) * PI / 180.0
         val dLon = (to.lon - from.lon) * PI / 180.0
-        val a = sin(dLat / 2) * sin(dLat / 2) +
-            cos(p1) * cos(p2) * sin(dLon / 2) * sin(dLon / 2)
+        val a = sin(dLat / 2) * sin(dLat / 2) + cos(p1) * cos(p2) * sin(dLon / 2) * sin(dLon / 2)
         return 2.0 * EARTH_RADIUS_METERS * asin(min(1.0, sqrt(a)))
     }
 
