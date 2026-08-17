@@ -151,11 +151,13 @@ internal object TripProgressTracker {
         fraction = fraction.coerceIn(0.0, 1.0)
 
         val destinationDistance = project(point, listOf(route.legs.last().to.point)).distanceMeters
+        val hasTransitBefore = route.legs.take(index).any { it.mode != TransportMode.WALK }
+        val hasTransitAfter = route.legs.drop(index + 1).any { it.mode != TransportMode.WALK }
         val phase = when {
             index == route.legs.lastIndex && destinationDistance <= max(28.0, accuracyMeters * 1.5) ->
                 TripProgressPhase.FINISHED
-            leg.mode == TransportMode.WALK && index == 0 -> TripProgressPhase.APPROACH
-            leg.mode == TransportMode.WALK && index == route.legs.lastIndex -> TripProgressPhase.FINAL_WALK
+            leg.mode == TransportMode.WALK && !hasTransitBefore -> TripProgressPhase.APPROACH
+            leg.mode == TransportMode.WALK && !hasTransitAfter -> TripProgressPhase.FINAL_WALK
             leg.mode == TransportMode.WALK -> TripProgressPhase.TRANSFER
             epochSec <= leg.departureEpochSec + 20L && fraction <= 0.10 -> TripProgressPhase.WAITING
             fraction >= 0.78 -> TripProgressPhase.ALIGHTING
