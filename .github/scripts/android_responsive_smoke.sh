@@ -23,7 +23,13 @@ adb shell settings put global animator_duration_scale 0
 adb install -r "$app_apk"
 adb install -r "$test_apk"
 
+restore_network() {
+  adb shell svc wifi enable >/dev/null 2>&1 || true
+  adb shell svc data enable >/dev/null 2>&1 || true
+}
+
 cleanup() {
+  restore_network
   adb shell wm size reset >/dev/null 2>&1 || true
   adb shell wm density reset >/dev/null 2>&1 || true
   adb shell settings put system font_scale 1.0 >/dev/null 2>&1 || true
@@ -82,6 +88,21 @@ run_test_selector() {
     return 1
   fi
   rm -f "$one_log"
+}
+
+run_offline_address_gate() {
+  local log=$1
+  adb shell svc wifi disable >/dev/null 2>&1 || true
+  adb shell svc data disable >/dev/null 2>&1 || true
+  sleep 1
+  {
+    printf '\n===== OFFLINE ADDRESS ENVIRONMENT =====\n'
+    printf 'wifi='; adb shell dumpsys wifi | grep -m1 -E 'Wi-Fi is|WifiState' || true
+    printf 'data='; adb shell dumpsys telephony.registry | grep -m1 -E 'mDataConnectionState|mDataConnectionNetworkType' || true
+  } >>"$log"
+  run_test_selector 'app.humanrouter.search.OfflineAddressIndexInstrumentationTest' "$log"
+  restore_network
+  sleep 1
 }
 
 run_viewport() {
@@ -143,11 +164,18 @@ run_viewport() {
     run_test_selector "$selector" "$instrumentation_output"
   done
 
-  # Explicitly assert all expected completions so accidental selector loss cannot look green.
-  # Previous matrix total was 25; stop interaction contributes two more tests.
+  local expected_completed=27
+  # The address lookup itself is viewport-independent, so run its two mandatory tests once on the
+  # compact-phone pass with both Wi-Fi and cellular data explicitly disabled. This proves a normal
+  # street/house lookup returns from runtime/address/address.sqlite before any online fallback.
+  if [[ "$label" == 'compact-phone' ]]; then
+    run_offline_address_gate "$instrumentation_output"
+    expected_completed=29
+  fi
+
   completed=$(grep -c '^INSTRUMENTATION_STATUS_CODE: 0$' "$instrumentation_output" || true)
-  if (( completed != 27 )); then
-    echo "Expected 27 completed responsive tests, got $completed for $label" >&2
+  if (( completed != expected_completed )); then
+    echo "Expected $expected_completed completed responsive tests, got $completed for $label" >&2
     exit 1
   fi
 
