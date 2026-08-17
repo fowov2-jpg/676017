@@ -174,7 +174,7 @@ internal object OfflineAddressIndex {
             .trim()
 
         val explicitHouse = Regex(
-            "(?:^|\\s)(?:д|дом)\\s*(\\d+[а-яa-z]?)(?:\\s*(?:к|корпус)\\s*(\\d+[а-яa-z]?))?(?:\\s*(?:стр|строение)\\s*(\\d+[а-яa-z]?))?\\s*$"
+            "(?:^|\\s)(?:д|дом|вл|владение)\\s*(\\d+[а-яa-z]?)(?:\\s*(?:к|корп|корпус)\\s*(\\d+[а-яa-z]?))?(?:\\s*(?:с|стр|строение)\\s*(\\d+[а-яa-z]?))?\\s*$"
         ).find(normalized)
 
         val houseRange = explicitHouse?.range
@@ -186,7 +186,7 @@ internal object OfflineAddressIndex {
             }
         } else {
             val trailing = Regex(
-                "(?:^|\\s)(\\d+[а-яa-z]?)(?:\\s*(?:к|корпус)\\s*(\\d+[а-яa-z]?))?(?:\\s*(?:стр|строение)\\s*(\\d+[а-яa-z]?))?\\s*$"
+                "(?:^|\\s)(\\d+[а-яa-z]?)(?:\\s*(?:к|корп|корпус)\\s*(\\d+[а-яa-z]?))?(?:\\s*(?:с|стр|строение)\\s*(\\d+[а-яa-z]?))?\\s*$"
             ).find(normalized)
             if (trailing != null && hasStreetBeforeNumber(normalized, trailing.range.first)) {
                 buildString {
@@ -199,7 +199,7 @@ internal object OfflineAddressIndex {
 
         val trailingMatch = if (houseRange == null && house != null) {
             Regex(
-                "(?:^|\\s)(\\d+[а-яa-z]?)(?:\\s*(?:к|корпус)\\s*(\\d+[а-яa-z]?))?(?:\\s*(?:стр|строение)\\s*(\\d+[а-яa-z]?))?\\s*$"
+                "(?:^|\\s)(\\d+[а-яa-z]?)(?:\\s*(?:к|корп|корпус)\\s*(\\d+[а-яa-z]?))?(?:\\s*(?:с|стр|строение)\\s*(\\d+[а-яa-z]?))?\\s*$"
             ).find(normalized)
         } else null
         val removeFrom = houseRange?.first ?: trailingMatch?.range?.first
@@ -215,13 +215,13 @@ internal object OfflineAddressIndex {
     private fun stripStreetType(value: String): String = value
         .replace(
             Regex(
-                "^(?:ул(?:ица)?|проспект|пр-т|пр-т|переулок|пер|шоссе|бульвар|бул|набережная|наб|проезд|площадь|пл)\\s+"
+                "^(?:ул(?:ица)?|проспект|пр-т|переулок|пер|шоссе|бульвар|бул|набережная|наб|проезд|площадь|пл|аллея|линия|тупик|квартал|микрорайон|мкр)\\s+"
             ),
             ""
         )
         .replace(
             Regex(
-                "\\s+(?:ул(?:ица)?|проспект|пр-т|переулок|пер|шоссе|бульвар|бул|набережная|наб|проезд|площадь|пл)$"
+                "\\s+(?:ул(?:ица)?|проспект|пр-т|переулок|пер|шоссе|бульвар|бул|набережная|наб|проезд|площадь|пл|аллея|линия|тупик|квартал|микрорайон|мкр)$"
             ),
             ""
         )
