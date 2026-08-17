@@ -1,0 +1,342 @@
+diff --git a/.github/workflows/build-android.yml b/.github/workflows/build-android.yml
+--- a/.github/workflows/build-android.yml
++++ b/.github/workflows/build-android.yml
+@@
+   publish-qa-release:
+     needs: [build, emulator-smoke]
+-    if: ${{ always() && needs.build.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
++    if: ${{ always() && needs.build.result == 'success' && needs.emulator-smoke.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+     runs-on: ubuntu-latest
+diff --git a/.github/scripts/android_emulator_smoke.sh b/.github/scripts/android_emulator_smoke.sh
+--- a/.github/scripts/android_emulator_smoke.sh
++++ b/.github/scripts/android_emulator_smoke.sh
+@@
+ mkdir -p "$output_dir"
+
++diagnostics_captured=false
++capture_failure_diagnostics() {
++  if [[ "$diagnostics_captured" == true ]]; then
++    return
++  fi
++  diagnostics_captured=true
++  adb logcat -d -v threadtime >"$output_dir/failure-logcat.txt" 2>&1 || true
++  adb shell dumpsys window windows >"$output_dir/failure-window.txt" 2>&1 || true
++  adb shell dumpsys window displays >>"$output_dir/failure-window.txt" 2>&1 || true
++  adb shell dumpsys activity activities >"$output_dir/failure-activity.txt" 2>&1 || true
++  adb exec-out screencap -p >"$output_dir/failure-screen.png" 2>/dev/null || true
++  adb shell uiautomator dump /sdcard/vremyahodom-failure.xml >/dev/null 2>&1 || true
++  adb pull /sdcard/vremyahodom-failure.xml "$output_dir/failure-window.xml" >/dev/null 2>&1 || true
++}
++on_exit() {
++  local status=$?
++  if (( status != 0 )); then
++    capture_failure_diagnostics
++  fi
++  exit "$status"
++}
++trap on_exit EXIT
++
+ adb wait-for-device
+@@
+ if (( instrumentation_status != 0 )); then
+   exit "$instrumentation_status"
+ fi
+-grep -E 'OK \([0-9]+ tests?\)' "$instrumentation_output"
+ if grep -E 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed' "$instrumentation_output"; then
+   exit 1
+ fi
++if ! grep -E 'OK \([0-9]+ tests?\)' "$instrumentation_output"; then
++  echo 'Instrumentation finished without an OK test summary' >&2
++  exit 1
++fi
+@@
+ if adb logcat -d -v brief | grep -A 12 'FATAL EXCEPTION' | grep -F "$package_name"; then
+   echo 'Fatal VremyaHodom exception detected in emulator logcat' >&2
+   exit 1
+ fi
+
++trap - EXIT
+ echo "Emulator smoke passed on API $api_level"
+diff --git a/android/app/src/main/java/app/humanrouter/RuntimeInstaller.kt b/android/app/src/main/java/app/humanrouter/RuntimeInstaller.kt
+--- a/android/app/src/main/java/app/humanrouter/RuntimeInstaller.kt
++++ b/android/app/src/main/java/app/humanrouter/RuntimeInstaller.kt
+@@
+-    fun install(
++    @Synchronized
++    fun install(
+         context: Context,
+         shouldStop: () -> Boolean = { false },
+         onProgress: (Progress) -> Unit
+@@
+     internal fun transactionInProgress(filesRoot: File): Boolean =
+         File(filesRoot, TRANSACTION_FILE_NAME).exists()
++
++    /**
++     * Cheap startup integrity check.
++     *
++     * Full SHA-256 verification remains part of installation/update. Startup only verifies
++     * that every required installed pack described by the committed local manifest exists
++     * with the expected byte length, avoiding hundreds of MiB of hashing on the main thread.
++     */
++    internal fun installedRuntimeLooksComplete(filesRoot: File): Boolean {
++        if (transactionInProgress(filesRoot)) return false
++        val root = File(filesRoot, "runtime")
++        val localManifest = File(root, "manifest.json")
++        if (!localManifest.isFile) return false
++        val manifest = runCatching {
++            RuntimeManifestSpec.parse(localManifest.readText())
++        }.getOrNull() ?: return false
++        return manifest.packs
++            .asSequence()
++            .filter(RuntimePackSpec::required)
++            .all { pack ->
++                val installed = runCatching { resolveWithin(root, pack.installAs) }.getOrNull()
++                    ?: return@all false
++                installed.isFile && installed.length() == pack.rawBytes
++            }
++    }
++
+     /** Restores the last complete runtime if the process stopped during the short commit window. */
+     internal fun recoverInterruptedInstall(filesRoot: File) {
+diff --git a/android/app/src/main/java/app/humanrouter/MainActivity.kt b/android/app/src/main/java/app/humanrouter/MainActivity.kt
+--- a/android/app/src/main/java/app/humanrouter/MainActivity.kt
++++ b/android/app/src/main/java/app/humanrouter/MainActivity.kt
+@@
+     private fun hasUsableRuntime(): Boolean {
+-        val root = File(filesDir, "runtime")
+-        return !RuntimeInstaller.transactionInProgress(filesDir) &&
+-            File(root, "manifest.json").exists() &&
+-            (File(root, "surface/manifest.json").exists() || File(root, "rail/graph.json").exists())
++        return RuntimeInstaller.installedRuntimeLooksComplete(filesDir)
+     }
+diff --git a/android/app/src/androidTest/java/app/humanrouter/MainActivitySmokeTest.kt b/android/app/src/androidTest/java/app/humanrouter/MainActivitySmokeTest.kt
+--- a/android/app/src/androidTest/java/app/humanrouter/MainActivitySmokeTest.kt
++++ b/android/app/src/androidTest/java/app/humanrouter/MainActivitySmokeTest.kt
+@@
+         onView(withText("Ещё")).perform(click())
+         onView(withText("Наземный транспорт")).perform(click())
+         // Route options intentionally start map-first/compact. Expand through the real handle
+         // before exercising controls that live below the initially visible route-card viewport.
++        val initialVisibleHeight = routeSheetVisibleHeight()
++        val rootVisibleHeight = rootVisibleHeight()
+         onView(isRoot()).perform(dragRouteSheetHandle(expand = true))
+-        onView(isRoot()).perform(waitForUi(260L))
++        waitForRouteSheetVisibleHeight(
++            minimum = initialVisibleHeight + (rootVisibleHeight * 0.08f).toInt()
++        )
+         onView(withText("☆ Сохранить маршрут")).perform(scrollTo(), click())
+@@
+     private fun dragRouteSheetHandle(expand: Boolean): ViewAction {
+@@
+         return GeneralSwipeAction(
+             Swipe.FAST,
+             CoordinatesProvider { root -> sheetGesturePoint(root, 0f) },
+             CoordinatesProvider { root -> sheetGesturePoint(root, deltaY) },
+             Press.FINGER
+         )
+     }
++    private fun rootVisibleHeight(): Int {
++        var height = 0
++        scenario!!.onActivity { activity ->
++            height = visibleHeight(activity.findViewById(R.id.root))
++        }
++        return height
++    }
++    private fun routeSheetVisibleHeight(): Int {
++        var height = 0
++        scenario!!.onActivity { activity ->
++            height = visibleHeight(activity.findViewById(R.id.routeResultsContainer))
++        }
++        return height
++    }
++    private fun visibleHeight(view: View): Int {
++        val rect = Rect()
++        check(view.getGlobalVisibleRect(rect)) { "${view.javaClass.simpleName} has no visible rectangle" }
++        return rect.height()
++    }
++    private fun waitForRouteSheetVisibleHeight(
++        minimum: Int? = null,
++        maximum: Int? = null,
++        timeoutMs: Long = 5_000L
++    ) {
++        require(minimum != null || maximum != null)
++        val instrumentation = InstrumentationRegistry.getInstrumentation()
++        val deadline = SystemClock.uptimeMillis() + timeoutMs
++        var lastHeight = -1
++        while (SystemClock.uptimeMillis() < deadline) {
++            instrumentation.waitForIdleSync()
++            runCatching { lastHeight = routeSheetVisibleHeight() }
++            val minimumSatisfied = minimum == null || lastHeight >= minimum
++            val maximumSatisfied = maximum == null || lastHeight <= maximum
++            if (minimumSatisfied && maximumSatisfied) return
++            SystemClock.sleep(50L)
++        }
++        check((minimum == null || lastHeight >= minimum) && (maximum == null || lastHeight <= maximum)) {
++            "Route sheet did not settle: visibleHeight=$lastHeight, minimum=$minimum, maximum=$maximum"
++        }
++    }
+     private fun waitForUi(milliseconds: Long): ViewAction = object : ViewAction {
+diff --git a/android/app/src/androidTest/java/app/humanrouter/RouteSheetInteractionTest.kt b/android/app/src/androidTest/java/app/humanrouter/RouteSheetInteractionTest.kt
+--- a/android/app/src/androidTest/java/app/humanrouter/RouteSheetInteractionTest.kt
++++ b/android/app/src/androidTest/java/app/humanrouter/RouteSheetInteractionTest.kt
+@@
+ import android.content.Intent
+ import android.graphics.Rect
++import android.os.SystemClock
+ import android.view.View
+@@
+ import androidx.test.ext.junit.runners.AndroidJUnit4
++import androidx.test.platform.app.InstrumentationRegistry
+@@
+         }
+         onView(withId(R.id.routeResultsContainer)).perform(dragHandle(expand = true))
+-        onView(isRoot()).perform(waitForUi(260L))
++        waitForVisibleHeight(
++            minimum = initialVisibleHeight + (rootVisibleHeight * 0.08f).toInt()
++        )
+         var expandedVisibleHeight = 0
+@@
+         }
+         onView(withId(R.id.routeResultsContainer)).perform(dragHandle(expand = false))
+-        onView(isRoot()).perform(waitForUi(260L))
++        waitForVisibleHeight(maximum = expandedVisibleHeight - 1)
+         scenario!!.onActivity { activity ->
+@@
+     private fun visibleHeight(view: View): Int {
+         val rect = Rect()
+         check(view.getGlobalVisibleRect(rect)) { "${view.javaClass.simpleName} has no visible rectangle" }
+         return rect.height()
+     }
++    private fun waitForVisibleHeight(
++        minimum: Int? = null,
++        maximum: Int? = null,
++        timeoutMs: Long = 5_000L
++    ) {
++        require(minimum != null || maximum != null)
++        val instrumentation = InstrumentationRegistry.getInstrumentation()
++        val deadline = SystemClock.uptimeMillis() + timeoutMs
++        var lastHeight = -1
++        while (SystemClock.uptimeMillis() < deadline) {
++            instrumentation.waitForIdleSync()
++            runCatching {
++                scenario!!.onActivity { activity ->
++                    lastHeight = visibleHeight(activity.findViewById(R.id.routeResultsContainer))
++                }
++            }
++            val minimumSatisfied = minimum == null || lastHeight >= minimum
++            val maximumSatisfied = maximum == null || lastHeight <= maximum
++            if (minimumSatisfied && maximumSatisfied) return
++            SystemClock.sleep(50L)
++        }
++        check((minimum == null || lastHeight >= minimum) && (maximum == null || lastHeight <= maximum)) {
++            "Route sheet did not settle: visibleHeight=$lastHeight, minimum=$minimum, maximum=$maximum"
++        }
++    }
+     private fun dragHandle(expand: Boolean): ViewAction {
+diff --git a/android/app/src/androidTest/java/app/humanrouter/InteractionStabilitySmokeTest.kt b/android/app/src/androidTest/java/app/humanrouter/InteractionStabilitySmokeTest.kt
+--- a/android/app/src/androidTest/java/app/humanrouter/InteractionStabilitySmokeTest.kt
++++ b/android/app/src/androidTest/java/app/humanrouter/InteractionStabilitySmokeTest.kt
+@@
+                 onView(withId(R.id.settingsPanel)).check(matches(isDisplayed()))
+                 onView(withId(R.id.closeSettingsButton)).perform(click())
+-                // The settings scrim is removed in the 150 ms panel animation end action. Wait for
+-                // that real transition before tapping bottom navigation so the fading scrim cannot
+-                // intercept the Routes click on slower/emulated renderers.
+-                onView(isRoot()).perform(waitForUi(220L))
++                // Wait for the actual end-state instead of assuming the 150 ms animation has
++                // completed after a fixed delay on every emulator.
++                waitForViewNotVisible(scenario, R.id.settingsScrim)
+@@
+     private fun waitForWindowFocus(scenario: ActivityScenario<MainActivity>) {
+@@
+         assertTrue("MainActivity window did not regain focus before stability interaction", ready)
+     }
++    private fun waitForViewNotVisible(
++        scenario: ActivityScenario<MainActivity>,
++        viewId: Int,
++        timeoutMs: Long = 5_000L
++    ) {
++        val instrumentation = InstrumentationRegistry.getInstrumentation()
++        val deadline = SystemClock.uptimeMillis() + timeoutMs
++        var ready = false
++        while (SystemClock.uptimeMillis() < deadline) {
++            instrumentation.waitForIdleSync()
++            scenario.onActivity { activity ->
++                ready = activity.findViewById<View>(viewId).visibility != View.VISIBLE
++            }
++            if (ready) return
++            SystemClock.sleep(50L)
++        }
++        assertTrue("View $viewId did not leave the visible state", ready)
++    }
+     private fun waitForUi(milliseconds: Long): ViewAction = object : ViewAction {
+diff --git a/android/app/src/test/java/app/humanrouter/RuntimeInstallerStateTest.kt b/android/app/src/test/java/app/humanrouter/RuntimeInstallerStateTest.kt
+new file mode 100644
+--- /dev/null
++++ b/android/app/src/test/java/app/humanrouter/RuntimeInstallerStateTest.kt
+@@
++package app.humanrouter
++
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import java.io.File
++import java.nio.file.Files
++
++class RuntimeInstallerStateTest {
++    @Test
++    fun requiredPacksMustExistWithExpectedSize() {
++        val filesRoot = Files.createTempDirectory("vh-runtime-state").toFile()
++        try {
++            val runtime = File(filesRoot, "runtime").apply { mkdirs() }
++            File(runtime, "manifest.json").writeText(manifest(rawBytes = 4))
++
++            assertFalse(RuntimeInstaller.installedRuntimeLooksComplete(filesRoot))
++
++            val pack = File(runtime, "surface/data.bin").apply {
++                parentFile!!.mkdirs()
++                writeBytes(byteArrayOf(1, 2, 3))
++            }
++            assertFalse(RuntimeInstaller.installedRuntimeLooksComplete(filesRoot))
++
++            pack.writeBytes(byteArrayOf(1, 2, 3, 4))
++            assertTrue(RuntimeInstaller.installedRuntimeLooksComplete(filesRoot))
++
++            File(filesRoot, "runtime-transaction.json").writeText("{}")
++            assertFalse(RuntimeInstaller.installedRuntimeLooksComplete(filesRoot))
++        } finally {
++            filesRoot.deleteRecursively()
++        }
++    }
++
++    @Test
++    fun malformedLocalManifestIsNotUsable() {
++        val filesRoot = Files.createTempDirectory("vh-runtime-state").toFile()
++        try {
++            val runtime = File(filesRoot, "runtime").apply { mkdirs() }
++            File(runtime, "manifest.json").writeText("{not-json")
++            assertFalse(RuntimeInstaller.installedRuntimeLooksComplete(filesRoot))
++        } finally {
++            filesRoot.deleteRecursively()
++        }
++    }
++
++    private fun manifest(rawBytes: Long): String = """
++        {
++          "version": "test",
++          "total_download_bytes": 4,
++          "packs": [
++            {
++              "file": "data.bin",
++              "install_as": "surface/data.bin",
++              "compression": "none",
++              "sha256_compressed": "${"a".repeat(64)}",
++              "compressed_bytes": 4,
++              "sha256_raw": "${"b".repeat(64)}",
++              "raw_bytes": $rawBytes,
++              "required": true
++            }
++          ]
++        }
++    """.trimIndent()
++}
