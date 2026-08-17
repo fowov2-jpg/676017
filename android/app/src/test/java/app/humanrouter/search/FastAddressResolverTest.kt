@@ -26,9 +26,10 @@ class FastAddressResolverTest {
     @Test
     fun corpusAndBuildingNumbersAreNotMistakenForHouse() {
         val variants = FastAddressResolver.queryVariantsForTest("Тверская 10 корп. 2 стр. 1")
+        val wrongBaseHouse = Regex("дом\\s+(?:1|2)(?:\\D|$)", RegexOption.IGNORE_CASE)
 
         assertTrue(variants.any { it.contains("Москва") && it.contains("10") })
-        assertFalse(variants.any { it.contains("дом 2") || it.contains("дом 1") })
+        assertFalse(variants.any { wrongBaseHouse.containsMatchIn(it) })
         assertTrue(variants.any { it.contains("корпус 2") && it.contains("строение 1") })
     }
 
