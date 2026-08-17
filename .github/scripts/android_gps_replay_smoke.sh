@@ -32,19 +32,42 @@ cleanup() {
 }
 trap cleanup EXIT
 
+required_names=(
+  gps-03-bus-wait.png
+  gps-04-bus-onboard.png
+  gps-05-bus-exit.png
+  gps-06-transfer.png
+  gps-07-metro-wait.png
+  gps-08-metro-onboard.png
+  gps-09-metro-exit.png
+  gps-11-finish.png
+)
+
 verify_evidence() {
   local dir=$1
-  for name in \
-    gps-03-bus-wait.png \
-    gps-04-bus-onboard.png \
-    gps-05-bus-exit.png \
-    gps-06-transfer.png \
-    gps-07-metro-wait.png \
-    gps-08-metro-onboard.png \
-    gps-09-metro-exit.png \
-    gps-11-finish.png; do
+  for name in "${required_names[@]}"; do
     test -s "$dir/$name"
   done
+}
+
+wait_for_remote_evidence() {
+  local deadline=$((SECONDS + 8))
+  while (( SECONDS < deadline )); do
+    local missing=0
+    for name in "${required_names[@]}"; do
+      if ! adb shell test -s "$remote_dir/$name"; then
+        missing=$((missing + 1))
+      fi
+    done
+    if (( missing == 0 )); then
+      adb shell sync >/dev/null 2>&1 || true
+      return 0
+    fi
+    sleep 0.25
+  done
+  echo "GPS replay evidence did not fully materialize on device:" >&2
+  adb shell ls -l "$remote_dir" >&2 || true
+  return 1
 }
 
 run_replay() {
@@ -54,6 +77,7 @@ run_replay() {
   local out="$output/$label"
   mkdir -p "$out"
 
+  adb shell rm -rf "$remote_dir" >/dev/null 2>&1 || true
   adb shell wm size "$size"
   adb shell wm density "$density"
   adb shell settings put system font_scale 1.0
@@ -65,6 +89,10 @@ run_replay() {
   adb shell am instrument -w -r -e class "$test_class" "$test_runner" | tee "$instrumentation_output"
   local status=${PIPESTATUS[0]}
   set -e
+
+  if (( status == 0 )); then
+    wait_for_remote_evidence
+  fi
 
   # Pull visual evidence even after a failed assertion so transfer regressions remain inspectable.
   adb pull "$remote_dir" "$out/gps-replay" >/dev/null 2>&1 || true
