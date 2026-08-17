@@ -210,10 +210,22 @@ internal class HumanRouterEngine(
                 return@runCatching PlanResult.Failure("После фильтрации не осталось допустимых маршрутов")
             }
 
-            LastPlanStore.select(ordered.first().route, destination)
+            // The broad search only needs walking costs to compare many candidate stops. Once the
+            // final 1–4 routes are selected, resolve the exact A* geometry for their few access,
+            // egress and transfer walks. This removes straight visual chords without putting an A*
+            // search inside the hot candidate loop that produces the sub-two-second first result.
+            val renderedRoutes = if (walkGraph != null) {
+                ordered.map { ranked ->
+                    ranked.copy(route = refineWalkingGeometry(ranked.route))
+                }
+            } else {
+                ordered
+            }
+
+            LastPlanStore.select(renderedRoutes.first().route, destination)
 
             PlanResult.Success(
-                routes = ordered,
+                routes = renderedRoutes,
                 serviceDate = serviceDate,
                 railTimetableEffectiveFrom = railTimetableRouter?.effectiveFrom,
                 exactWalkingGraph = exactWalking
@@ -222,6 +234,39 @@ internal class HumanRouterEngine(
             LastPlanStore.seed = null
             PlanResult.Failure(error.message ?: error.javaClass.simpleName)
         }
+    }
+
+    private fun refineWalkingGeometry(route: RouteCandidate): RouteCandidate {
+        val graph = walkGraph ?: return route
+        var changed = false
+        val legs = route.legs.map { leg ->
+            if (leg.mode != TransportMode.WALK || leg.geometry.size >= 2 || leg.walkMeters <= 0) {
+                leg
+            } else {
+                val maxMeters = (leg.walkMeters * 2 + WALK_GEOMETRY_MARGIN_METERS)
+                    .coerceIn(WALK_GEOMETRY_MIN_BUDGET_METERS, WALK_GEOMETRY_MAX_BUDGET_METERS)
+                val speedBudget = (maxMeters / preferences.walkingSpeedMetersPerSecond)
+                    .toInt()
+                    .coerceAtLeast(1)
+                val maxSeconds = maxOf(
+                    leg.durationSeconds * 2 + WALK_GEOMETRY_MARGIN_SECONDS,
+                    speedBudget + WALK_GEOMETRY_MARGIN_SECONDS
+                ).coerceAtMost(WALK_GEOMETRY_MAX_BUDGET_SECONDS)
+                val exact = graph.shortestWalk(
+                    from = leg.from.point,
+                    to = leg.to.point,
+                    maxSeconds = maxSeconds,
+                    maxMeters = maxMeters
+                )
+                if (exact != null && exact.geometry.size >= 2) {
+                    changed = true
+                    leg.copy(geometry = exact.geometry)
+                } else {
+                    leg
+                }
+            }
+        }
+        return if (changed) route.copy(legs = legs) else route
     }
 
     private fun directWalk(
@@ -271,6 +316,11 @@ internal class HumanRouterEngine(
         private const val MAX_VISIBLE_OPTIONS = 4
         private const val DIRECT_WALK_MAX_METERS = 20_000
         private const val DIRECT_WALK_MAX_SECONDS = 5 * 60 * 60
+        private const val WALK_GEOMETRY_MARGIN_METERS = 350
+        private const val WALK_GEOMETRY_MIN_BUDGET_METERS = 500
+        private const val WALK_GEOMETRY_MAX_BUDGET_METERS = 7_000
+        private const val WALK_GEOMETRY_MARGIN_SECONDS = 180
+        private const val WALK_GEOMETRY_MAX_BUDGET_SECONDS = 2 * 60 * 60
         private const val STALE_SURFACE_UNCERTAINTY_SECONDS = 20 * 60
         private const val STALE_SURFACE_CONFIDENCE = 0.15
         private val ALTERNATIVE_DEPARTURE_OFFSETS = intArrayOf(0, 120, 300, 600)
