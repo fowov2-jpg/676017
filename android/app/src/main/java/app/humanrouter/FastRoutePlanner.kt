@@ -50,14 +50,14 @@ internal object FastRoutePlanner {
             }
         }
 
-        // Build rail/surface indexes before the user presses the route button. This moves most
-        // cold-start cost into idle time while the user is choosing A and B.
-        io.execute {
-            runCatching {
-                FastMeetRouter
-                    .get(activity.applicationContext, AppPreferences.routePreferences(activity))
-                    .prewarm()
-            }
+        // FastMeetRouter.prewarm() is non-blocking: it only schedules the rail/surface preload on
+        // the router's own workers. Call it immediately while installing the active lifecycle so
+        // cold-index parsing starts as early as possible. The previous extra io.execute hop could
+        // delay the preload behind unrelated geocoding/refinement work after Activity recreation.
+        runCatching {
+            FastMeetRouter
+                .get(activity.applicationContext, AppPreferences.routePreferences(activity))
+                .prewarm()
         }
     }
 
