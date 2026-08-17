@@ -26,6 +26,7 @@ adb install -r "$test_apk"
 cleanup() {
   adb shell wm size reset >/dev/null 2>&1 || true
   adb shell wm density reset >/dev/null 2>&1 || true
+  adb shell settings put system font_scale 1.0 >/dev/null 2>&1 || true
   adb shell am force-stop "$package_name" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -53,11 +54,13 @@ run_viewport() {
   local density=$3
   local expected_width_dp=$4
   local expected_height_dp=$5
+  local font_scale=${6:-1.0}
   local out="$output_root/$label"
   mkdir -p "$out"
 
   adb shell wm size "$size"
   adb shell wm density "$density"
+  adb shell settings put system font_scale "$font_scale"
   adb shell am force-stop "$package_name" >/dev/null
   sleep 2
 
@@ -65,10 +68,12 @@ run_viewport() {
     printf 'label=%s\n' "$label"
     printf 'requested_size=%s\n' "$size"
     printf 'requested_density=%s\n' "$density"
+    printf 'font_scale=%s\n' "$font_scale"
     printf 'expected_width_dp=%s\n' "$expected_width_dp"
     printf 'expected_height_dp=%s\n' "$expected_height_dp"
     adb shell wm size | tr -d '\r'
     adb shell wm density | tr -d '\r'
+    adb shell settings get system font_scale | tr -d '\r'
   } >"$out/environment.txt"
 
   instrumentation_output="$out/instrumentation.txt"
@@ -95,11 +100,18 @@ run_viewport() {
   fi
 }
 
+# Narrow phone: catches wrapping, overlapping sheets and small touch targets.
 # 720/320 = 360dp, 1600/320 = 800dp.
-run_viewport compact-phone 720x1600 320 360 800
+run_viewport compact-phone 720x1600 320 360 800 1.0
 
-# 1080/216 = 800dp, 1728/216 = 1280dp: tablet-class width without requiring a
-# second emulator hardware profile, so the exact same APK is tested under a tablet window.
-run_viewport tablet 1080x1728 216 800 1280
+# Same narrow phone with accessibility-sized text. This specifically catches labels such as
+# «Работа», «Рядом» and long transit names wrapping into neighboring controls.
+run_viewport compact-phone-large-text 720x1600 320 360 800 1.25
 
-echo "Responsive compact-phone/tablet smoke passed on API $api_level"
+# Tablet portrait. 1080/216 = 800dp, 1728/216 = 1280dp.
+run_viewport tablet-portrait 1080x1728 216 800 1280 1.0
+
+# Tablet landscape using the same APK and density: 1728/216 = 1280dp, 1080/216 = 800dp.
+run_viewport tablet-landscape 1728x1080 216 1280 800 1.0
+
+echo "Responsive phone/large-text/tablet smoke passed on API $api_level"
