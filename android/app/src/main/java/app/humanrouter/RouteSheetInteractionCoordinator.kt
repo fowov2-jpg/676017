@@ -4,6 +4,7 @@ import android.animation.ValueAnimator
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewTreeObserver
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -16,9 +17,10 @@ import kotlin.math.roundToInt
 /**
  * Final interaction owner for the route sheet.
  *
- * The product presentation layer may restyle the sheet, but this coordinator owns its interactive
- * size. Route choices start in a compact medium state so the map remains the primary context. As
- * soon as the user grabs the handle, automatic clamping stops and the sheet follows the gesture.
+ * Route choices start in a compact medium state so the map remains the primary context. Until the
+ * user grabs the handle, the coordinator also verifies that compact state immediately before draw;
+ * this prevents an earlier presentation pass from flashing a tall sheet for a frame. On ACTION_DOWN
+ * the height becomes fully user-owned and automatic clamping stops until route options are reopened.
  */
 internal object RouteSheetInteractionCoordinator {
     private val controllers = WeakHashMap<MainActivity, Controller>()
@@ -51,9 +53,25 @@ internal object RouteSheetInteractionCoordinator {
         private val layoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             reconcileInitialRouteSize()
         }
+        private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
+            if (activity.isFinishing || activity.isDestroyed) return@OnPreDrawListener true
+            val routes = isRouteOptions()
+            if (!routes) {
+                routeOptionsVisible = false
+                userOwnsHeight = false
+                return@OnPreDrawListener true
+            }
+            if (!routeOptionsVisible) {
+                routeOptionsVisible = true
+                userOwnsHeight = false
+            }
+            if (!userOwnsHeight && applyMediumRouteGeometry()) return@OnPreDrawListener false
+            true
+        }
 
         init {
             sheet.addOnLayoutChangeListener(layoutListener)
+            root.viewTreeObserver.addOnPreDrawListener(preDrawListener)
             installGesture()
             root.post(::reconcileInitialRouteSize)
         }
@@ -61,6 +79,7 @@ internal object RouteSheetInteractionCoordinator {
         fun destroy() {
             animator?.cancel()
             sheet.removeOnLayoutChangeListener(layoutListener)
+            if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnPreDrawListener(preDrawListener)
             sheet.setOnTouchListener(null)
         }
 
@@ -86,7 +105,9 @@ internal object RouteSheetInteractionCoordinator {
             if (!userOwnsHeight) applyMediumRouteGeometry()
         }
 
-        private fun applyMediumRouteGeometry() {
+        /** Returns true when layout params were changed and another layout pass is required. */
+        private fun applyMediumRouteGeometry(): Boolean {
+            if (applying) return false
             val widthPx = root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels
             val heightPx = root.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels
             val widthDp = widthPx / density
@@ -101,7 +122,7 @@ internal object RouteSheetInteractionCoordinator {
                 else -> (heightDp * 0.35f).roundToInt().coerceIn(292, 340)
             }
             val targetHeight = dp(targetDp)
-            val lp = sheet.layoutParams as? FrameLayout.LayoutParams ?: return
+            val lp = sheet.layoutParams as? FrameLayout.LayoutParams ?: return false
             var changed = lp.height != targetHeight
             lp.height = targetHeight
 
@@ -120,6 +141,7 @@ internal object RouteSheetInteractionCoordinator {
                 sheet.layoutParams = lp
                 sheet.post { applying = false }
             }
+            return changed
         }
 
         private fun installGesture() {
