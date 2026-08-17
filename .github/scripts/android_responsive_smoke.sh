@@ -37,6 +37,7 @@ capture_fixture() {
   local name=$3
   local expected=$4
   adb shell am force-stop "$package_name" >/dev/null
+  adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
   local start_output
   start_output=$(adb shell am start -W -n "$activity_name" --es qa_screen "$screen")
   grep -F 'Status: ok' <<<"$start_output"
@@ -46,6 +47,41 @@ capture_fixture() {
   adb shell uiautomator dump /sdcard/vh-responsive.xml >/dev/null
   adb pull /sdcard/vh-responsive.xml "$out/${name}.xml" >/dev/null
   grep -F "$expected" "$out/${name}.xml"
+}
+
+run_test_selector() {
+  local selector=$1
+  local log=$2
+
+  # Every scenario starts from a clean target process/data/window state. This prevents a permission,
+  # IME or Activity window from a previous independent JUnit scenario stealing focus from the next
+  # one. InteractionStabilitySmokeTest still exercises repeated transitions inside one Activity, so
+  # real UI race/idle regressions are not hidden by this isolation.
+  adb shell am force-stop "$package_name" >/dev/null 2>&1 || true
+  adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
+  adb shell pm clear "$package_name" >/dev/null
+  sleep 0.35
+
+  local one_log
+  one_log=$(mktemp)
+  set +e
+  adb shell am instrument -w -r -e class "$selector" "$test_runner" | tee "$one_log"
+  local status=${PIPESTATUS[0]}
+  set -e
+  {
+    printf '\n===== %s =====\n' "$selector"
+    cat "$one_log"
+  } >>"$log"
+  if (( status != 0 )); then
+    rm -f "$one_log"
+    return "$status"
+  fi
+  grep -E 'OK \([0-9]+ tests?\)' "$one_log"
+  if grep -E 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed' "$one_log"; then
+    rm -f "$one_log"
+    return 1
+  fi
+  rm -f "$one_log"
 }
 
 run_viewport() {
@@ -76,16 +112,38 @@ run_viewport() {
     adb shell settings get system font_scale | tr -d '\r'
   } >"$out/environment.txt"
 
-  instrumentation_output="$out/instrumentation.txt"
-  set +e
-  adb shell am instrument -w -r "$test_runner" | tee "$instrumentation_output"
-  instrumentation_status=${PIPESTATUS[0]}
-  set -e
-  if (( instrumentation_status != 0 )); then
-    exit "$instrumentation_status"
-  fi
-  grep -E 'OK \([0-9]+ tests?\)' "$instrumentation_output"
-  if grep -E 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed' "$instrumentation_output"; then
+  local instrumentation_output="$out/instrumentation.txt"
+  : >"$instrumentation_output"
+
+  # One long instrumentation process can retain a system/IME/permission window between independent
+  # test classes. Run every scenario in a clean target process instead. MainActivitySmokeTest is
+  # split per method because it deliberately covers unrelated permission, error, route and rotation
+  # states. The total remains the same 24 required tests.
+  local selectors=(
+    'app.humanrouter.GpsRouteReplayInstrumentationTest'
+    'app.humanrouter.InteractionStabilitySmokeTest'
+    'app.humanrouter.LauncherVisibilityTest'
+    'app.humanrouter.MainActivitySmokeTest#homeNavigationSettingsAndRecreationRemainUsable'
+    'app.humanrouter.MainActivitySmokeTest#locationPermissionStatesKeepManualOriginAvailable'
+    'app.humanrouter.MainActivitySmokeTest#routeOptionsFiltersFavoritesAndTripFlowAreInteractive'
+    'app.humanrouter.MainActivitySmokeTest#darkThemeAndRotationPreserveTheMainScreen'
+    'app.humanrouter.MainActivitySmokeTest#addressErrorUsesACompactSheet'
+    'app.humanrouter.ReferenceProductUiSmokeTest'
+    'app.humanrouter.TransitVisualSystemSmokeTest'
+    'app.humanrouter.UiPolishSmokeTest'
+    'app.humanrouter.UnifiedUiSmokeTest'
+    'app.humanrouter.routing.RoutingModesInstrumentationTest'
+  )
+
+  for selector in "${selectors[@]}"; do
+    run_test_selector "$selector" "$instrumentation_output"
+  done
+
+  # Explicitly assert all expected test completions so accidental selector loss cannot make this gate
+  # look green. Counts by selector: 1 + 2 + 1 + five singles + 4 + 3 + 1 + 3 + 4 = 24.
+  completed=$(grep -c '^INSTRUMENTATION_STATUS_CODE: 0$' "$instrumentation_output" || true)
+  if (( completed != 24 )); then
+    echo "Expected 24 completed responsive tests, got $completed for $label" >&2
     exit 1
   fi
 
