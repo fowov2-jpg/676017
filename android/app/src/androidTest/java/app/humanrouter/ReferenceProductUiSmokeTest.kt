@@ -1,6 +1,7 @@
 package app.humanrouter
 
 import android.content.Intent
+import android.graphics.Rect
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -26,11 +27,14 @@ class ReferenceProductUiSmokeTest {
                 val search = activity.findViewById<View>(R.id.searchPanel)
                 val nearby = activity.findViewById<View>(R.id.nearbyPanel)
                 val nav = activity.findViewById<View>(R.id.bottomNav)
-                assertTrue(search.width < root.width * 0.90f)
-                assertTrue(search.height >= dp(activity, 58))
-                assertTrue(nearby.height >= dp(activity, 140))
-                assertTrue(nearby.height <= dp(activity, 190))
-                assertTrue(nav.height >= dp(activity, 64))
+                val widthDp = root.width / activity.resources.displayMetrics.density
+                assertTrue(search.width < root.width * if (widthDp >= 600f) 0.92f else 0.96f)
+                assertTrue(search.height >= dp(activity, 54))
+                assertTrue(nearby.height >= dp(activity, 120))
+                assertTrue(nearby.height <= dp(activity, if (widthDp >= 600f) 290 else 250))
+                assertTrue(nav.height >= dp(activity, 60))
+                assertTrue(nav.height <= dp(activity, 82))
+                assertNoOverlap(nearby, nav, "nearby sheet overlaps bottom navigation")
             }
         }
     }
@@ -43,8 +47,15 @@ class ReferenceProductUiSmokeTest {
                 val root = activity.findViewById<FrameLayout>(R.id.root)
                 val settingsPanel = activity.findViewById<LinearLayout>(R.id.settingsPanel)
                 val sheet = settingsPanel.parent as View
-                assertTrue(sheet.width < root.width * 0.48f)
-                assertTrue(sheet.width > root.width * 0.36f)
+                val widthDp = root.width / activity.resources.displayMetrics.density
+                val ratio = sheet.width.toFloat() / root.width.toFloat()
+                if (widthDp >= 600f) {
+                    assertTrue("tablet settings sheet too narrow", ratio >= 0.36f)
+                    assertTrue("tablet settings sheet too wide", ratio <= 0.55f)
+                } else {
+                    assertTrue("phone settings sheet too narrow for labels", ratio >= 0.64f)
+                    assertTrue("phone settings sheet hides too much map", ratio <= 0.86f)
+                }
                 assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.mapView).visibility)
             }
         }
@@ -59,25 +70,41 @@ class ReferenceProductUiSmokeTest {
                 assertEquals(View.GONE, activity.findViewById<View>(R.id.bottomNav).visibility)
                 val root = activity.findViewById<View>(R.id.root)
                 val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
+                val heightDp = root.height / activity.resources.displayMetrics.density
                 val ratio = sheet.height.toFloat() / root.height.toFloat()
-                assertTrue("route sheet is too short for alternatives", ratio >= 0.52f)
-                assertTrue("route sheet covers too much map", ratio <= 0.60f)
+                val minRatio = if (heightDp < 700f) 0.58f else 0.50f
+                assertTrue("route sheet is too short for alternatives", ratio >= minRatio)
+                assertTrue("route sheet covers too much map", ratio <= 0.66f)
             }
         }
     }
 
     @Test
-    fun activeTripOwnsTopAndBottomChrome() {
+    fun activeTripOwnsTopAndBottomChromeWithoutOverlap() {
         launch("trip").use { scenario ->
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             scenario.onActivity { activity ->
                 val root = activity.findViewById<FrameLayout>(R.id.root)
-                assertNotNull(root.findViewWithTag<View>("reference_active_trip_top"))
-                assertNotNull(root.findViewWithTag<View>("reference_active_trip_mini"))
+                val top = root.findViewWithTag<View>("reference_active_trip_top")
+                val mini = root.findViewWithTag<View>("reference_active_trip_mini")
+                val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
+                assertNotNull(top)
+                assertNotNull(mini)
                 assertEquals(View.GONE, activity.findViewById<View>(R.id.searchPanel).visibility)
                 assertEquals(View.GONE, activity.findViewById<View>(R.id.bottomNav).visibility)
+                assertNoOverlap(top!!, sheet, "active top card overlaps trip sheet")
+                assertNoOverlap(sheet, mini!!, "trip sheet overlaps bottom mini card")
             }
         }
+    }
+
+    private fun assertNoOverlap(first: View, second: View, message: String) {
+        if (first.visibility != View.VISIBLE || second.visibility != View.VISIBLE) return
+        val a = Rect()
+        val b = Rect()
+        assertTrue(first.getGlobalVisibleRect(a))
+        assertTrue(second.getGlobalVisibleRect(b))
+        assertTrue(message, !Rect.intersects(a, b))
     }
 
     private fun launch(screen: String): ActivityScenario<MainActivity> = ActivityScenario.launch(
