@@ -123,9 +123,24 @@ class MainActivitySmokeTest {
             val filterViewport = activity.findViewById<View>(R.id.routeFiltersScroll)
             val filterPanel = activity.findViewById<View>(R.id.routeFiltersPanel)
             assertEquals(View.GONE, quickActions.visibility)
+
+            val density = activity.resources.displayMetrics.density
+            val widthDp = activity.resources.configuration.screenWidthDp
             val routeSheetRatio = sheet.height.toFloat() / root.height.toFloat()
-            assertTrue("route sheet is too short for alternatives", routeSheetRatio >= 0.52f)
-            assertTrue("route sheet covers too much of the map", routeSheetRatio <= 0.60f)
+            if (widthDp >= 600) {
+                assertTrue(
+                    "tablet route panel is stretched too tall",
+                    sheet.height <= (430f * density).toInt()
+                )
+                assertTrue(
+                    "tablet route panel is stretched too wide",
+                    sheet.width <= (620f * density).toInt()
+                )
+            } else {
+                assertTrue("phone route sheet is too small to expose a route", routeSheetRatio >= 0.30f)
+                assertTrue("phone route sheet hides too much map context", routeSheetRatio <= 0.42f)
+            }
+            assertTrue("route sheet removed too much map context", sheet.top >= (root.height * 0.50f).toInt())
             assertTrue("route filters overflow their viewport", filterPanel.width <= filterViewport.width)
             assertNotNull(sheet.findViewWithTag<View>("reference_route_endpoints"))
             assertEquals(View.GONE, activity.findViewById<View>(R.id.bottomNav).visibility)
