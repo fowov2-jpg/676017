@@ -3,6 +3,10 @@ package app.humanrouter
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.SystemClock
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
@@ -37,7 +41,11 @@ class TransitStopInteractionInstrumentationTest {
     @Test
     fun clickedStopShowsRealDirectionAndCanBecomeOrigin() {
         launchNearby()
-        openStop("qa:bus")
+        openStop(
+            id = "qa:bus",
+            title = "Театральная площадь",
+            directionNeedles = listOf("→ Лубянка · в центр", "→ Фили · из центра")
+        )
 
         onView(stopCardTitle("Театральная площадь")).check(matches(isDisplayed()))
         onView(withSubstring("→ Лубянка · в центр")).check(matches(isDisplayed()))
@@ -52,7 +60,11 @@ class TransitStopInteractionInstrumentationTest {
     @Test
     fun clickedStationCanBecomeDestination() {
         launchNearby()
-        openStop("qa:metro")
+        openStop(
+            id = "qa:metro",
+            title = "Охотный Ряд",
+            directionNeedles = listOf("→ Бульвар Рокоссовского")
+        )
 
         onView(stopCardTitle("Охотный Ряд")).check(matches(isDisplayed()))
         onView(withSubstring("→ Бульвар Рокоссовского")).check(matches(isDisplayed()))
@@ -101,13 +113,49 @@ class TransitStopInteractionInstrumentationTest {
         )
     }
 
-    private fun openStop(id: String) {
+    /**
+     * Opening the sheet is synchronous, but its direction rows are loaded on the controller's
+     * direction worker. Wait for the actual title + direction content instead of sleeping for an
+     * arbitrary amount of time. This also catches lifecycle regressions where a late MapLibre rebind
+     * removes a sheet after it was successfully opened.
+     */
+    private fun openStop(id: String, title: String, directionNeedles: List<String>) {
         var opened = false
         scenario!!.onActivity { activity ->
             opened = TransitStopMapControllerV3.openForQa(activity, id)
         }
         assertTrue("QA stop $id was not available", opened)
-        SystemClock.sleep(350L)
+
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val deadline = SystemClock.uptimeMillis() + SHEET_READY_TIMEOUT_MS
+        var lastTitle: String? = null
+        var lastDirectionText = ""
+        while (SystemClock.uptimeMillis() < deadline) {
+            instrumentation.waitForIdleSync()
+            scenario!!.onActivity { activity ->
+                val root = activity.findViewById<FrameLayout>(R.id.root)
+                lastTitle = root.findViewWithTag<TextView>("vh_transit_stop_title")?.text?.toString()
+                val directionRoot = root.findViewWithTag<View>("vh_transit_directions")
+                lastDirectionText = collectText(directionRoot)
+            }
+            if (lastTitle == title && directionNeedles.all(lastDirectionText::contains)) return
+            SystemClock.sleep(SHEET_POLL_MS)
+        }
+        assertTrue(
+            "stop sheet $id did not remain ready before timeout; title=$lastTitle directions=$lastDirectionText",
+            lastTitle == title && directionNeedles.all(lastDirectionText::contains)
+        )
+    }
+
+    private fun collectText(view: View?): String {
+        if (view == null) return ""
+        val items = ArrayList<String>()
+        fun walk(node: View) {
+            if (node is TextView) node.text?.toString()?.takeIf(String::isNotBlank)?.let(items::add)
+            if (node is ViewGroup) for (index in 0 until node.childCount) walk(node.getChildAt(index))
+        }
+        walk(view)
+        return items.joinToString("\n")
     }
 
     private fun capture(name: String) {
@@ -126,5 +174,7 @@ class TransitStopInteractionInstrumentationTest {
     private companion object {
         const val MARKER_READY_TIMEOUT_MS = 8_000L
         const val MARKER_POLL_MS = 100L
+        const val SHEET_READY_TIMEOUT_MS = 5_000L
+        const val SHEET_POLL_MS = 75L
     }
 }
