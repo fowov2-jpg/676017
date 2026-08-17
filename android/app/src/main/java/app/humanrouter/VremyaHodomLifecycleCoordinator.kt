@@ -20,18 +20,26 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             ResponsiveProductUi.install(activity)
             ResponsiveViewportGuard.install(activity)
             // GPS progress only binds passenger state to already-composed trip chrome. It never
-            // owns sheet geometry or screen visibility.
+            // owns sheet geometry or screen visibility. The same state receives real foreground
+            // LocationManager samples and deterministic CI replay samples.
             TripProgressUiController.install(activity)
+            PassengerGpsProgressCoordinator.resume(activity)
         }
     }
 
     override fun onActivityPaused(activity: Activity) {
-        if (activity is MainActivity) TripProgressUiController.pause(activity)
+        if (activity is MainActivity) {
+            PassengerGpsProgressCoordinator.pause(activity)
+            TripProgressUiController.pause(activity)
+        }
         VremyaHodomUiCoordinator.onActivityPaused(activity)
     }
 
     override fun onActivityDestroyed(activity: Activity) {
-        if (activity is MainActivity) TripProgressUiController.destroy(activity)
+        if (activity is MainActivity) {
+            PassengerGpsProgressCoordinator.destroy(activity)
+            TripProgressUiController.destroy(activity)
+        }
         VremyaHodomUiCoordinator.onActivityDestroyed(activity)
     }
 
