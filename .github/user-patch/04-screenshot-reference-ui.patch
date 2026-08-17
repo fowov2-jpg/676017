@@ -1,0 +1,266 @@
+diff --git a/android/app/src/main/java/app/humanrouter/MainActivity.kt b/android/app/src/main/java/app/humanrouter/MainActivity.kt
+--- a/android/app/src/main/java/app/humanrouter/MainActivity.kt
++++ b/android/app/src/main/java/app/humanrouter/MainActivity.kt
+@@
+     private var pendingTripRoute: RouteCandidate? = null
+     private var activeTripRoute: RouteCandidate? = null
++    private var activeTripBanner: View? = null
+     private var locationPermissionPreviouslyRequested = false
+@@
+         configureQuickActions()
+         configureNavigation()
+         configureSettings()
++        applyScreenshotReferencePolish()
+         if (debugQaActive) {
+@@
+     private fun renderFilteredRoutes() {
+         setRouteSheetMode(RouteSheetMode.OPTIONS)
+         routeFiltersScroll.visibility = View.VISIBLE
+         hideRoutePrimaryAction()
+         routeResultsPanel.removeAllViews()
+@@
+-        routeResultsPanel.addView(TextView(this).apply {
+-            val origin = selectedFrom?.title ?: routes.firstOrNull()?.route?.legs?.firstOrNull()?.from?.name.orEmpty()
+-            val destination = selectedTo?.title ?: routes.firstOrNull()?.route?.legs?.lastOrNull()?.to?.name.orEmpty()
+-            text = listOf(origin, destination).filter(String::isNotBlank).joinToString("  →  ")
+-            maxLines = 2
+-            textSize = 13f
+-            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_secondary))
+-            setPadding(0, dp(2), 0, dp(2))
+-        })
++        val origin = selectedFrom?.title ?: routes.firstOrNull()?.route?.legs?.firstOrNull()?.from?.name.orEmpty()
++        val destination = selectedTo?.title ?: routes.firstOrNull()?.route?.legs?.lastOrNull()?.to?.name.orEmpty()
++        routeResultsPanel.addView(routeEndpointsHeader(origin, destination))
+         routeResultsPanel.addView(TextView(this).apply {
+-            text = "Варианты маршрута"
+-            textSize = 21f
++            text = "Выберите маршрут"
++            textSize = 18f
+             setTypeface(typeface, Typeface.BOLD)
+             setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_primary))
+-            setPadding(0, dp(2), 0, dp(4))
++            setPadding(0, dp(10), 0, dp(4))
+         })
+@@
+         routeResultsScroll.post { routeResultsScroll.scrollTo(0, 0) }
+     }
++    private fun routeEndpointsHeader(origin: String, destination: String): View =
++        LinearLayout(this).apply {
++            orientation = LinearLayout.VERTICAL
++            background = roundedSurface(ContextCompat.getColor(this@MainActivity, R.color.vh_surface_solid), 20)
++            elevation = dp(1).toFloat()
++            setPadding(dp(14), dp(12), dp(14), dp(12))
++            layoutParams = LinearLayout.LayoutParams(
++                LinearLayout.LayoutParams.MATCH_PARENT,
++                LinearLayout.LayoutParams.WRAP_CONTENT
++            )
++            fun endpointRow(dotColor: Int, label: String) = LinearLayout(this@MainActivity).apply {
++                orientation = LinearLayout.HORIZONTAL
++                gravity = Gravity.CENTER_VERTICAL
++                addView(TextView(this@MainActivity).apply {
++                    text = "●"
++                    textSize = 15f
++                    gravity = Gravity.CENTER
++                    setTextColor(dotColor)
++                }, LinearLayout.LayoutParams(dp(24), dp(28)))
++                addView(TextView(this@MainActivity).apply {
++                    text = label.ifBlank { "Точка на карте" }
++                    maxLines = 1
++                    textSize = 16f
++                    setTypeface(typeface, Typeface.BOLD)
++                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_primary))
++                }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
++            }
++            addView(endpointRow(ContextCompat.getColor(this@MainActivity, R.color.vh_success), origin))
++            addView(View(this@MainActivity).apply {
++                setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.vh_surface_muted))
++            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)).apply {
++                leftMargin = dp(24)
++                topMargin = dp(3)
++                bottomMargin = dp(3)
++            })
++            addView(endpointRow(ContextCompat.getColor(this@MainActivity, R.color.vh_primary), destination))
++        }
+@@
+     private fun renderActiveTrip(route: RouteCandidate) {
+         activeTripRoute = route
+         setRouteSheetMode(RouteSheetMode.ACTIVE_TRIP)
+         routeFiltersScroll.visibility = View.GONE
+         hideRoutePrimaryAction()
++        searchPanel.visibility = View.GONE
++        quickActions.visibility = View.GONE
+         routeResultsPanel.removeAllViews()
+@@
+         val remainingMinutes = ceil((route.arrivalEpochSec - nowEpochSec).coerceAtLeast(0L) / 60.0).toInt()
++        showActiveTripBanner(currentStep, plannedStopsRemaining, remainingMinutes)
+         header.addView(TextView(this).apply {
+@@
+     private fun finishActiveTrip() {
+         activeTripRoute = null
++        hideActiveTripBanner()
+         ActiveTripStore.clear(this)
+         startService(Intent(this, TripNavigationService::class.java).setAction(TripNavigationService.ACTION_STOP))
+         renderRouteFilters()
+         renderFilteredRoutes()
++        searchPanel.visibility = View.VISIBLE
++        updateQuickActionsVisibility()
+     }
++    private fun showActiveTripBanner(
++        currentStep: RouteDisplayStep,
++        stopsRemaining: Int,
++        remainingMinutes: Int
++    ) {
++        val host = root as? FrameLayout ?: return
++        hideActiveTripBanner()
++        val banner = LinearLayout(this).apply {
++            orientation = LinearLayout.VERTICAL
++            background = roundedSurface(ContextCompat.getColor(this@MainActivity, R.color.vh_surface_solid), 24)
++            elevation = dp(10).toFloat()
++            setPadding(dp(16), dp(13), dp(16), dp(13))
++            contentDescription = "Текущий этап поездки: ${displayStepTitle(currentStep)}"
++
++            val firstRow = LinearLayout(this@MainActivity).apply {
++                orientation = LinearLayout.HORIZONTAL
++                gravity = Gravity.CENTER_VERTICAL
++            }
++            firstRow.addView(TextView(this@MainActivity).apply {
++                text = if (currentStep.kind == RouteDisplayKind.WALK) "ПЕШ" else "ТР"
++                gravity = Gravity.CENTER
++                textSize = 14f
++                setTypeface(typeface, Typeface.BOLD)
++                setTextColor(Color.WHITE)
++                background = roundedSurface(displayStepColor(currentStep), 14)
++                setPadding(dp(10), dp(7), dp(10), dp(7))
++            })
++            firstRow.addView(LinearLayout(this@MainActivity).apply {
++                orientation = LinearLayout.VERTICAL
++                setPadding(dp(12), 0, 0, 0)
++                addView(TextView(this@MainActivity).apply {
++                    text = "В пути"
++                    textSize = 18f
++                    setTypeface(typeface, Typeface.BOLD)
++                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_primary))
++                })
++                addView(TextView(this@MainActivity).apply {
++                    text = displayStepTitle(currentStep)
++                    maxLines = 1
++                    textSize = 13f
++                    setTextColor(displayStepColor(currentStep))
++                })
++            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
++            firstRow.addView(TextView(this@MainActivity).apply {
++                text = if (remainingMinutes > 0) "$remainingMinutes мин" else "сейчас"
++                textSize = 16f
++                setTypeface(typeface, Typeface.BOLD)
++                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_primary))
++            })
++            addView(firstRow)
++            addView(TextView(this@MainActivity).apply {
++                text = if (stopsRemaining > 0) {
++                    "Выходите через $stopsRemaining ${stopWord(stopsRemaining)} · ${currentStep.to.name}"
++                } else {
++                    "Следующая точка · ${currentStep.to.name}"
++                }
++                textSize = 14f
++                setTypeface(typeface, Typeface.BOLD)
++                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_secondary))
++                setPadding(0, dp(10), 0, 0)
++            })
++        }
++        host.addView(
++            banner,
++            FrameLayout.LayoutParams(
++                FrameLayout.LayoutParams.MATCH_PARENT,
++                FrameLayout.LayoutParams.WRAP_CONTENT
++            ).apply {
++                leftMargin = dp(16)
++                rightMargin = dp(16)
++                topMargin = systemTopInset + dp(14)
++                gravity = Gravity.TOP
++            }
++        )
++        activeTripBanner = banner
++    }
++    private fun hideActiveTripBanner() {
++        val banner = activeTripBanner ?: return
++        (banner.parent as? FrameLayout)?.removeView(banner)
++        activeTripBanner = null
++    }
+@@
+     private fun nearbyRow(place: NearbyTransitPlace): View = LinearLayout(this).apply {
+         orientation = LinearLayout.HORIZONTAL
+         gravity = Gravity.CENTER_VERTICAL
+-        minimumHeight = dp(58)
++        minimumHeight = dp(66)
+@@
+-        addView(TextView(this@MainActivity).apply {
+-            text = place.nextDepartureEpochSec?.let { departure ->
+-                val minutes = ceil((departure - Instant.now().epochSecond).coerceAtLeast(0L) / 60.0).toInt()
+-                if (minutes <= 0) "по расп. сейчас" else "по расп. $minutes мин"
+-            } ?: formatDistance(place.distanceMeters)
+-            gravity = Gravity.END
+-            textSize = 12f
+-            setTypeface(typeface, Typeface.BOLD)
+-            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_primary))
+-        })
++        addView(LinearLayout(this@MainActivity).apply {
++            orientation = LinearLayout.VERTICAL
++            gravity = Gravity.END
++            addView(TextView(this@MainActivity).apply {
++                text = place.nextDepartureEpochSec?.let { departure ->
++                    val minutes = ceil((departure - Instant.now().epochSecond).coerceAtLeast(0L) / 60.0).toInt()
++                    if (minutes <= 0) "сейчас" else "$minutes мин"
++                } ?: "рядом"
++                gravity = Gravity.END
++                textSize = 16f
++                setTypeface(typeface, Typeface.BOLD)
++                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_primary))
++            })
++            addView(TextView(this@MainActivity).apply {
++                text = "≈ ${formatDistance(place.distanceMeters)}  ›"
++                gravity = Gravity.END
++                textSize = 11.5f
++                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.vh_text_tertiary))
++            })
++        })
+     }
+@@
+     private fun configureSettings() {
+@@
+         refreshRuntimeVersion()
+     }
++    private fun applyScreenshotReferencePolish() {
++        // The supplied references use floating white cards over the map instead of opaque
++        // full-width chrome. Keep the existing functional layout and refine its hierarchy.
++        listOf(searchPanel, nearbyPanel, routeResultsContainer, bottomNav).forEach { panel ->
++            panel.elevation = dp(8).toFloat()
++            panel.clipToOutline = true
++        }
++        searchPanel.background = roundedSurface(
++            ContextCompat.getColor(this, R.color.vh_surface_solid),
++            24
++        )
++        nearbyPanel.background = roundedSurface(
++            ContextCompat.getColor(this, R.color.vh_surface_solid),
++            24
++        )
++        routeResultsContainer.background = roundedSurface(
++            ContextCompat.getColor(this, R.color.vh_surface_solid),
++            26
++        )
++        bottomNav.background = roundedSurface(
++            ContextCompat.getColor(this, R.color.vh_surface_solid),
++            22
++        )
++        settingsPanel.elevation = dp(12).toFloat()
++        locationButton.elevation = dp(8).toFloat()
++        settingsButton.elevation = dp(8).toFloat()
++        compactSearchButton.hint = "Куда едем?"
++        compactSearchButton.textSize = 16f
++    }
++    private fun roundedSurface(color: Int, radiusDp: Int): GradientDrawable =
++        GradientDrawable().apply {
++            shape = GradientDrawable.RECTANGLE
++            cornerRadius = dp(radiusDp).toFloat()
++            setColor(color)
++        }
