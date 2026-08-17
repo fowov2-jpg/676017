@@ -7,12 +7,16 @@ import android.widget.FrameLayout
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.UiController
+import androidx.test.espresso.ViewAction
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.isRoot
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.hamcrest.Matcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -32,6 +36,10 @@ class InteractionStabilitySmokeTest {
                 onView(withId(R.id.settingsButton)).perform(click())
                 onView(withId(R.id.settingsPanel)).check(matches(isDisplayed()))
                 onView(withId(R.id.closeSettingsButton)).perform(click())
+                // The settings scrim is removed in the 150 ms panel animation end action. Wait for
+                // that real transition before tapping bottom navigation so the fading scrim cannot
+                // intercept the Routes click on slower/emulated renderers.
+                onView(isRoot()).perform(waitForUi(220L))
 
                 // With no built route, the Routes tab intentionally opens the expanded search and
                 // hides bottom navigation. Exercise that real state transition, close it, then
@@ -67,6 +75,14 @@ class InteractionStabilitySmokeTest {
                     assertEquals(1, countTag(root, "reference_active_trip_mini"))
                 }
             }
+        }
+    }
+
+    private fun waitForUi(milliseconds: Long): ViewAction = object : ViewAction {
+        override fun getConstraints(): Matcher<View> = isRoot()
+        override fun getDescription(): String = "wait $milliseconds ms for UI transition"
+        override fun perform(uiController: UiController, view: View) {
+            uiController.loopMainThreadForAtLeast(milliseconds)
         }
     }
 
