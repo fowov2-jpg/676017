@@ -40,24 +40,17 @@ class FastRoutePerformanceInstrumentedTest {
             val router = FastMeetRouter.get(context, RoutePreferences())
             val departure = Instant.now().epochSecond
 
-            // The product contract is for an installed/prewarmed runtime. Make the preload deterministic
-            // rather than accidentally timing one-time JSON parsing as user-visible route latency.
-            val warmup = router.planPreview(
-                origin = samples.first().origin,
-                destination = samples.first().destination,
-                departureEpochSec = departure,
-                budgetMs = 1_300L
-            )
-            val warmSuccess = warmup as? HumanRouterEngine.PlanResult.Success
-                ?: throw AssertionError("fast router warmup failed on published Moscow rail graph: $warmup")
-            assertTrue(
-                "warmup used walking only; benchmark would not exercise public transport routing",
-                warmSuccess.fastest.route.legs.any { it.mode != TransportMode.WALK }
-            )
+            // Preload is intentionally outside the user-visible route SLA. Production starts this
+            // work as soon as the active lifecycle is installed, while the user is choosing A/B.
+            // Some Android runtimes parse the cold JSON graph substantially slower than others;
+            // do not mislabel that one-time background initialization as route-search latency.
+            router.prewarm()
+            val preload = awaitTransitPrewarm(router, samples.first(), departure)
 
             val report = buildString {
                 appendLine("runtime=runtime-current/rail_graph.json.gz")
                 appendLine("target_ms=${FastRoutePlanner.FIRST_RESULT_TARGET_MS}")
+                appendLine("prewarm_elapsed_ms=${preload.elapsedMs} attempts=${preload.attempts}")
                 samples.take(3).forEachIndexed { index, sample ->
                     val started = SystemClock.elapsedRealtime()
                     val result = router.planPreview(
@@ -87,11 +80,43 @@ class FastRoutePerformanceInstrumentedTest {
             android.util.Log.i("VremyaHodomRoutePerf", report.replace('\n', ' '))
         } finally {
             // The benchmark installs a rail runtime solely for this test. Do not leave its graph,
-            // executor threads or parsed indexes resident for the remaining 30+ instrumentation tests.
+            // executor threads or parsed indexes resident for the remaining instrumentation tests.
             FastMeetRouter.clearCachedForTest()
             graphFile.delete()
             System.gc()
         }
+    }
+
+    private fun awaitTransitPrewarm(
+        router: FastMeetRouter,
+        sample: RouteSample,
+        departureEpochSec: Long
+    ): PrewarmResult {
+        val started = SystemClock.elapsedRealtime()
+        val deadline = started + PREWARM_TIMEOUT_MS
+        var attempts = 0
+        var lastResult: HumanRouterEngine.PlanResult? = null
+        while (SystemClock.elapsedRealtime() < deadline) {
+            attempts++
+            lastResult = router.planPreview(
+                origin = sample.origin,
+                destination = sample.destination,
+                departureEpochSec = departureEpochSec,
+                budgetMs = 1_300L
+            )
+            val success = lastResult as? HumanRouterEngine.PlanResult.Success
+            if (success != null && success.fastest.route.legs.any { it.mode != TransportMode.WALK }) {
+                return PrewarmResult(
+                    elapsedMs = SystemClock.elapsedRealtime() - started,
+                    attempts = attempts
+                )
+            }
+            SystemClock.sleep(PREWARM_RETRY_DELAY_MS)
+        }
+        throw AssertionError(
+            "fast router did not become transit-ready within ${PREWARM_TIMEOUT_MS}ms; " +
+                "attempts=$attempts last=$lastResult"
+        )
     }
 
     private fun downloadPublishedRailGraph(target: File) {
@@ -171,10 +196,17 @@ class FastRoutePerformanceInstrumentedTest {
         val distanceMeters: Double
     )
 
+    private data class PrewarmResult(
+        val elapsedMs: Long,
+        val attempts: Int
+    )
+
     companion object {
         private const val RAIL_GRAPH_URL =
             "https://github.com/fowov2-jpg/676017/releases/download/runtime-current/rail_graph.json.gz"
         private const val MIN_TRANSIT_SAMPLE_METERS = 3_000.0
+        private const val PREWARM_TIMEOUT_MS = 10_000L
+        private const val PREWARM_RETRY_DELAY_MS = 80L
         private const val EARTH_RADIUS_METERS = 6_371_000.0
     }
 }
