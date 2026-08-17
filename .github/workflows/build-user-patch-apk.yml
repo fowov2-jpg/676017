@@ -5,9 +5,12 @@ on:
   push:
     branches:
       - chatgpt/user-patch-0.1.468-apk
+      - chatgpt/direct-sentry-integration-20260817
     paths:
       - .github/user-patch/**
       - .github/workflows/build-user-patch-apk.yml
+      - android/app/build.gradle.kts
+      - android/app/src/main/java/app/humanrouter/VremyaHodomApp.kt
 
 concurrency:
   group: supplied-patch-apk-${{ github.ref_name }}
@@ -61,6 +64,8 @@ jobs:
 
       - name: Test, lint and build patched APKs
         working-directory: android
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: gradle --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest lintDebug
 
       - name: Package APK
