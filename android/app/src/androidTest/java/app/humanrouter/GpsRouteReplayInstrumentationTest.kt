@@ -15,7 +15,6 @@ import app.humanrouter.routing.GeoPoint
 import app.humanrouter.routing.LastPlanStore
 import app.humanrouter.routing.RouteLeg
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -97,10 +96,12 @@ class GpsRouteReplayInstrumentationTest {
                     assertEquals("duplicate active top card at ${step.name}", 1, countTag(root, "reference_active_trip_top"))
                     assertEquals("duplicate active mini card at ${step.name}", 1, countTag(root, "reference_active_trip_mini"))
 
-                    val top = root.findViewWithTag<View>("reference_active_trip_top")
-                    val mini = root.findViewWithTag<View>("reference_active_trip_mini")
-                    assertNotNull("active top card missing at ${step.name}", top)
-                    assertNotNull("active mini card missing at ${step.name}", mini)
+                    val top = checkNotNull(root.findViewWithTag<View>("reference_active_trip_top")) {
+                        "active top card missing at ${step.name}"
+                    }
+                    val mini = checkNotNull(root.findViewWithTag<View>("reference_active_trip_mini")) {
+                        "active mini card missing at ${step.name}"
+                    }
                     assertTrue("active top card hidden at ${step.name}", top.visibility == View.VISIBLE)
                     assertTrue("active mini card hidden at ${step.name}", mini.visibility == View.VISIBLE)
                     assertTrue(
@@ -108,9 +109,10 @@ class GpsRouteReplayInstrumentationTest {
                         top.contentDescription?.toString()?.contains(step.expectedCopy, ignoreCase = true) == true
                     )
 
-                    val gps = findByTag(root, "vh_unified_gps_status") as? TextView
-                    assertNotNull("GPS status card missing at ${step.name}", gps)
-                    assertTrue("GPS card does not describe current stage at ${step.name}", gps!!.text.contains("этап ${step.legIndex + 1}"))
+                    val gps = checkNotNull(findByTag(root, "vh_unified_gps_status") as? TextView) {
+                        "GPS status card missing at ${step.name}"
+                    }
+                    assertTrue("GPS card does not describe current stage at ${step.name}", gps.text.contains("этап ${step.legIndex + 1}"))
                     assertNoVerticalOverlap(top, mini, "active chrome overlaps at ${step.name}")
                 }
 
