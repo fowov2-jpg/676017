@@ -42,10 +42,33 @@ internal object PassengerGpsProgressCoordinator {
 
     private class Controller(private val activity: MainActivity) : LocationListener {
         private val manager = activity.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        private var resumed = false
         private var listening = false
+        private val liveListener: (TripLiveSnapshot) -> Unit = {
+            if (resumed) activity.runOnUiThread(::startTrackingIfNeeded)
+        }
+
+        init {
+            TripLiveState.addListener(liveListener)
+        }
 
         fun resume() {
-            if (listening || currentRoute() == null || !hasPermission()) return
+            resumed = true
+            startTrackingIfNeeded()
+        }
+
+        fun pause() {
+            resumed = false
+            stopTracking()
+        }
+
+        fun destroy() {
+            pause()
+            TripLiveState.removeListener(liveListener)
+        }
+
+        private fun startTrackingIfNeeded() {
+            if (!resumed || listening || currentRoute() == null || !hasPermission()) return
             val providers = runCatching { manager.getProviders(true) }.getOrDefault(emptyList())
             providers.mapNotNull { provider ->
                 runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
@@ -64,16 +87,14 @@ internal object PassengerGpsProgressCoordinator {
                         )
                     }
                 }
-            listening = true
+            listening = providers.any { it == LocationManager.GPS_PROVIDER || it == LocationManager.NETWORK_PROVIDER }
         }
 
-        fun pause() {
+        private fun stopTracking() {
             if (!listening) return
             if (hasPermission()) runCatching { manager.removeUpdates(this) }
             listening = false
         }
-
-        fun destroy() = pause()
 
         override fun onLocationChanged(location: Location) = publish(location)
         override fun onProviderEnabled(provider: String) = Unit
