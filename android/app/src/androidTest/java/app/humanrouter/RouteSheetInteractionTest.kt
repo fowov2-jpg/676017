@@ -2,19 +2,19 @@ package app.humanrouter
 
 import android.content.Intent
 import android.graphics.Rect
-import android.os.SystemClock
-import android.view.MotionEvent
 import android.view.View
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.UiController
 import androidx.test.espresso.ViewAction
-import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.action.CoordinatesProvider
+import androidx.test.espresso.action.GeneralSwipeAction
+import androidx.test.espresso.action.Press
+import androidx.test.espresso.action.Swipe
 import androidx.test.espresso.matcher.ViewMatchers.isRoot
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import org.hamcrest.Matcher
 import org.junit.After
 import org.junit.Assert.assertTrue
@@ -62,6 +62,7 @@ class RouteSheetInteractionTest {
         }
 
         onView(withId(R.id.routeResultsContainer)).perform(dragHandle(expand = true))
+        onView(isRoot()).perform(waitForUi(260L))
         var expandedVisibleHeight = 0
         scenario!!.onActivity { activity ->
             expandedVisibleHeight = visibleHeight(activity.findViewById(R.id.routeResultsContainer))
@@ -72,6 +73,7 @@ class RouteSheetInteractionTest {
         }
 
         onView(withId(R.id.routeResultsContainer)).perform(dragHandle(expand = false))
+        onView(isRoot()).perform(waitForUi(260L))
         scenario!!.onActivity { activity ->
             val collapsedVisibleHeight = visibleHeight(activity.findViewById(R.id.routeResultsContainer))
             assertTrue("drag down did not reduce visible route sheet", collapsedVisibleHeight < expandedVisibleHeight)
@@ -85,40 +87,28 @@ class RouteSheetInteractionTest {
         return rect.height()
     }
 
-    private fun dragHandle(expand: Boolean): ViewAction = object : ViewAction {
-        override fun getConstraints(): Matcher<View> = isDisplayed()
-        override fun getDescription(): String = if (expand) "drag route sheet handle up" else "drag route sheet handle down"
-
-        override fun perform(uiController: UiController, view: View) {
+    private fun dragHandle(expand: Boolean): ViewAction {
+        val start = CoordinatesProvider { view ->
             val location = IntArray(2)
             view.getLocationOnScreen(location)
             val density = view.resources.displayMetrics.density
-            val x = location[0] + view.width / 2f
+            floatArrayOf(
+                location[0] + view.width / 2f,
+                location[1] + minOf(view.height * 0.08f, 28f * density)
+            )
+        }
+        val end = CoordinatesProvider { view ->
+            val location = IntArray(2)
+            view.getLocationOnScreen(location)
+            val density = view.resources.displayMetrics.density
             val startY = location[1] + minOf(view.height * 0.08f, 28f * density)
             val distance = view.rootView.height * 0.28f * if (expand) -1f else 1f
-            val endY = startY + distance
-            val downTime = SystemClock.uptimeMillis()
-            val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
-
-            fun inject(action: Int, y: Float, eventTime: Long) {
-                MotionEvent.obtain(downTime, eventTime, action, x, y, 0).also { event ->
-                    automation.injectInputEvent(event, true)
-                    event.recycle()
-                }
-            }
-
-            inject(MotionEvent.ACTION_DOWN, startY, downTime)
-            repeat(8) { index ->
-                val fraction = (index + 1) / 8f
-                inject(
-                    MotionEvent.ACTION_MOVE,
-                    startY + distance * fraction,
-                    downTime + (index + 1) * 18L
-                )
-            }
-            inject(MotionEvent.ACTION_UP, endY, downTime + 180L)
-            uiController.loopMainThreadForAtLeast(260L)
+            floatArrayOf(
+                location[0] + view.width / 2f,
+                startY + distance
+            )
         }
+        return GeneralSwipeAction(Swipe.FAST, start, end, Press.FINGER)
     }
 
     private fun waitForUi(milliseconds: Long): ViewAction = object : ViewAction {
