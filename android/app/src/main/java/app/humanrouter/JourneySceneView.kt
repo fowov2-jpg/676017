@@ -2,7 +2,6 @@ package app.humanrouter
 
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.RectF
@@ -39,13 +38,7 @@ internal object JourneySceneTimeline {
     }
 }
 
-/**
- * One continuous journey scene shown while route data is prepared.
- *
- * The timeline stays deliberately simple and deterministic, but the passenger and transport are
- * now the real illustrated journey assets shipped with the app instead of placeholder Canvas
- * people/rectangles. The stop is visibly empty after boarding, matching the product sequence.
- */
+/** One continuous, theme-aware journey scene shown while route data is prepared. */
 internal class JourneySceneView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
@@ -120,8 +113,6 @@ internal class JourneySceneView @JvmOverloads constructor(
             }
 
             JourneySceneTimeline.Stage.WAIT_AT_STOP -> {
-                // This artwork contains the waiting passenger. It replaces the moving person only
-                // after arrival, so there is never a second static person waiting at the stop.
                 drawAsset(canvas, occupiedStop, stopX, groundY + dp(12f), dp(62f))
                 val approach = ((frame.progress - 0.32f) / 0.68f).coerceIn(0f, 1f)
                 if (approach > 0f) {
@@ -131,7 +122,6 @@ internal class JourneySceneView @JvmOverloads constructor(
             }
 
             JourneySceneTimeline.Stage.BUS_TO_METRO -> {
-                // Boarding is complete: the shelter is intentionally empty from this point on.
                 drawEmptyStop(canvas, stopX, groundY)
                 val x = lerp(stopX + dp(38f), metroX - dp(23f), ease(frame.progress))
                 drawAsset(canvas, bus, x, groundY + dp(15f), dp(79f))
@@ -167,14 +157,14 @@ internal class JourneySceneView @JvmOverloads constructor(
             0f,
             0f,
             h,
-            Color.rgb(250, 252, 255),
-            Color.rgb(231, 238, 247),
+            color(R.color.vh_surface_solid),
+            color(R.color.vh_surface_muted),
             Shader.TileMode.CLAMP
         )
         canvas.drawRoundRect(RectF(0f, 0f, w, h), dp(16f), dp(16f), paint)
         paint.shader = null
 
-        paint.color = Color.rgb(211, 220, 231)
+        paint.color = color(R.color.vh_border)
         canvas.drawRoundRect(
             RectF(dp(8f), groundY + dp(8f), w - dp(8f), groundY + dp(10f)),
             dp(1f),
@@ -182,7 +172,7 @@ internal class JourneySceneView @JvmOverloads constructor(
             paint
         )
 
-        paint.color = Color.rgb(193, 204, 219)
+        paint.color = color(R.color.vh_text_tertiary)
         canvas.drawRect(dp(5f), railY, w - dp(5f), railY + dp(1.5f), paint)
         canvas.drawRect(dp(5f), railY + dp(6f), w - dp(5f), railY + dp(7.5f), paint)
     }
@@ -192,20 +182,20 @@ internal class JourneySceneView @JvmOverloads constructor(
         val right = x + dp(17f)
         val roofY = groundY - dp(26f)
 
-        paint.color = Color.argb(210, 235, 242, 249)
+        paint.color = color(R.color.vh_surface_muted)
         canvas.drawRoundRect(
             RectF(left, roofY, right, groundY + dp(3f)),
             dp(4f),
             dp(4f),
             paint
         )
-        stroke.color = Color.rgb(111, 129, 153)
+        stroke.color = color(R.color.vh_text_tertiary)
         stroke.strokeWidth = dp(1.6f)
         canvas.drawLine(left, roofY, right, roofY, stroke)
         canvas.drawLine(left + dp(2f), roofY, left + dp(2f), groundY + dp(5f), stroke)
         canvas.drawLine(right - dp(2f), roofY, right - dp(2f), groundY + dp(5f), stroke)
 
-        paint.color = Color.rgb(115, 134, 157)
+        paint.color = color(R.color.vh_text_tertiary)
         canvas.drawRoundRect(
             RectF(x - dp(10f), groundY - dp(7f), x + dp(7f), groundY - dp(4f)),
             dp(1.5f),
@@ -214,25 +204,25 @@ internal class JourneySceneView @JvmOverloads constructor(
         )
 
         val poleX = right + dp(7f)
-        stroke.color = Color.rgb(70, 88, 111)
+        stroke.color = color(R.color.vh_text_secondary)
         stroke.strokeWidth = dp(1.8f)
         canvas.drawLine(poleX, roofY - dp(1f), poleX, groundY + dp(5f), stroke)
-        paint.color = Color.WHITE
+        paint.color = color(R.color.vh_surface_solid)
         canvas.drawCircle(poleX, roofY, dp(6f), paint)
-        stroke.color = Color.rgb(40, 123, 255)
+        stroke.color = color(R.color.vh_primary)
         stroke.strokeWidth = dp(2f)
         canvas.drawCircle(poleX, roofY, dp(5.5f), stroke)
     }
 
     private fun drawMetroEntrance(canvas: Canvas, x: Float, groundY: Float) {
-        paint.color = Color.WHITE
+        paint.color = color(R.color.vh_surface_solid)
         canvas.drawRoundRect(
             RectF(x - dp(14f), groundY - dp(31f), x + dp(14f), groundY + dp(2f)),
             dp(6f),
             dp(6f),
             paint
         )
-        stroke.color = Color.rgb(221, 39, 59)
+        stroke.color = color(R.color.vh_metro)
         stroke.strokeWidth = dp(1.8f)
         canvas.drawRoundRect(
             RectF(x - dp(14f), groundY - dp(31f), x + dp(14f), groundY + dp(2f)),
@@ -240,7 +230,7 @@ internal class JourneySceneView @JvmOverloads constructor(
             dp(6f),
             stroke
         )
-        paint.color = Color.rgb(221, 39, 59)
+        paint.color = color(R.color.vh_metro)
         paint.textAlign = Paint.Align.CENTER
         paint.textSize = dp(13f)
         paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -249,7 +239,7 @@ internal class JourneySceneView @JvmOverloads constructor(
     }
 
     private fun drawStairs(canvas: Canvas, x: Float, topY: Float, bottomY: Float) {
-        stroke.color = Color.rgb(149, 164, 183)
+        stroke.color = color(R.color.vh_text_tertiary)
         stroke.strokeWidth = dp(1.2f)
         val left = x + dp(9f)
         val right = x + dp(29f)
@@ -291,6 +281,8 @@ internal class JourneySceneView @JvmOverloads constructor(
 
     private fun asset(id: Int): Drawable =
         requireNotNull(ContextCompat.getDrawable(context, id)) { "Missing journey drawable $id" }.mutate()
+
+    private fun color(id: Int): Int = ContextCompat.getColor(context, id)
 
     private fun ease(value: Float): Float {
         val v = value.coerceIn(0f, 1f)
