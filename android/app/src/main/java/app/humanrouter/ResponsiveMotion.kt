@@ -18,7 +18,10 @@ import java.util.WeakHashMap
  * Motion-only companion to ResponsiveProductUi.
  *
  * It deliberately never changes LayoutParams, visibility, hierarchy or text. This keeps touch
- * feedback and container transitions smooth without becoming a second geometry owner.
+ * feedback and dynamic-list transitions smooth without becoming a second geometry owner.
+ * Screen-level visibility changes (expanded search, bottom navigation) are animated by
+ * ResponsiveProductUi itself; LayoutTransition is intentionally not attached there because old
+ * Android versions can leave newly-visible descendants at zero size during the transition.
  */
 internal object ResponsiveMotion {
     private val installed = WeakHashMap<MainActivity, Boolean>()
@@ -30,13 +33,10 @@ internal object ResponsiveMotion {
         if (installed.put(activity, true) == true) return
 
         intArrayOf(
-            R.id.searchPanel,
-            R.id.expandedSearchContent,
             R.id.suggestionsPanel,
             R.id.routeFiltersPanel,
             R.id.routeResultsPanel,
-            R.id.nearbyList,
-            R.id.bottomNav
+            R.id.nearbyList
         ).forEach { id ->
             activity.findViewById<ViewGroup?>(id)?.layoutTransition = smoothTransition()
         }
@@ -75,10 +75,10 @@ internal object ResponsiveMotion {
     }
 
     private fun smoothTransition(): LayoutTransition = LayoutTransition().apply {
-        setDuration(LayoutTransition.APPEARING, 170L)
-        setDuration(LayoutTransition.DISAPPEARING, 120L)
-        setDuration(LayoutTransition.CHANGE_APPEARING, 170L)
-        setDuration(LayoutTransition.CHANGE_DISAPPEARING, 145L)
+        setDuration(LayoutTransition.APPEARING, 150L)
+        setDuration(LayoutTransition.DISAPPEARING, 105L)
+        setDuration(LayoutTransition.CHANGE_APPEARING, 150L)
+        setDuration(LayoutTransition.CHANGE_DISAPPEARING, 125L)
         setStartDelay(LayoutTransition.APPEARING, 0L)
         setStartDelay(LayoutTransition.DISAPPEARING, 0L)
         setStartDelay(LayoutTransition.CHANGE_APPEARING, 0L)
