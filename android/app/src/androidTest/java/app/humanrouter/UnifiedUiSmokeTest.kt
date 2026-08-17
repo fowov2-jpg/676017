@@ -14,21 +14,25 @@ import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.hamcrest.Matchers.allOf
 import org.hamcrest.Matchers.containsString
+import org.hamcrest.Matchers.not
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class UnifiedUiSmokeTest {
     @Test
-    fun unifiedRouteStripReplacesLegacyVisualChain() {
+    fun routeChoiceKeepsGlobalJourneyStripOutOfTheViewport() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val intent = Intent(context, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             putExtra("qa_screen", "routes")
         }
         ActivityScenario.launch<MainActivity>(intent).use {
+            // The unified journey strip still exists for active-trip mode, but route selection is
+            // summary-first: transport chains live inside each option card instead of consuming a
+            // second global row above the cards.
             onView(withContentDescription("Этапы маршрута по видам транспорта"))
-                .check(matches(isDisplayed()))
+                .check(matches(not(isDisplayed())))
         }
     }
 
