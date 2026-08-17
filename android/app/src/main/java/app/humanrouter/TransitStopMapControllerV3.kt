@@ -547,7 +547,7 @@ internal object TransitStopMapControllerV3 {
             )
             activity.findViewById<TextView>(R.id.compactSearchButton).text = place.name
             closeSheet()
-            activity.findViewById<Button>(R.id.routeButton).performClick()
+            invokeByName(activity, "expandSearch", true)
         }
 
         private fun setEndpoint(fieldName: String, fieldId: Int, place: SearchPlace) {
