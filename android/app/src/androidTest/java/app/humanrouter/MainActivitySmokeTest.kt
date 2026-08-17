@@ -160,7 +160,7 @@ class MainActivitySmokeTest {
         onView(withText("Наземный транспорт")).perform(click())
         // Route options intentionally start map-first/compact. Expand through the real handle
         // before exercising controls that live below the initially visible route-card viewport.
-        onView(withId(R.id.routeResultsContainer)).perform(dragRouteSheetHandle(expand = true))
+        onView(isRoot()).perform(dragRouteSheetHandle(expand = true))
         onView(isRoot()).perform(waitForUi(260L))
         onView(withText("☆ Сохранить маршрут")).perform(scrollTo(), click())
         onView(withText("✓ Маршрут сохранён")).perform(scrollTo()).check(matches(isDisplayed()))
@@ -236,27 +236,33 @@ class MainActivitySmokeTest {
     }
 
     private fun dragRouteSheetHandle(expand: Boolean): ViewAction {
-        val start = CoordinatesProvider { view ->
-            val location = IntArray(2)
-            view.getLocationOnScreen(location)
-            val density = view.resources.displayMetrics.density
-            floatArrayOf(
-                location[0] + view.width / 2f,
-                location[1] + minOf(view.height * 0.08f, 28f * density)
+        val deltaY = if (expand) -0.28f else 0.28f
+
+        fun sheetGesturePoint(root: View, distanceFraction: Float): FloatArray {
+            val sheet = checkNotNull(root.findViewById<View>(R.id.routeResultsContainer)) {
+                "routeResultsContainer was not found under root"
+            }
+            val sheetLocation = IntArray(2)
+            sheet.getLocationOnScreen(sheetLocation)
+            val rootLocation = IntArray(2)
+            root.getLocationOnScreen(rootLocation)
+            val density = root.resources.displayMetrics.density
+            val startY = sheetLocation[1] + minOf(sheet.height * 0.08f, 28f * density)
+            val rootTop = rootLocation[1].toFloat()
+            val rootBottom = (rootLocation[1] + root.height).toFloat()
+
+            return floatArrayOf(
+                sheetLocation[0] + sheet.width / 2f,
+                (startY + root.height * distanceFraction).coerceIn(rootTop + 1f, rootBottom - 1f)
             )
         }
-        val end = CoordinatesProvider { view ->
-            val location = IntArray(2)
-            view.getLocationOnScreen(location)
-            val density = view.resources.displayMetrics.density
-            val startY = location[1] + minOf(view.height * 0.08f, 28f * density)
-            val distance = view.rootView.height * 0.28f * if (expand) -1f else 1f
-            floatArrayOf(
-                location[0] + view.width / 2f,
-                startY + distance
-            )
-        }
-        return GeneralSwipeAction(Swipe.FAST, start, end, Press.FINGER)
+
+        return GeneralSwipeAction(
+            Swipe.FAST,
+            CoordinatesProvider { root -> sheetGesturePoint(root, 0f) },
+            CoordinatesProvider { root -> sheetGesturePoint(root, deltaY) },
+            Press.FINGER
+        )
     }
 
     private fun waitForUi(milliseconds: Long): ViewAction = object : ViewAction {
