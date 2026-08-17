@@ -33,8 +33,13 @@ class InteractionStabilitySmokeTest {
                 onView(withId(R.id.settingsPanel)).check(matches(isDisplayed()))
                 onView(withId(R.id.closeSettingsButton)).perform(click())
 
+                // With no built route, the Routes tab intentionally opens the expanded search and
+                // hides bottom navigation. Exercise that real state transition, close it, then
+                // return to Map through the visible navigation instead of clicking a hidden view.
                 onView(withId(R.id.routesNavButton)).perform(click())
-                onView(withId(R.id.mapNavButton)).perform(click())
+                onView(withId(R.id.routeButton)).check(matches(isDisplayed()))
+                onView(withId(R.id.closeSearchButton)).perform(click())
+                onView(withId(R.id.mapNavButton)).check(matches(isDisplayed())).perform(click())
             }
 
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
