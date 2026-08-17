@@ -13,10 +13,10 @@ import java.util.concurrent.TimeUnit
 /**
  * Low-latency Moscow address resolver used by both live suggestions and A -> B routing.
  *
- * Short human input such as "Шумилова 13" is normalized to a Moscow street/house query before
- * asking the device geocoder and Photon in parallel. Results are ranked by street/house-token
- * agreement so a generic street centroid cannot beat an exact building candidate merely because
- * it returned first.
+ * The installed Moscow address index is authoritative for ordinary street/house input and never
+ * touches the network. Android Geocoder + Photon remain fallback providers for places that are not
+ * yet covered by the installed address pack. Results are ranked by street/house-token agreement so
+ * a generic street centroid cannot beat an exact building candidate merely because it returned first.
  */
 internal object FastAddressResolver {
     private const val MAX_CACHE = 128
@@ -43,6 +43,21 @@ internal object FastAddressResolver {
             focus?.let { append('|').append((it.lat * 1000).toInt()).append(':').append((it.lon * 1000).toInt()) }
         }
         synchronized(cache) { cache[key]?.let { return it } }
+
+        // Offline address lookup is synchronous SQLite over an indexed immutable runtime pack. It
+        // should win before any provider that can incur DNS/radio latency. If the pack has a match,
+        // returning it immediately is what makes typed Moscow addresses deterministic in airplane mode.
+        val offline = OfflineAddressIndex.search(
+            context = context.applicationContext,
+            query = clean,
+            focus = focus,
+            limit = boundedLimit
+        )
+        if (offline.isNotEmpty()) {
+            val answer = rank(clean, offline).take(boundedLimit)
+            synchronized(cache) { cache[key] = answer }
+            return answer
+        }
 
         val variants = queryVariants(clean)
         val completion = ExecutorCompletionService<List<SearchPlace>>(workers)
@@ -217,7 +232,7 @@ internal object FastAddressResolver {
     private val STREET_WORDS = listOf("улица", "ул ", "проспект", "пр т", "переулок", "шоссе", "бульвар", "набережная")
     private val STOP_WORDS = setOf("москва", "улица", "дом", "корпус", "строение")
 
-    // Routing runtime is Moscow-focused, while address search intentionally includes the nearby
+    // Routing runtime is Moscow-focused, while fallback geocoding intentionally includes the nearby
     // Moscow region so border addresses are not silently rejected.
     private const val MOSCOW_SOUTH = 54.70
     private const val MOSCOW_WEST = 35.00
