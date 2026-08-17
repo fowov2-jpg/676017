@@ -31,7 +31,12 @@ def parse_patch(path: Path):
             current_file = old_path
             result.append((current_file, []))
             continue
-        if line.startswith("--- a/") or line.startswith("+++ b/"):
+        if (
+            line.startswith("--- a/")
+            or line.startswith("+++ b/")
+            or line == "--- /dev/null"
+            or line.startswith("new file mode ")
+        ):
             continue
         if line == "@@":
             flush_hunk()
@@ -67,7 +72,7 @@ def parse_patch(path: Path):
 
 def find_subsequence(lines: list[str], needle: list[str]) -> list[int]:
     if not needle:
-        return []
+        return [0]
     n = len(needle)
     return [i for i in range(len(lines) - n + 1) if lines[i : i + n] == needle]
 
@@ -75,11 +80,17 @@ def find_subsequence(lines: list[str], needle: list[str]) -> list[int]:
 def apply_patch(path: Path) -> None:
     for relative, hunks in parse_patch(path):
         target = Path(relative)
-        if not target.is_file():
-            raise RuntimeError(f"Target file does not exist: {relative}")
-        text = target.read_text(encoding="utf-8")
-        had_final_newline = text.endswith("\n")
-        lines = text.splitlines()
+        is_new = not target.exists()
+        if is_new:
+            if len(hunks) != 1 or hunks[0][0]:
+                raise RuntimeError(f"Missing non-new target file: {relative}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            lines: list[str] = []
+            had_final_newline = True
+        else:
+            text = target.read_text(encoding="utf-8")
+            had_final_newline = text.endswith("\n")
+            lines = text.splitlines()
 
         for index, (old, new) in enumerate(hunks, start=1):
             matches = find_subsequence(lines, old)
