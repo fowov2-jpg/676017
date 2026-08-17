@@ -24,41 +24,75 @@ adb shell settings put global animator_duration_scale 0
 adb install -r "$app_apk"
 adb install -r "$test_apk"
 
-instrumentation_output="$output/instrumentation.txt"
-set +e
-adb shell am instrument -w -r -e class "$test_class" "$test_runner" | tee "$instrumentation_output"
-status=${PIPESTATUS[0]}
-set -e
+cleanup() {
+  adb shell wm size reset >/dev/null 2>&1 || true
+  adb shell wm density reset >/dev/null 2>&1 || true
+  adb shell settings put system font_scale 1.0 >/dev/null 2>&1 || true
+  adb shell am force-stop "$package_name" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 
-# Pull visual evidence even after a failed assertion so transfer regressions remain inspectable.
-adb pull "$remote_dir" "$output/gps-replay" >/dev/null 2>&1 || true
+verify_evidence() {
+  local dir=$1
+  for name in \
+    gps-03-bus-wait.png \
+    gps-04-bus-onboard.png \
+    gps-05-bus-exit.png \
+    gps-06-transfer.png \
+    gps-07-metro-wait.png \
+    gps-08-metro-onboard.png \
+    gps-09-metro-exit.png \
+    gps-11-finish.png; do
+    test -s "$dir/$name"
+  done
+}
 
-if (( status != 0 )); then
-  exit "$status"
-fi
-grep -F 'OK (1 test)' "$instrumentation_output"
-if grep -E 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed' "$instrumentation_output"; then
-  exit 1
-fi
+run_replay() {
+  local label=$1
+  local size=$2
+  local density=$3
+  local out="$output/$label"
+  mkdir -p "$out"
 
-for name in \
-  gps-03-bus-wait.png \
-  gps-04-bus-onboard.png \
-  gps-05-bus-exit.png \
-  gps-06-transfer.png \
-  gps-07-metro-wait.png \
-  gps-08-metro-onboard.png \
-  gps-09-metro-exit.png \
-  gps-11-finish.png; do
-  test -s "$output/gps-replay/$name"
-done
+  adb shell wm size "$size"
+  adb shell wm density "$density"
+  adb shell settings put system font_scale 1.0
+  adb shell am force-stop "$package_name" >/dev/null 2>&1 || true
+  sleep 2
 
-# Persist environment metadata beside screenshots for later visual audits.
-{
-  echo "api_level=$api_level"
-  adb shell wm size | tr -d '\r'
-  adb shell wm density | tr -d '\r'
-  adb shell settings get system font_scale | tr -d '\r' | sed 's/^/font_scale=/'
-} > "$output/environment.txt"
+  local instrumentation_output="$out/instrumentation.txt"
+  set +e
+  adb shell am instrument -w -r -e class "$test_class" "$test_runner" | tee "$instrumentation_output"
+  local status=${PIPESTATUS[0]}
+  set -e
 
-echo "GPS route replay passed: approach -> bus -> transfer -> metro -> finish"
+  # Pull visual evidence even after a failed assertion so transfer regressions remain inspectable.
+  adb pull "$remote_dir" "$out/gps-replay" >/dev/null 2>&1 || true
+
+  {
+    echo "label=$label"
+    echo "api_level=$api_level"
+    echo "requested_size=$size"
+    echo "requested_density=$density"
+    adb shell wm size | tr -d '\r'
+    adb shell wm density | tr -d '\r'
+    adb shell settings get system font_scale | tr -d '\r' | sed 's/^/font_scale=/'
+  } > "$out/environment.txt"
+
+  if (( status != 0 )); then
+    exit "$status"
+  fi
+  grep -F 'OK (1 test)' "$instrumentation_output"
+  if grep -E 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed' "$instrumentation_output"; then
+    exit 1
+  fi
+  verify_evidence "$out/gps-replay"
+}
+
+# Standard modern phone viewport: ~411 x 914 dp.
+run_replay phone 1080x2400 420
+
+# Tablet portrait viewport: 800 x 1280 dp.
+run_replay tablet 1080x1728 216
+
+echo "GPS route replay passed on phone and tablet: approach -> bus -> transfer -> metro -> finish"
