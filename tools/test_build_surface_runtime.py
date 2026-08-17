@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 import csv
 import gzip
+import hashlib
 import json
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT / "tools" / "build_surface_runtime.py"
 TARGET_DATE = "2026-08-14"  # Friday
+RUNTIME_BASE_URL = "https://github.com/fowov2-jpg/676017/releases/download/runtime-current/"
 
 
 def write_csv(path: Path, fieldnames, rows):
@@ -18,6 +21,77 @@ def write_csv(path: Path, fieldnames, rows):
         writer = csv.DictWriter(fh, fieldnames=fieldnames, delimiter=";")
         writer.writeheader()
         writer.writerows(rows)
+
+
+def fetch_bytes(url: str) -> bytes:
+    request = urllib.request.Request(url, headers={"User-Agent": "VremyaHodom-CI/1.0"})
+    with urllib.request.urlopen(request, timeout=45) as response:
+        return response.read()
+
+
+def test_published_address_runtime(tmp: Path):
+    manifest = json.loads(fetch_bytes(RUNTIME_BASE_URL + "manifest.json"))
+    packs = [pack for pack in manifest.get("packs", []) if pack.get("required", True)]
+    address_pack = next(
+        (
+            pack
+            for pack in packs
+            if pack.get("install_as") == "address/address.sqlite"
+            or pack.get("file") == "address_moscow.sqlite.gz"
+        ),
+        None,
+    )
+    assert address_pack is not None, "runtime-current manifest has no required Moscow address pack"
+    assert address_pack.get("install_as") == "address/address.sqlite", address_pack
+
+    filename = address_pack.get("file")
+    assert filename, address_pack
+    compressed = fetch_bytes(RUNTIME_BASE_URL + filename)
+    expected_size = address_pack.get("compressed_bytes")
+    if expected_size is not None:
+        assert len(compressed) == int(expected_size), (
+            f"address runtime compressed size mismatch: {len(compressed)} != {expected_size}"
+        )
+    expected_sha = address_pack.get("sha256_compressed")
+    if expected_sha:
+        actual_sha = hashlib.sha256(compressed).hexdigest()
+        assert actual_sha.lower() == str(expected_sha).lower(), (
+            f"address runtime sha256 mismatch: {actual_sha} != {expected_sha}"
+        )
+
+    database_path = tmp / "published-address.sqlite"
+    database_path.write_bytes(gzip.decompress(compressed))
+    assert database_path.stat().st_size > 0, "published address database is empty"
+
+    database = sqlite3.connect(database_path)
+    try:
+        schema_row = database.execute("SELECT schema_version FROM metadata LIMIT 1").fetchone()
+        assert schema_row is not None and int(schema_row[0]) == 1, f"unexpected address schema: {schema_row}"
+        columns = {row[1] for row in database.execute("PRAGMA table_info(addresses)")}
+        required_columns = {
+            "street",
+            "house",
+            "district",
+            "locality",
+            "postcode",
+            "lat",
+            "lon",
+            "norm_street",
+            "norm_house",
+        }
+        assert required_columns <= columns, f"address table missing columns: {sorted(required_columns - columns)}"
+        address_count = int(database.execute("SELECT COUNT(*) FROM addresses").fetchone()[0])
+        assert address_count >= 10_000, f"published address index is implausibly small: {address_count}"
+        located_count = int(
+            database.execute(
+                "SELECT COUNT(*) FROM addresses WHERE lat BETWEEN 54.7 AND 57.15 AND lon BETWEEN 35.0 AND 40.5"
+            ).fetchone()[0]
+        )
+        assert located_count >= 10_000, f"published address index lacks Moscow-area coordinates: {located_count}"
+    finally:
+        database.close()
+
+    print(f"published Moscow address runtime: OK ({address_count} rows)")
 
 
 def main():
@@ -134,6 +208,7 @@ def main():
             db.close()
 
         print("surface runtime integration test: OK")
+        test_published_address_runtime(tmp)
 
 
 if __name__ == "__main__":
