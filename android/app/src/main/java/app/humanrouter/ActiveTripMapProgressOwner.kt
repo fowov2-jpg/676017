@@ -1,9 +1,9 @@
 package app.humanrouter
 
 import android.content.res.ColorStateList
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -13,24 +13,18 @@ import app.humanrouter.routing.LastPlanStore
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
-import org.maplibre.android.style.layers.CircleLayer
-import org.maplibre.android.style.layers.Property
-import org.maplibre.android.style.layers.PropertyFactory
-import org.maplibre.android.style.layers.SymbolLayer
-import org.maplibre.android.style.sources.GeoJsonSource
-import org.maplibre.geojson.Feature
-import org.maplibre.geojson.FeatureCollection
-import org.maplibre.geojson.Point
 import java.util.WeakHashMap
 
 /**
  * Active-trip map owner for passenger position and current-leg framing.
  *
- * It never changes route choice or transport palette. The current GPS sample is rendered through a
- * dedicated marker source, and the camera is fitted once when the passenger enters a new route leg.
- * Subsequent samples only move the marker, so manual map panning remains user-owned until the next
- * real stage transition (or the explicit current-location control is used).
+ * It never changes route choice or transport palette. The passenger marker is an Android overlay
+ * positioned from MapLibre projection so the approved TransitGlyphView is rendered exactly as the
+ * rest of the product's transport visual system. The camera is fitted once when the passenger enters
+ * a new route leg; subsequent samples only move the marker, so manual map panning remains user-owned
+ * until the next real stage transition (or the explicit current-location control is used).
  */
 internal object ActiveTripMapProgressOwner {
     private val controllers = WeakHashMap<MainActivity, Controller>()
@@ -55,6 +49,10 @@ internal object ActiveTripMapProgressOwner {
         private var destroyed = false
         private var lastCameraKey: String? = null
         private var reconcilePosted = false
+        private var activeMap: MapLibreMap? = null
+        private var passengerPoint: app.humanrouter.routing.GeoPoint? = null
+        private var markerOverlay: FrameLayout? = null
+        private var markerVisualKey: String? = null
 
         private val progressListener: (TripProgressSnapshot) -> Unit = { snapshot ->
             if (!destroyed) activity.runOnUiThread { render(snapshot) }
@@ -64,6 +62,11 @@ internal object ActiveTripMapProgressOwner {
         }
         private val layoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             scheduleReconcile()
+        }
+        private val cameraMoveListener = MapLibreMap.OnCameraMoveListener {
+            val map = activeMap ?: return@OnCameraMoveListener
+            val point = passengerPoint ?: return@OnCameraMoveListener
+            positionMarker(map, point)
         }
 
         init {
@@ -80,6 +83,11 @@ internal object ActiveTripMapProgressOwner {
             TripLiveState.removeListener(liveListener)
             root.removeOnLayoutChangeListener(layoutListener)
             sheet.removeOnLayoutChangeListener(layoutListener)
+            activeMap?.removeOnCameraMoveListener(cameraMoveListener)
+            activeMap = null
+            passengerPoint = null
+            markerOverlay?.let(root::removeView)
+            markerOverlay = null
         }
 
         private fun scheduleReconcile() {
@@ -106,40 +114,12 @@ internal object ActiveTripMapProgressOwner {
             val leg = route.legs.getOrNull(snapshot.legIndex) ?: return
             val visual = TransitVisualCatalog.forLeg(leg)
             styleActiveBadge(leg, visual)
+            passengerPoint = snapshot.point
             mapView.getMapAsync { map ->
                 if (destroyed || !isActiveTrip()) return@getMapAsync
-                map.getStyle { style ->
-                    val feature = Feature.fromGeometry(Point.fromLngLat(snapshot.point.lon, snapshot.point.lat))
-                    val collection = FeatureCollection.fromFeature(feature)
-                    val source = style.getSourceAs<GeoJsonSource>(SOURCE_ID)
-                        ?: GeoJsonSource(SOURCE_ID, collection).also(style::addSource)
-                    source.setGeoJson(collection)
-
-                    val halo = style.getLayerAs<CircleLayer>(HALO_LAYER_ID)
-                        ?: CircleLayer(HALO_LAYER_ID, SOURCE_ID).also(style::addLayer)
-                    halo.setProperties(
-                        PropertyFactory.circleRadius(18f),
-                        PropertyFactory.circleColor(Color.WHITE),
-                        PropertyFactory.circleOpacity(0.94f),
-                        PropertyFactory.circleStrokeColor(visual.color),
-                        PropertyFactory.circleStrokeWidth(3f),
-                        PropertyFactory.visibility(Property.VISIBLE)
-                    )
-
-                    val markerImageId = markerImageId(leg, visual)
-                    if (style.getImage(markerImageId) == null) {
-                        style.addImage(markerImageId, markerBitmap(visual))
-                    }
-                    val marker = style.getLayerAs<SymbolLayer>(MARKER_LAYER_ID)
-                        ?: SymbolLayer(MARKER_LAYER_ID, SOURCE_ID).also(style::addLayer)
-                    marker.setProperties(
-                        PropertyFactory.iconImage(markerImageId),
-                        PropertyFactory.iconAllowOverlap(true),
-                        PropertyFactory.iconIgnorePlacement(true),
-                        PropertyFactory.iconSize(0.82f),
-                        PropertyFactory.visibility(Property.VISIBLE)
-                    )
-                }
+                attachMap(map)
+                ensureMarkerOverlay(visual)
+                positionMarker(map, snapshot.point)
 
                 val cameraKey = "${route.id}:${snapshot.legIndex}"
                 if (cameraKey != lastCameraKey) {
@@ -147,6 +127,13 @@ internal object ActiveTripMapProgressOwner {
                     focusCurrentLeg(map, leg.mapPoints(), snapshot.point)
                 }
             }
+        }
+
+        private fun attachMap(map: MapLibreMap) {
+            if (activeMap === map) return
+            activeMap?.removeOnCameraMoveListener(cameraMoveListener)
+            activeMap = map
+            map.addOnCameraMoveListener(cameraMoveListener)
         }
 
         /**
@@ -181,29 +168,59 @@ internal object ActiveTripMapProgressOwner {
             }
         }
 
-        private fun markerImageId(
-            leg: app.humanrouter.routing.RouteLeg,
-            visual: TransitVisualCatalog.Visual
-        ): String = "$MARKER_IMAGE_PREFIX-${leg.mode.name.lowercase()}-${visual.color}"
+        private fun ensureMarkerOverlay(visual: TransitVisualCatalog.Visual) {
+            val key = "${visual.glyph}:${visual.color}:${visual.foreground}"
+            val existing = markerOverlay
+            if (existing != null && markerVisualKey == key) {
+                existing.visibility = View.VISIBLE
+                return
+            }
+            existing?.let(root::removeView)
 
-        private fun markerBitmap(visual: TransitVisualCatalog.Visual): Bitmap {
-            val size = dp(48)
-            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-            val marker = TransitGlyphView(
-                context = activity,
-                glyph = visual.glyph,
-                fillColor = visual.color,
-                foregroundColor = visual.foreground
-            )
-            val exact = View.MeasureSpec.makeMeasureSpec(size, View.MeasureSpec.EXACTLY)
-            marker.measure(exact, exact)
-            marker.layout(0, 0, size, size)
-            marker.draw(Canvas(bitmap))
-            return bitmap
+            val size = dp(56)
+            val marker = FrameLayout(activity).apply {
+                tag = MARKER_OVERLAY_TAG
+                isClickable = false
+                isFocusable = false
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                elevation = dp(18).toFloat()
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.WHITE)
+                    setStroke(dp(3), visual.color)
+                }
+                addView(
+                    TransitGlyphView(
+                        context = activity,
+                        glyph = visual.glyph,
+                        fillColor = visual.color,
+                        foregroundColor = visual.foreground
+                    ),
+                    FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER)
+                )
+            }
+            val params = FrameLayout.LayoutParams(size, size)
+            val index = (root.indexOfChild(mapView) + 1).coerceIn(0, root.childCount)
+            root.addView(marker, index, params)
+            markerOverlay = marker
+            markerVisualKey = key
+        }
+
+        private fun positionMarker(map: MapLibreMap, point: app.humanrouter.routing.GeoPoint) {
+            val marker = markerOverlay ?: return
+            if (marker.visibility != View.VISIBLE) marker.visibility = View.VISIBLE
+            val pixel = map.projection.toScreenLocation(LatLng(point.lat, point.lon))
+            val mapLocation = IntArray(2)
+            val rootLocation = IntArray(2)
+            mapView.getLocationOnScreen(mapLocation)
+            root.getLocationOnScreen(rootLocation)
+            val size = marker.layoutParams.width.takeIf { it > 0 } ?: dp(56)
+            marker.x = mapLocation[0] - rootLocation[0] + pixel.x - size / 2f
+            marker.y = mapLocation[1] - rootLocation[1] + pixel.y - size / 2f
         }
 
         private fun focusCurrentLeg(
-            map: org.maplibre.android.maps.MapLibreMap,
+            map: MapLibreMap,
             routePoints: List<app.humanrouter.routing.GeoPoint>,
             passengerPoint: app.humanrouter.routing.GeoPoint
         ) {
@@ -229,23 +246,15 @@ internal object ActiveTripMapProgressOwner {
                     )
                 )
             }
+            // moveCamera may synchronously emit projection changes, but a final post keeps the marker
+            // aligned even on implementations where the camera callback is deferred to the next frame.
+            root.post { positionMarker(map, passengerPoint) }
         }
 
         private fun hideMarker() {
             lastCameraKey = null
-            mapView.getMapAsync { map ->
-                map.getStyle { style ->
-                    style.getSourceAs<GeoJsonSource>(SOURCE_ID)?.setGeoJson(
-                        FeatureCollection.fromFeatures(emptyArray<Feature>())
-                    )
-                    style.getLayerAs<CircleLayer>(HALO_LAYER_ID)?.setProperties(
-                        PropertyFactory.visibility(Property.NONE)
-                    )
-                    style.getLayerAs<SymbolLayer>(MARKER_LAYER_ID)?.setProperties(
-                        PropertyFactory.visibility(Property.NONE)
-                    )
-                }
-            }
+            passengerPoint = null
+            markerOverlay?.visibility = View.GONE
         }
 
         private fun currentRoute(): app.humanrouter.routing.RouteCandidate? =
@@ -257,8 +266,5 @@ internal object ActiveTripMapProgressOwner {
     }
 
     private const val ACTIVE_TOP_TAG = "reference_active_trip_top"
-    private const val SOURCE_ID = "vh-active-trip-position-source"
-    private const val HALO_LAYER_ID = "vh-active-trip-position-halo"
-    private const val MARKER_LAYER_ID = "vh-active-trip-position-marker"
-    private const val MARKER_IMAGE_PREFIX = "vh-active-trip-position-image"
+    private const val MARKER_OVERLAY_TAG = "vh_active_trip_passenger_marker"
 }
