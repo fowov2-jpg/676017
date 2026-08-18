@@ -1,6 +1,9 @@
 package app.humanrouter
 
 import android.content.res.ColorStateList
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -15,9 +18,13 @@ import app.humanrouter.routing.RouteLeg
 import app.humanrouter.routing.RoutePresentation
 import app.humanrouter.routing.TransportMode
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.WeakHashMap
+import java.util.concurrent.Executors
 import kotlin.math.ceil
 import kotlin.math.max
+import kotlin.math.min
 
 /** Keeps reference active-trip chrome on the same leg as GPS/detail state and enforces no third bar. */
 internal object ActiveTripSemanticGuard {
@@ -41,8 +48,14 @@ internal object ActiveTripSemanticGuard {
         private val routePanel = activity.findViewById<LinearLayout>(R.id.routeResultsPanel)
         private val primary = activity.findViewById<Button>(R.id.routePrimaryAction)
         private val bottomNav = activity.findViewById<View>(R.id.bottomNav)
+        private val resolverExecutor = Executors.newSingleThreadExecutor()
+        private val resolvedStops = HashMap<String, List<ActiveTripResolvedStop>>()
+        private val pendingStopKeys = HashSet<String>()
+        private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+        private val zoneId = ZoneId.of("Europe/Moscow")
         private var immediatePosted = false
         private var lastTimelineAnchorKey: String? = null
+        private var detailedTimelineSignature: String? = null
         private val delayed = mutableListOf<Runnable>()
 
         private val layoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
@@ -75,6 +88,7 @@ internal object ActiveTripSemanticGuard {
             TripLiveState.removeListener(liveListener)
             delayed.forEach(root::removeCallbacks)
             delayed.clear()
+            resolverExecutor.shutdownNow()
         }
 
         private fun schedule(delayMs: Long) {
@@ -101,6 +115,7 @@ internal object ActiveTripSemanticGuard {
         private fun reconcile() {
             if (!isActiveTrip()) {
                 lastTimelineAnchorKey = null
+                removeDetailedTimeline()
                 return
             }
             val route = TripLiveState.current()?.route
@@ -132,7 +147,9 @@ internal object ActiveTripSemanticGuard {
                 if (mini.visibility != View.GONE) mini.visibility = View.GONE
             }
             enforceTripSheetBottomInset()
-            enforceTimelineFirstViewport(route, leg)
+            if (!reconcileDetailedStopTimeline(route, leg, snapshot, now)) {
+                enforceTimelineFirstViewport(route, leg)
+            }
         }
 
         private fun enforceTripSheetBottomInset() {
@@ -142,6 +159,243 @@ internal object ActiveTripSemanticGuard {
             if (params.bottomMargin != targetBottom) {
                 params.bottomMargin = targetBottom
                 sheet.layoutParams = params
+            }
+        }
+
+        private fun stopKey(route: RouteCandidate, leg: RouteLeg): String = listOf(
+            route.id,
+            leg.mode.name,
+            leg.lineId.orEmpty(),
+            leg.from.id,
+            leg.to.id,
+            leg.departureEpochSec,
+            leg.arrivalEpochSec,
+            leg.stopCount
+        ).joinToString(":")
+
+        /**
+         * Prefer stop/station-level data only when it can be reconstructed from a trusted runtime
+         * source. Resolution is intentionally off the UI thread. An unresolved leg stays on the
+         * aggregate timeline instead of fabricating passenger information.
+         */
+        private fun reconcileDetailedStopTimeline(
+            route: RouteCandidate,
+            leg: RouteLeg,
+            snapshot: TripProgressSnapshot?,
+            now: Long
+        ): Boolean {
+            if (leg.mode == TransportMode.WALK || leg.stopCount <= 0 || leg.lineId.isNullOrBlank()) {
+                removeDetailedTimeline()
+                return false
+            }
+            val key = stopKey(route, leg)
+            val cached = resolvedStops[key]
+            if (cached == null && key !in pendingStopKeys) {
+                pendingStopKeys += key
+                resolverExecutor.execute {
+                    val value = ActiveTripStopTimelineResolver.resolve(activity.applicationContext, leg)
+                    activity.runOnUiThread {
+                        pendingStopKeys.remove(key)
+                        resolvedStops[key] = value
+                        schedule(0L)
+                    }
+                }
+            }
+            if (cached.isNullOrEmpty()) {
+                removeDetailedTimeline()
+                return false
+            }
+            renderDetailedTimeline(key, leg, snapshot, now, cached)
+            return true
+        }
+
+        private fun renderDetailedTimeline(
+            key: String,
+            leg: RouteLeg,
+            snapshot: TripProgressSnapshot?,
+            now: Long,
+            stops: List<ActiveTripResolvedStop>
+        ) {
+            val currentIndex = currentStopIndex(stops, snapshot, now)
+            val windowStart = stopWindowStart(currentIndex, stops.size)
+            val windowEnd = min(stops.lastIndex, windowStart + DETAIL_WINDOW_SIZE - 1)
+            val phase = snapshot?.phase?.name.orEmpty()
+            val signature = buildString {
+                append(key).append(':').append(currentIndex).append(':').append(windowStart).append('-').append(windowEnd)
+                append(':').append(phase).append(':').append(snapshot?.remainingStops ?: -1)
+                for (index in windowStart..windowEnd) {
+                    val stop = stops[index]
+                    append('|').append(stop.name).append('@').append(stop.arrivalEpochSec)
+                }
+            }
+
+            var container = routePanel.findViewWithTag<LinearLayout>(DETAIL_TIMELINE_TAG)
+            if (container == null) {
+                container = LinearLayout(activity).apply {
+                    tag = DETAIL_TIMELINE_TAG
+                    orientation = LinearLayout.VERTICAL
+                    contentDescription = "Остановки текущего транспорта"
+                }
+                routePanel.addView(
+                    container,
+                    0,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                )
+                detailedTimelineSignature = null
+            }
+            if (container.visibility != View.VISIBLE) container.visibility = View.VISIBLE
+            for (index in 0 until routePanel.childCount) {
+                val child = routePanel.getChildAt(index)
+                if (child !== container && child.visibility != View.GONE) child.visibility = View.GONE
+            }
+
+            if (detailedTimelineSignature != signature) {
+                container.removeAllViews()
+                for (index in windowStart..windowEnd) {
+                    container.addView(
+                        detailedStopRow(
+                            stop = stops[index],
+                            index = index,
+                            total = stops.size,
+                            current = index == currentIndex,
+                            snapshot = snapshot
+                        )
+                    )
+                }
+                detailedTimelineSignature = signature
+                routeScroll.post {
+                    if (!activity.isFinishing && !activity.isDestroyed) routeScroll.scrollTo(0, 0)
+                }
+            }
+        }
+
+        private fun currentStopIndex(
+            stops: List<ActiveTripResolvedStop>,
+            snapshot: TripProgressSnapshot?,
+            now: Long
+        ): Int {
+            if (snapshot != null) {
+                return when (snapshot.phase) {
+                    TripProgressPhase.APPROACH, TripProgressPhase.WAITING -> 0
+                    TripProgressPhase.ONBOARD, TripProgressPhase.ALIGHTING ->
+                        (stops.lastIndex - snapshot.remainingStops.coerceAtLeast(0)).coerceIn(0, stops.lastIndex)
+                    TripProgressPhase.TRANSFER, TripProgressPhase.FINAL_WALK, TripProgressPhase.FINISHED -> stops.lastIndex
+                    TripProgressPhase.OFF_ROUTE -> stops.indices.minByOrNull { index ->
+                        kotlin.math.abs(stops[index].arrivalEpochSec - now)
+                    } ?: 0
+                }
+            }
+            return stops.indexOfLast { now >= it.departureEpochSec }
+                .coerceAtLeast(0)
+                .coerceAtMost(stops.lastIndex)
+        }
+
+        private fun stopWindowStart(currentIndex: Int, size: Int): Int {
+            if (size <= DETAIL_WINDOW_SIZE) return 0
+            var start = (currentIndex - 1).coerceAtLeast(0)
+            if (start + DETAIL_WINDOW_SIZE > size) start = size - DETAIL_WINDOW_SIZE
+            return start.coerceAtLeast(0)
+        }
+
+        private fun detailedStopRow(
+            stop: ActiveTripResolvedStop,
+            index: Int,
+            total: Int,
+            current: Boolean,
+            snapshot: TripProgressSnapshot?
+        ): View = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(55)
+            tag = "vh_active_stop_row:$index"
+            contentDescription = "Остановка маршрута: ${stop.name}, ${formatTime(stop.arrivalEpochSec)}"
+            setPadding(dp(7), dp(4), dp(7), dp(4))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(16).toFloat()
+                setColor(color(if (current) R.color.vh_primary_soft else R.color.vh_surface_solid))
+            }
+
+            addView(TextView(activity).apply {
+                text = formatTime(if (index == 0) stop.departureEpochSec else stop.arrivalEpochSec)
+                textSize = 12f
+                includeFontPadding = false
+                gravity = Gravity.CENTER
+                setTextColor(color(if (current) R.color.vh_primary else R.color.vh_text_tertiary))
+                if (current) setTypeface(typeface, Typeface.BOLD)
+            }, LinearLayout.LayoutParams(dp(52), LinearLayout.LayoutParams.MATCH_PARENT))
+
+            addView(FrameLayout(activity).apply {
+                if (index > 0) {
+                    addView(View(activity).apply { setBackgroundColor(color(R.color.vh_border)) }, FrameLayout.LayoutParams(dp(2), dp(27), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+                }
+                if (index < total - 1) {
+                    addView(View(activity).apply { setBackgroundColor(color(R.color.vh_border)) }, FrameLayout.LayoutParams(dp(2), dp(30), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+                }
+                addView(View(activity).apply {
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(color(if (current) R.color.vh_primary else R.color.vh_border))
+                    }
+                }, FrameLayout.LayoutParams(dp(if (current) 13 else 9), dp(if (current) 13 else 9), Gravity.CENTER))
+            }, LinearLayout.LayoutParams(dp(26), dp(55)))
+
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(activity).apply {
+                    text = stop.name
+                    textSize = if (current) 15f else 14f
+                    maxLines = 2
+                    includeFontPadding = false
+                    setTextColor(color(R.color.vh_text_primary))
+                    if (current) setTypeface(typeface, Typeface.BOLD)
+                })
+                detailedInstruction(index, total, current, snapshot)?.let { copy ->
+                    addView(TextView(activity).apply {
+                        text = copy
+                        textSize = 11.5f
+                        includeFontPadding = false
+                        setTextColor(color(if (current) R.color.vh_success else R.color.vh_text_tertiary))
+                        if (current) setTypeface(typeface, Typeface.BOLD)
+                        setPadding(0, dp(2), 0, 0)
+                    })
+                }
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                leftMargin = dp(5)
+            })
+        }
+
+        private fun detailedInstruction(
+            index: Int,
+            total: Int,
+            current: Boolean,
+            snapshot: TripProgressSnapshot?
+        ): String? {
+            if (!current) return if (index == total - 1) "Выход" else null
+            return when (snapshot?.phase) {
+                TripProgressPhase.WAITING -> "Посадка"
+                TripProgressPhase.ONBOARD -> if (snapshot.remainingStops > 0) {
+                    "Выходите через ${snapshot.remainingStops} ${stopWord(snapshot.remainingStops)}"
+                } else "Следующая — выход"
+                TripProgressPhase.ALIGHTING -> "Следующая — выход"
+                TripProgressPhase.OFF_ROUTE -> "GPS уточняет положение"
+                else -> "Сейчас"
+            }
+        }
+
+        private fun removeDetailedTimeline() {
+            val detailed = routePanel.findViewWithTag<View>(DETAIL_TIMELINE_TAG)
+            if (detailed != null) routePanel.removeView(detailed)
+            detailedTimelineSignature = null
+            for (index in 0 until routePanel.childCount) {
+                val child = routePanel.getChildAt(index)
+                if (child.contentDescription?.toString()?.startsWith(TIMELINE_PREFIX) == true && child.visibility != View.VISIBLE) {
+                    child.visibility = View.VISIBLE
+                }
             }
         }
 
@@ -364,6 +618,10 @@ internal object ActiveTripSemanticGuard {
             else -> "остановок"
         }
 
+        private fun formatTime(epochSec: Long): String = Instant.ofEpochSecond(epochSec)
+            .atZone(zoneId)
+            .format(timeFormatter)
+
         private fun descendantTextViews(view: View): Sequence<TextView> = sequence {
             if (view is TextView) yield(view)
             if (view is ViewGroup) {
@@ -381,4 +639,6 @@ internal object ActiveTripSemanticGuard {
     private const val TOP_TAG = "reference_active_trip_top"
     private const val MINI_TAG = "reference_active_trip_mini"
     private const val TIMELINE_PREFIX = "Этап маршрута:"
+    private const val DETAIL_TIMELINE_TAG = "vh_active_stop_timeline"
+    private const val DETAIL_WINDOW_SIZE = 4
 }
