@@ -134,11 +134,25 @@ class ReferenceProductUiSmokeTest {
                 assertEquals(View.GONE, activity.findViewById<View>(R.id.bottomNav).visibility)
                 val root = activity.findViewById<View>(R.id.root)
                 val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
-                val heightDp = root.height / activity.resources.displayMetrics.density
+                val routesPanel = activity.findViewById<LinearLayout>(R.id.routeResultsPanel)
+                val density = activity.resources.displayMetrics.density
+                val widthDp = root.width / density
+                val heightDp = root.height / density
                 val ratio = sheet.height.toFloat() / root.height.toFloat()
                 val minRatio = if (heightDp < 700f) 0.58f else 0.50f
                 assertTrue("route sheet is too short for alternatives", ratio >= minRatio)
                 assertTrue("route sheet covers too much map", ratio <= 0.66f)
+
+                if (widthDp < 600f) {
+                    assertTrue("reference route fixture must expose at least three alternatives", routesPanel.childCount >= 3)
+                    val thirdRoute = routesPanel.getChildAt(2)
+                    val visible = Rect()
+                    assertTrue("third route alternative has no visible rectangle", thirdRoute.getGlobalVisibleRect(visible))
+                    assertTrue(
+                        "third route alternative must be fully visible without an initial drag",
+                        visible.height() >= thirdRoute.height - dp(activity, 2)
+                    )
+                }
             }
         }
     }
