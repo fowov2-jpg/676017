@@ -241,7 +241,9 @@ run_viewport() {
   capture_fixture "$out" home home 'Куда едем?'
   capture_fixture "$out" nearby home-populated 'Театральная площадь'
   capture_fixture "$out" routes route-options 'Бабушкинская'
-  capture_fixture "$out" trip active-trip 'В пути'
+  # The QA trip begins on a real walking approach. Capture/validate the current stage instead of a
+  # stale generic transit title; GPS replay separately proves the later bus/metro "В пути" states.
+  capture_fixture "$out" trip active-trip 'Пешком'
   capture_fixture "$out" settings settings 'Настройки'
 
   # Keep the approved phone references in the same artifact as the produced phone screenshots.
