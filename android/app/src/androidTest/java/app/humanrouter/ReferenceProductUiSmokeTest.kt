@@ -88,6 +88,15 @@ class ReferenceProductUiSmokeTest {
                             "Reference owner must attach a transport glyph to every Nearby row",
                             badge.compoundDrawablesRelative.any { it != null }
                         )
+
+                        val copy = row.getChildAt(1) as LinearLayout
+                        val title = copy.getChildAt(0) as TextView
+                        val textLayout = title.layout
+                        assertNotNull("Nearby title must be laid out for visual validation", textLayout)
+                        assertTrue(
+                            "Nearby title must not be ellipsized on the reference phone: ${title.text}",
+                            (0 until title.lineCount).all { line -> textLayout!!.getEllipsisCount(line) == 0 }
+                        )
                     }
                 }
             }
