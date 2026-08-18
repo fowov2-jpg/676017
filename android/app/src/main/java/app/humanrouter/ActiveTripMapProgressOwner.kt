@@ -215,8 +215,27 @@ internal object ActiveTripMapProgressOwner {
             mapView.getLocationOnScreen(mapLocation)
             root.getLocationOnScreen(rootLocation)
             val size = marker.layoutParams.width.takeIf { it > 0 } ?: dp(56)
-            marker.x = mapLocation[0] - rootLocation[0] + pixel.x - size / 2f
-            marker.y = mapLocation[1] - rootLocation[1] + pixel.y - size / 2f
+            val mapLeft = mapLocation[0] - rootLocation[0]
+            val mapTop = mapLocation[1] - rootLocation[1]
+            val mapRight = mapLeft + mapView.width
+            val mapBottom = mapTop + mapView.height
+            val gap = dp(8).toFloat()
+            val topCardBottom = root.findViewWithTag<View>(ACTIVE_TOP_TAG)
+                ?.let { it.bottom + it.translationY + gap }
+                ?: mapTop.toFloat()
+            val sheetTop = if (sheet.visibility == View.VISIBLE) {
+                sheet.top + sheet.translationY
+            } else {
+                mapBottom.toFloat()
+            }
+            val minX = mapLeft.toFloat()
+            val maxX = (mapRight - size).toFloat().coerceAtLeast(minX)
+            val minY = maxOf(mapTop.toFloat(), topCardBottom)
+            val maxY = (minOf(mapBottom.toFloat(), sheetTop) - size - gap).coerceAtLeast(minY)
+            val projectedX = mapLeft + pixel.x - size / 2f
+            val projectedY = mapTop + pixel.y - size / 2f
+            marker.x = projectedX.coerceIn(minX, maxX)
+            marker.y = projectedY.coerceIn(minY, maxY)
         }
 
         private fun focusCurrentLeg(
