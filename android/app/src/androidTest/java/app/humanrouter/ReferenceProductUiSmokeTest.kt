@@ -177,7 +177,7 @@ class ReferenceProductUiSmokeTest {
     }
 
     @Test
-    fun activeTripOwnsTopAndBottomChromeWithoutOverlap() {
+    fun activeTripUsesOnlyTopStatusAndBottomTripSheet() {
         launch("trip").use { scenario ->
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             scenario.onActivity { activity ->
@@ -189,26 +189,30 @@ class ReferenceProductUiSmokeTest {
                 assertNotNull(mini)
                 assertEquals(View.GONE, activity.findViewById<View>(R.id.searchPanel).visibility)
                 assertEquals(View.GONE, activity.findViewById<View>(R.id.bottomNav).visibility)
+                assertEquals(
+                    "legacy third active-trip bottom bar must never be visible",
+                    View.GONE,
+                    mini!!.visibility
+                )
                 assertNoOverlap(top!!, sheet, "active top card overlaps trip sheet")
-                assertNoOverlap(sheet, mini!!, "trip sheet overlaps bottom mini card")
+
+                val rootRect = Rect()
+                val sheetRect = Rect()
+                assertTrue(root.getGlobalVisibleRect(rootRect))
+                assertTrue(sheet.getGlobalVisibleRect(sheetRect))
+                assertTrue(
+                    "active trip sheet still reserves space for a removed third bottom bar",
+                    rootRect.bottom - sheetRect.bottom <= dp(activity, 64)
+                )
 
                 val topCopy = descendantTextViews(top).map { it.text?.toString().orEmpty() }.toList()
-                val miniCopy = descendantTextViews(mini).map { it.text?.toString().orEmpty() }.toList()
                 assertTrue(
                     "active top chrome must describe the current walking leg before future transit: $topCopy",
                     topCopy.any { it.contains("Пеш", ignoreCase = true) }
                 )
                 assertTrue(
-                    "active mini chrome must describe the current walking leg before future transit: $miniCopy",
-                    miniCopy.any { it.contains("Пеш", ignoreCase = true) }
-                )
-                assertTrue(
                     "future bus m2 must not be presented as the current top-stage badge: $topCopy",
                     topCopy.none { it.trim().equals("м2", ignoreCase = true) }
-                )
-                assertTrue(
-                    "future bus m2 must not be presented as the current mini-stage badge: $miniCopy",
-                    miniCopy.none { it.trim().equals("м2", ignoreCase = true) }
                 )
             }
         }
