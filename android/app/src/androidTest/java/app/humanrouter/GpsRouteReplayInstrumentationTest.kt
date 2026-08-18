@@ -50,7 +50,11 @@ class GpsRouteReplayInstrumentationTest {
         try {
             launchTrip().use { scenario ->
                 instrumentation.waitForIdleSync()
-                SystemClock.sleep(180L)
+                // Screenshot evidence must represent a settled map, not only a settled Android view
+                // hierarchy. MapLibre style/tile rendering is asynchronous and the old 180 ms delay
+                // routinely captured the active-trip chrome over a transient grey map. The normal
+                // emulator screenshot harness already uses the same bounded five-second settle.
+                SystemClock.sleep(5_000L)
                 instrumentation.waitForIdleSync()
 
                 val route = checkNotNull(LastPlanStore.seed?.route) { "QA trip route was not installed" }
@@ -114,6 +118,11 @@ class GpsRouteReplayInstrumentationTest {
                             View.GONE,
                             activity.findViewById<View>(R.id.bottomNav).visibility
                         )
+                        assertEquals(
+                            "current-location control must remain available during active trip at ${step.name}",
+                            View.VISIBLE,
+                            activity.findViewById<View>(R.id.locationButton).visibility
+                        )
                         assertTrue(
                             "GPS phase copy is missing at ${step.name}: ${top.contentDescription}",
                             top.contentDescription?.toString()?.contains(step.expectedCopy, ignoreCase = true) == true
@@ -138,6 +147,19 @@ class GpsRouteReplayInstrumentationTest {
                         }
                         if (step.legIndex == 4) {
                             assertTrue("metro GPS stage is not shown as metro: $detailTitle", detailTitle.contains("Метро", ignoreCase = true))
+                        }
+                        if (
+                            step.legIndex in setOf(2, 4) &&
+                            step.expectedPhase in setOf(
+                                TripProgressPhase.WAITING,
+                                TripProgressPhase.ONBOARD,
+                                TripProgressPhase.ALIGHTING
+                            )
+                        ) {
+                            val stops = checkNotNull(findByTag(root, "vh_active_stop_timeline")) {
+                                "trusted stop timeline missing at ${step.name}"
+                            }
+                            assertEquals(View.VISIBLE, stops.visibility)
                         }
                     }
 

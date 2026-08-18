@@ -39,6 +39,10 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             // location, floating above the journey sheet. This owner snapshots/restores non-trip
             // geometry so home/search/route composition remains controlled by the existing owners.
             ActiveTripMapControlOwner.install(activity)
+            // The active map follows stage changes rather than the entire multimodal plan. GPS samples
+            // continuously move a dedicated passenger marker, while camera ownership changes only
+            // when the route leg changes, preserving manual panning between transitions.
+            ActiveTripMapProgressOwner.install(activity)
             // Typed stop/station symbols use a separate map spatial index, so the "Рядом" card can
             // stay short while the map shows a useful number of tappable transport points. The
             // lifecycle guard rebinds once the asynchronous MapLibre Style actually exists; this
@@ -70,6 +74,7 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             TripProgressUiController.destroy(activity)
             TransitStopMapLifecycleGuard.destroy(activity)
             TransitStopMapControllerV3.destroy(activity)
+            ActiveTripMapProgressOwner.destroy(activity)
             ActiveTripMapControlOwner.destroy(activity)
             ActiveTripSemanticGuard.destroy(activity)
             RouteSheetInteractionCoordinator.destroy(activity)
