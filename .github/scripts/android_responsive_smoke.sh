@@ -207,6 +207,15 @@ run_viewport() {
   capture_fixture "$out" trip active-trip 'В пути'
   capture_fixture "$out" settings settings 'Настройки'
 
+  # Keep the approved phone references in the same artifact as the produced phone screenshots.
+  # This makes the visual gate reproducible without relying on GitHub's text-only file API for JPEGs.
+  if [[ "$label" == 'compact-phone' ]]; then
+    cp docs/ui-reference/218231.jpg "$out/reference-218231.jpg"
+    cp docs/ui-reference/218233.jpg "$out/reference-218233.jpg"
+    test -s "$out/reference-218231.jpg"
+    test -s "$out/reference-218233.jpg"
+  fi
+
   if adb logcat -d -v brief | grep -A 12 'FATAL EXCEPTION' | grep -F "$package_name"; then
     echo "Fatal app exception detected for viewport $label" >&2
     exit 1
