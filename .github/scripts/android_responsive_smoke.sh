@@ -26,6 +26,11 @@ esac
 adb wait-for-device
 adb shell settings put global hide_error_dialogs 1
 adb shell settings put global anr_show_background 0 >/dev/null 2>&1 || true
+# Headless Google API images can leave launcher/system dialogs or the keyguard above the tested
+# Activity after a cold boot. Mirror the stable build-smoke preparation here: close only system-owned
+# surfaces, then still require the app's own window-focus assertions to pass inside instrumentation.
+adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
+adb shell wm dismiss-keyguard >/dev/null 2>&1 || true
 adb shell settings put global window_animation_scale 0
 adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
@@ -100,6 +105,11 @@ run_test_selector() {
   adb shell am force-stop "$package_name" >/dev/null 2>&1 || true
   adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
   adb shell pm clear "$package_name" >/dev/null
+  # A system/launcher dialog may appear asynchronously after boot or pm clear. Dismiss only those
+  # system-owned surfaces immediately before ActivityScenario starts; do not request focus for the
+  # app itself, so waitForWindowFocus still detects genuine app-owned focus/lifecycle regressions.
+  adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
+  adb shell wm dismiss-keyguard >/dev/null 2>&1 || true
   sleep 0.35
 
   local one_log
