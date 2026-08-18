@@ -1,0 +1,3 @@
+Dedicated QA prerelease trigger.
+Application source is unchanged from PR #8 head lineage.
+Personal testing only; not production signing.
