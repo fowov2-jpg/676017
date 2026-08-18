@@ -253,17 +253,19 @@ internal object ReferenceHomeGeometryOwner {
 
             (row.getChildAt(0) as? TextView)?.apply {
                 val original = (tag as? String) ?: text?.toString().orEmpty().also { tag = it }
-                val normalized = original.uppercase()
-                val icon = when {
-                    normalized.contains("Т") || normalized.contains("TRAM") -> R.drawable.ic_tram
-                    normalized.contains("М") || normalized.contains("M") || normalized.contains("METRO") -> R.drawable.ic_metro
-                    normalized.contains("D") || normalized.contains("TRAIN") || normalized.contains("ПОЕЗ") -> R.drawable.ic_transport
+                val primaryMode = original.uppercase().substringBefore('/').trim()
+                val icon = when (primaryMode) {
+                    "Т" -> R.drawable.ic_tram
+                    "М", "МЦК" -> R.drawable.ic_metro
+                    "D", "Э" -> R.drawable.ic_transport
                     else -> R.drawable.ic_bus
                 }
-                val badgeColor = when (icon) {
-                    R.drawable.ic_tram -> color(R.color.vh_tram)
-                    R.drawable.ic_metro -> color(R.color.vh_metro)
-                    R.drawable.ic_transport -> color(R.color.vh_train)
+                val badgeColor = when (primaryMode) {
+                    "Т" -> color(R.color.vh_tram)
+                    "М" -> color(R.color.vh_metro)
+                    "МЦК" -> color(R.color.vh_mcc)
+                    "D" -> color(R.color.vh_mcd)
+                    "Э" -> color(R.color.vh_train)
                     else -> color(R.color.vh_bus)
                 }
                 text = ""
