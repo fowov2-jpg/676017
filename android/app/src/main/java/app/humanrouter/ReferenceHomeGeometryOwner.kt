@@ -338,8 +338,10 @@ internal object ReferenceHomeGeometryOwner {
 
             (row.getChildAt(1) as? ViewGroup)?.let { copy ->
                 (copy.getChildAt(0) as? TextView)?.apply {
-                    textSize = 14f
-                    maxLines = 1
+                    // Long station names are normative product data, not decoration. Keep them
+                    // readable on the 360dp reference phone instead of forcing an ellipsis.
+                    textSize = 13.5f
+                    maxLines = 2
                     ellipsize = TextUtils.TruncateAt.END
                     includeFontPadding = false
                 }
