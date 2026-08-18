@@ -60,6 +60,7 @@ internal object ReferenceHomeGeometryOwner {
 
         private var applyPosted = false
         private var destroyed = false
+        private var lastAppliedSignature: String? = null
 
         private val layoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             scheduleApply()
@@ -97,8 +98,33 @@ internal object ReferenceHomeGeometryOwner {
 
             // The five approved references currently specify the phone composition. Keep tablets on
             // the existing responsive owner until their own reference geometry is approved.
-            if (widthDp >= 600 || widthDp > heightDp) return
-            if (!isHome()) return
+            if (widthDp >= 600 || widthDp > heightDp) {
+                lastAppliedSignature = null
+                return
+            }
+            if (!isHome()) {
+                lastAppliedSignature = null
+                return
+            }
+
+            // This owner listens to layout changes because Nearby rows and map state arrive
+            // asynchronously. Reassigning LayoutParams on every callback can itself trigger another
+            // layout pass, so make the owner explicitly convergent: apply only when geometry or the
+            // actual Nearby row set changed. This also keeps waitForIdleSync() from being starved by
+            // a self-sustaining phone-only layout loop.
+            val signature = buildString {
+                append(widthDp).append('x').append(heightDp)
+                append(':').append(nearbyState.visibility)
+                append(':').append(nearbyList.childCount)
+                for (index in 0 until nearbyList.childCount) {
+                    val row = nearbyList.getChildAt(index)
+                    append('|').append(System.identityHashCode(row))
+                    val badge = (row as? LinearLayout)?.getChildAt(0) as? TextView
+                    append(':').append(badge?.tag ?: badge?.text?.toString().orEmpty())
+                }
+            }
+            if (signature == lastAppliedSignature) return
+            lastAppliedSignature = signature
 
             styleSearch(widthDp)
             styleQuickActions(widthDp)
