@@ -168,8 +168,8 @@ internal object ActiveTripMapProgressOwner {
             icon.contentDescription = "Выход"
             icon.gravity = Gravity.CENTER
             icon.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_trip_exit, 0, 0, 0)
-            icon.compoundDrawableTintList = ColorStateList.valueOf(activity.getColor(R.color.vh_success))
-            icon.setPadding(dp(8), dp(8), dp(8), dp(8))
+            icon.compoundDrawableTintList = null
+            icon.setPadding(dp(6), dp(6), dp(6), dp(6))
         }
 
         private fun descendantTextViews(view: View): Sequence<TextView> = sequence {
