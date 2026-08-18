@@ -4,26 +4,20 @@ import android.animation.ValueAnimator
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
+import android.widget.LinearLayout
+import android.widget.TextView
 import java.util.WeakHashMap
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-/**
- * Interaction and final geometry owner for the route-options bottom sheet.
- *
- * The sheet keeps enough measured content for an expanded state, but the user initially sees only
- * a compact map-first portion. Dragging the handle moves the same laid-out surface through
- * collapsed / medium / expanded offsets. Older presentation code may still request a legacy fixed
- * height while route data or system insets are rendered; this coordinator reconciles that request
- * back to the responsive expanded capacity before a frame is allowed to draw, so LayoutParams no
- * longer depend on callback ordering or font scale.
- */
+/** Interaction and final geometry/semantic owner for the route-options bottom sheet. */
 internal object RouteSheetInteractionCoordinator {
     private val controllers = WeakHashMap<MainActivity, Controller>()
 
@@ -43,6 +37,7 @@ internal object RouteSheetInteractionCoordinator {
         private val root = activity.findViewById<FrameLayout>(R.id.root)
         private val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
         private val filters = activity.findViewById<HorizontalScrollView>(R.id.routeFiltersScroll)
+        private val routePanel = activity.findViewById<LinearLayout>(R.id.routeResultsPanel)
         private val primary = activity.findViewById<Button>(R.id.routePrimaryAction)
 
         private var routeOptionsVisible = false
@@ -57,23 +52,19 @@ internal object RouteSheetInteractionCoordinator {
         private val filtersLayoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             reconcileInitialOffset()
         }
+        private val routePanelLayoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            reconcileInitialOffset()
+        }
         private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
             if (activity.isFinishing || activity.isDestroyed) return@OnPreDrawListener true
-
-            // A late WindowInsets / legacy route-state callback can put the sheet back to a fixed
-            // 228-324dp height after ResponsiveProductUi already applied the correct ratio. Merely
-            // calling requestLayout here and returning true exposes one bad frame and, on large-text
-            // devices, ActivityScenario can observe that stale measured height. If geometry changed
-            // (or LayoutParams are correct but the old measurement is still on screen), cancel this
-            // draw. Android performs the requested traversal and the next pre-draw is admitted only
-            // once measured geometry matches the responsive policy.
-            val geometryPending = reconcileInitialOffset()
-            !geometryPending
+            // Never expose a stale legacy height or a semantically clipped route chain for one frame.
+            !reconcileInitialOffset()
         }
 
         init {
             sheet.addOnLayoutChangeListener(layoutListener)
             filters.addOnLayoutChangeListener(filtersLayoutListener)
+            routePanel.addOnLayoutChangeListener(routePanelLayoutListener)
             root.viewTreeObserver.addOnPreDrawListener(preDrawListener)
             installGesture()
             root.post(::reconcileInitialOffset)
@@ -83,6 +74,7 @@ internal object RouteSheetInteractionCoordinator {
             animator?.cancel()
             sheet.removeOnLayoutChangeListener(layoutListener)
             filters.removeOnLayoutChangeListener(filtersLayoutListener)
+            routePanel.removeOnLayoutChangeListener(routePanelLayoutListener)
             if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnPreDrawListener(preDrawListener)
             sheet.setOnTouchListener(null)
             sheet.translationY = 0f
@@ -95,9 +87,7 @@ internal object RouteSheetInteractionCoordinator {
         private fun isRouteOptions(): Boolean =
             sheet.visibility == View.VISIBLE && filters.visibility == View.VISIBLE && !isActiveTrip()
 
-        /**
-         * @return true when another layout traversal is required before the current frame is safe.
-         */
+        /** @return true when another layout traversal is required before the current frame is safe. */
         private fun reconcileInitialOffset(): Boolean {
             val routes = isRouteOptions()
             if (!routes) {
@@ -114,19 +104,55 @@ internal object RouteSheetInteractionCoordinator {
                 userOwnsOffset = false
             }
 
-            // MainActivity still owns route state and may set a legacy 228-324dp height while it is
-            // rebuilding route cards or applying system insets. The approved route-options reference
-            // needs room for endpoints, filters and alternatives, especially at 1.25x text and on
-            // tablets. Correct the underlying measured surface here; map-first behavior is controlled
-            // by translation below, not by throwing away the expanded content area.
+            val semanticPending = ensureRouteSemanticText()
             val heightPending = ensureExpandedSheetCapacity()
             val widthPending = applyTabletWidthIfNeeded()
-            val geometryPending = heightPending || widthPending
+            val geometryPending = semanticPending || heightPending || widthPending
 
             if (!userOwnsOffset && sheet.height > 0 && !geometryPending) {
                 sheet.translationY = offsets().medium
             }
             return geometryPending
+        }
+
+        /**
+         * ReferenceVisualTuning historically compressed every route chain to one ellipsized line.
+         * That made a visually present route lose its transport sequence, which 218235 explicitly
+         * forbids. This final owner restores the complete semantic chain after every late tuning pass.
+         */
+        private fun ensureRouteSemanticText(): Boolean {
+            var changed = false
+            routeCards().forEach { card ->
+                val chain = descendantTextViews(card)
+                    .firstOrNull { it.text?.toString()?.contains('›') == true }
+                    ?: return@forEach
+                if (chain.maxLines != 3) {
+                    chain.maxLines = 3
+                    changed = true
+                }
+                if (chain.ellipsize != null) {
+                    chain.ellipsize = null
+                    changed = true
+                }
+            }
+            if (changed && !routePanel.isLayoutRequested) routePanel.requestLayout()
+            return changed
+        }
+
+        private fun routeCards(): List<LinearLayout> = buildList {
+            for (index in 0 until routePanel.childCount) {
+                val child = routePanel.getChildAt(index)
+                if (child is LinearLayout && child.isClickable) add(child)
+            }
+        }
+
+        private fun descendantTextViews(view: View): Sequence<TextView> = sequence {
+            if (view is TextView) yield(view)
+            if (view is ViewGroup) {
+                for (index in 0 until view.childCount) {
+                    yieldAll(descendantTextViews(view.getChildAt(index)))
+                }
+            }
         }
 
         private data class Offsets(val expanded: Float, val medium: Float, val collapsed: Float) {
@@ -141,11 +167,9 @@ internal object RouteSheetInteractionCoordinator {
             val tablet = widthDp >= 600f
             val landscape = widthDp > heightDp
 
-            // The 218235 route-options reference requires several alternatives to be visible at the
-            // same time while the map remains a meaningful background. On the 360x800 reference
-            // phone the old ~33% medium state left the third QA route at y=1598/1600: technically in
-            // the hierarchy, visually absent. Keep the sheet draggable, but expose ~43% by default
-            // on narrow phones so three alternatives are actually readable without first dragging.
+            // 218235 requires several alternatives to be visible simultaneously. On the 360x800
+            // reference phone the old ~33% default left the third route at y=1598/1600. Keep the
+            // surface draggable, but expose enough of it by default to show three complete cards.
             val mediumVisibleDp = when {
                 tablet && landscape -> (heightDp * 0.30f).roundToInt().coerceIn(230, 280)
                 tablet -> min(380, (heightDp * 0.30f).roundToInt()).coerceAtLeast(290)
@@ -163,14 +187,6 @@ internal object RouteSheetInteractionCoordinator {
             )
         }
 
-        /**
-         * Keeps LayoutParams and the measured height on the same responsive value.
-         *
-         * Returning true when LayoutParams already contain the target but the current measurement is
-         * stale is intentional: the pre-draw listener then blocks that stale frame until the pending
-         * requestLayout has completed. Explicitly request that traversal when Android has retained a
-         * stale measurement; otherwise pre-draw could keep rejecting the same frame indefinitely.
-         */
         private fun ensureExpandedSheetCapacity(): Boolean {
             val rootHeight = root.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels
             val rootWidth = root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels
@@ -204,10 +220,6 @@ internal object RouteSheetInteractionCoordinator {
                 sheet.layoutParams = lp
                 changed = true
             }
-
-            // If the new LayoutParams were installed from an OnLayout/OnPreDraw callback, sheet.height
-            // can still represent the previous traversal. Do not let that stale measurement draw,
-            // but make sure a traversal is actually queued so this condition cannot become permanent.
             val measuredPending = sheet.isLaidOut && sheet.height > 0 && abs(sheet.height - targetHeight) > 1
             if (measuredPending && !sheet.isLayoutRequested) sheet.requestLayout()
             return changed || measuredPending
