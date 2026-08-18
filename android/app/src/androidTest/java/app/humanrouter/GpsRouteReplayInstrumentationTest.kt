@@ -95,16 +95,25 @@ class GpsRouteReplayInstrumentationTest {
                     scenario.onActivity { activity ->
                         val root = activity.findViewById<FrameLayout>(R.id.root)
                         assertEquals("duplicate active top card at ${step.name}", 1, countTag(root, "reference_active_trip_top"))
-                        assertEquals("duplicate active mini card at ${step.name}", 1, countTag(root, "reference_active_trip_mini"))
+                        assertEquals("duplicate legacy mini card at ${step.name}", 1, countTag(root, "reference_active_trip_mini"))
 
                         val top = checkNotNull(root.findViewWithTag<View>("reference_active_trip_top")) {
                             "active top card missing at ${step.name}"
                         }
                         val mini = checkNotNull(root.findViewWithTag<View>("reference_active_trip_mini")) {
-                            "active mini card missing at ${step.name}"
+                            "legacy active mini card missing at ${step.name}"
                         }
                         assertTrue("active top card hidden at ${step.name}", top.visibility == View.VISIBLE)
-                        assertTrue("active mini card hidden at ${step.name}", mini.visibility == View.VISIBLE)
+                        assertEquals(
+                            "third active-trip bottom bar must stay hidden at ${step.name}",
+                            View.GONE,
+                            mini.visibility
+                        )
+                        assertEquals(
+                            "global bottom navigation must stay hidden during active trip at ${step.name}",
+                            View.GONE,
+                            activity.findViewById<View>(R.id.bottomNav).visibility
+                        )
                         assertTrue(
                             "GPS phase copy is missing at ${step.name}: ${top.contentDescription}",
                             top.contentDescription?.toString()?.contains(step.expectedCopy, ignoreCase = true) == true
@@ -130,7 +139,6 @@ class GpsRouteReplayInstrumentationTest {
                         if (step.legIndex == 4) {
                             assertTrue("metro GPS stage is not shown as metro: $detailTitle", detailTitle.contains("Метро", ignoreCase = true))
                         }
-                        assertNoVerticalOverlap(top, mini, "active chrome overlaps at ${step.name}")
                     }
 
                     capture(output, "${step.name}.png")
@@ -214,15 +222,6 @@ class GpsRouteReplayInstrumentationTest {
             }
         }
         return null
-    }
-
-    private fun assertNoVerticalOverlap(top: View, bottom: View, message: String) {
-        val topLocation = IntArray(2)
-        val bottomLocation = IntArray(2)
-        top.getLocationOnScreen(topLocation)
-        bottom.getLocationOnScreen(bottomLocation)
-        val topBottom = topLocation[1] + top.height
-        assertTrue(message, topBottom <= bottomLocation[1])
     }
 
     private fun capture(output: File, name: String) {
