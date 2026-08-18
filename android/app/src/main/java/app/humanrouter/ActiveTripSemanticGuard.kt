@@ -14,7 +14,7 @@ import java.util.WeakHashMap
 import kotlin.math.ceil
 import kotlin.math.max
 
-/** Keeps reference active-trip chrome on the same leg as GPS/detail state. */
+/** Keeps reference active-trip chrome on the same leg as GPS/detail state and enforces no third bar. */
 internal object ActiveTripSemanticGuard {
     private val controllers = WeakHashMap<MainActivity, Controller>()
 
@@ -33,6 +33,7 @@ internal object ActiveTripSemanticGuard {
         private val root = activity.findViewById<FrameLayout>(R.id.root)
         private val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
         private val primary = activity.findViewById<Button>(R.id.routePrimaryAction)
+        private val bottomNav = activity.findViewById<View>(R.id.bottomNav)
         private var immediatePosted = false
         private val delayed = mutableListOf<Runnable>()
 
@@ -114,7 +115,21 @@ internal object ActiveTripSemanticGuard {
                 reconcileTop(top, leg, remainingMinutes, remainingMeters, remainingStops)
             }
             root.findViewWithTag<ViewGroup>(MINI_TAG)?.let { mini ->
+                // Keep the legacy view internally for compatibility with the existing reference
+                // builder, but never expose it as a third product bar below the active-trip sheet.
                 reconcileMini(mini, leg, remainingMeters, remainingStops)
+                if (mini.visibility != View.GONE) mini.visibility = View.GONE
+            }
+            enforceTripSheetBottomInset()
+        }
+
+        private fun enforceTripSheetBottomInset() {
+            val navBottom = (bottomNav.layoutParams as? FrameLayout.LayoutParams)?.bottomMargin ?: 0
+            val params = sheet.layoutParams as? FrameLayout.LayoutParams ?: return
+            val targetBottom = navBottom + dp(8)
+            if (params.bottomMargin != targetBottom) {
+                params.bottomMargin = targetBottom
+                sheet.layoutParams = params
             }
         }
 
@@ -281,6 +296,9 @@ internal object ActiveTripSemanticGuard {
                 }
             }
         }
+
+        private fun dp(value: Int): Int =
+            (value * activity.resources.displayMetrics.density + 0.5f).toInt()
     }
 
     private const val TOP_TAG = "reference_active_trip_top"
