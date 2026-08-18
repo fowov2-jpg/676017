@@ -77,7 +77,7 @@ class ChatAccessibilityService : AccessibilityService() {
 
         val sendButton = findFirst(root) { node ->
             if (!node.isClickable || !node.isEnabled) return@findFirst false
-            val label = "${node.text.orEmpty()} ${node.contentDescription.orEmpty()}".lowercase()
+            val label = "${node.text?.toString().orEmpty()} ${node.contentDescription?.toString().orEmpty()}".lowercase()
             label.contains("send") || label.contains("отправ") || label.contains("submit")
         }
         return sendButton?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
