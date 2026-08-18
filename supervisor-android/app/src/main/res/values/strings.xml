@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AI Supervisor</string>
+    <string name="accessibility_service_name">AI Supervisor · Chat watcher</string>
+    <string name="accessibility_description">Отслеживает только интерфейс ChatGPT: изменения чата, ошибки соединения и, при включённом пинателе, отправляет запрос на продолжение работы.</string>
+</resources>
