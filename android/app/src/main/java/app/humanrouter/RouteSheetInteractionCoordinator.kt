@@ -164,7 +164,8 @@ internal object RouteSheetInteractionCoordinator {
          *
          * Returning true when LayoutParams already contain the target but the current measurement is
          * stale is intentional: the pre-draw listener then blocks that stale frame until the pending
-         * requestLayout has completed.
+         * requestLayout has completed. Explicitly request that traversal when Android has retained a
+         * stale measurement; otherwise pre-draw could keep rejecting the same frame indefinitely.
          */
         private fun ensureExpandedSheetCapacity(): Boolean {
             val rootHeight = root.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels
@@ -201,8 +202,10 @@ internal object RouteSheetInteractionCoordinator {
             }
 
             // If the new LayoutParams were installed from an OnLayout/OnPreDraw callback, sheet.height
-            // can still represent the previous traversal. Do not let that stale measurement draw.
+            // can still represent the previous traversal. Do not let that stale measurement draw,
+            // but make sure a traversal is actually queued so this condition cannot become permanent.
             val measuredPending = sheet.isLaidOut && sheet.height > 0 && abs(sheet.height - targetHeight) > 1
+            if (measuredPending && !sheet.isLayoutRequested) sheet.requestLayout()
             return changed || measuredPending
         }
 
@@ -222,6 +225,7 @@ internal object RouteSheetInteractionCoordinator {
                 lp.rightMargin == 0
             ) {
                 val measuredPending = sheet.isLaidOut && sheet.width > 0 && abs(sheet.width - targetWidth) > 1
+                if (measuredPending && !sheet.isLayoutRequested) sheet.requestLayout()
                 return measuredPending
             }
             lp.width = targetWidth

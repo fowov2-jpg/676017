@@ -38,6 +38,11 @@ trap cleanup EXIT
 adb wait-for-device
 adb shell settings put global hide_error_dialogs 1
 adb shell settings put global anr_show_background 0 >/dev/null 2>&1 || true
+# Match the already-green API26/API35 emulator harness: a freshly booted headless Google image can
+# keep a stale launcher/system dialog or keyguard above the first test activity. Close those system
+# surfaces explicitly, then still require each instrumentation assertion to pass normally.
+adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
+adb shell wm dismiss-keyguard >/dev/null 2>&1 || true
 adb shell settings put global window_animation_scale 0
 adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
@@ -67,16 +72,18 @@ sleep 2
 instrumentation_output="$out/instrumentation.txt"
 : >"$instrumentation_output"
 
-capture_timeout_diagnostics() {
-  local selector=$1
+capture_selector_diagnostics() {
+  local reason=$1
+  local selector=$2
   local safe
   safe=$(printf '%s' "$selector" | tr -cs 'A-Za-z0-9._-' '_')
-  printf '\n===== TIMEOUT DIAGNOSTICS: %s =====\n' "$selector" >>"$instrumentation_output"
-  adb logcat -d -v threadtime >"$out/timeout-${safe}-logcat.txt" 2>&1 || true
-  adb shell dumpsys window >"$out/timeout-${safe}-window.txt" 2>&1 || true
-  adb shell dumpsys activity activities >"$out/timeout-${safe}-activity.txt" 2>&1 || true
-  adb shell dumpsys input_method >"$out/timeout-${safe}-ime.txt" 2>&1 || true
-  adb exec-out screencap -p >"$out/timeout-${safe}.png" 2>/dev/null || true
+  printf '\n===== %s DIAGNOSTICS: %s =====\n' "${reason^^}" "$selector" >>"$instrumentation_output"
+  adb logcat -d -v threadtime >"$out/${reason}-${safe}-logcat.txt" 2>&1 || true
+  adb shell dumpsys window windows >"$out/${reason}-${safe}-window-windows.txt" 2>&1 || true
+  adb shell dumpsys window displays >"$out/${reason}-${safe}-window-displays.txt" 2>&1 || true
+  adb shell dumpsys activity activities >"$out/${reason}-${safe}-activity.txt" 2>&1 || true
+  adb shell dumpsys input_method >"$out/${reason}-${safe}-ime.txt" 2>&1 || true
+  adb exec-out screencap -p >"$out/${reason}-${safe}.png" 2>/dev/null || true
 }
 
 run_test_selector() {
@@ -86,6 +93,8 @@ run_test_selector() {
 
   adb shell am force-stop "$package_name" >/dev/null 2>&1 || true
   adb shell am force-stop "$test_package" >/dev/null 2>&1 || true
+  adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
+  adb shell wm dismiss-keyguard >/dev/null 2>&1 || true
   adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
   adb shell pm clear "$package_name" >/dev/null
   sleep 0.35
@@ -103,18 +112,20 @@ run_test_selector() {
 
   if (( status == 124 || status == 137 )); then
     echo "Instrumentation selector timed out after ${selector_timeout_seconds}s: $selector" >&2
-    capture_timeout_diagnostics "$selector"
+    capture_selector_diagnostics timeout "$selector"
     adb shell am force-stop "$package_name" >/dev/null 2>&1 || true
     adb shell am force-stop "$test_package" >/dev/null 2>&1 || true
     rm -f "$one_log"
     return 124
   fi
   if (( status != 0 )); then
+    capture_selector_diagnostics failure "$selector"
     rm -f "$one_log"
     return "$status"
   fi
   grep -E 'OK \([0-9]+ tests?\)' "$one_log"
   if grep -E 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed' "$one_log"; then
+    capture_selector_diagnostics failure "$selector"
     rm -f "$one_log"
     return 1
   fi
@@ -134,6 +145,8 @@ capture_fixture() {
   local name=$2
   local expected=$3
   adb shell am force-stop "$package_name" >/dev/null 2>&1 || true
+  adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
+  adb shell wm dismiss-keyguard >/dev/null 2>&1 || true
   adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
   local start_output
   start_output=$(adb shell am start -W -n "$activity_name" --es qa_screen "$screen")
