@@ -191,6 +191,25 @@ class ReferenceProductUiSmokeTest {
                 assertEquals(View.GONE, activity.findViewById<View>(R.id.bottomNav).visibility)
                 assertNoOverlap(top!!, sheet, "active top card overlaps trip sheet")
                 assertNoOverlap(sheet, mini!!, "trip sheet overlaps bottom mini card")
+
+                val topCopy = descendantTextViews(top).map { it.text?.toString().orEmpty() }.toList()
+                val miniCopy = descendantTextViews(mini).map { it.text?.toString().orEmpty() }.toList()
+                assertTrue(
+                    "active top chrome must describe the current walking leg before future transit: $topCopy",
+                    topCopy.any { it.contains("Пеш", ignoreCase = true) }
+                )
+                assertTrue(
+                    "active mini chrome must describe the current walking leg before future transit: $miniCopy",
+                    miniCopy.any { it.contains("Пеш", ignoreCase = true) }
+                )
+                assertTrue(
+                    "future bus m2 must not be presented as the current top-stage badge: $topCopy",
+                    topCopy.none { it.trim().equals("м2", ignoreCase = true) }
+                )
+                assertTrue(
+                    "future bus m2 must not be presented as the current mini-stage badge: $miniCopy",
+                    miniCopy.none { it.trim().equals("м2", ignoreCase = true) }
+                )
             }
         }
     }
