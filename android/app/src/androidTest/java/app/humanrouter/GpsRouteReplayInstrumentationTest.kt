@@ -95,10 +95,10 @@ class GpsRouteReplayInstrumentationTest {
 
                     instrumentation.waitForIdleSync()
                     // ActiveTripMapProgressOwner intentionally reframes the camera only when the real
-                    // route leg changes. Give MapLibre a bounded extra settle only for those camera
-                    // moves; samples inside the same leg remain fast. This prevents a valid current
-                    // state from being captured over a transient grey tile surface.
-                    SystemClock.sleep(if (legChanged) 900L else 130L)
+                    // route leg changes. MapLibre then needs to fetch/render a new tile viewport. The
+                    // same three-second budget used by the normal screenshot harness is applied only
+                    // to those real camera transitions; samples inside one leg remain fast.
+                    SystemClock.sleep(if (legChanged) 3_000L else 130L)
                     instrumentation.waitForIdleSync()
 
                     scenario.onActivity { activity ->
@@ -132,6 +132,27 @@ class GpsRouteReplayInstrumentationTest {
                             "GPS phase copy is missing at ${step.name}: ${top.contentDescription}",
                             top.contentDescription?.toString()?.contains(step.expectedCopy, ignoreCase = true) == true
                         )
+
+                        if (step.legIndex in setOf(2, 4)) {
+                            val marker = checkNotNull(
+                                findByTag(root, "vh_active_trip_passenger_marker") as? ViewGroup
+                            ) { "passenger transport marker missing at ${step.name}" }
+                            assertEquals("passenger marker hidden at ${step.name}", View.VISIBLE, marker.visibility)
+                            assertEquals("passenger marker must contain one glyph at ${step.name}", 1, marker.childCount)
+                            assertTrue(
+                                "passenger marker lost TransitGlyphView at ${step.name}",
+                                marker.getChildAt(0).javaClass.simpleName == "TransitGlyphView"
+                            )
+                            val map = activity.findViewById<View>(R.id.mapView)
+                            val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
+                            assertTrue("passenger marker is left of map at ${step.name}", marker.x + marker.width > map.x)
+                            assertTrue("passenger marker is right of map at ${step.name}", marker.x < map.x + map.width)
+                            assertTrue("passenger marker is above map at ${step.name}", marker.y + marker.height > map.y)
+                            assertTrue(
+                                "passenger marker overlaps active-trip sheet at ${step.name}",
+                                marker.y + marker.height <= sheet.y + 2f
+                            )
+                        }
 
                         val gps = checkNotNull(findByTag(root, "vh_unified_gps_status") as? TextView) {
                             "GPS status card missing at ${step.name}"
