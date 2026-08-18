@@ -3,6 +3,7 @@ package app.humanrouter
 import android.content.Intent
 import android.graphics.Rect
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -75,8 +76,6 @@ class ReferenceProductUiSmokeTest {
                 val list = activity.findViewById<LinearLayout>(R.id.nearbyList)
                 assertEquals("QA populated fixture changed unexpectedly", 4, list.childCount)
 
-                // ReferenceHomeGeometryOwner is deliberately phone-only. Tablet shards still execute
-                // this test class, so only assert the owner's icon replacement below 600dp.
                 if (widthDp < 600f) {
                     val expectedModes = listOf("А", "М", "Т", "D/Э")
                     expectedModes.forEachIndexed { index, expectedMode ->
@@ -144,14 +143,34 @@ class ReferenceProductUiSmokeTest {
                 assertTrue("route sheet covers too much map", ratio <= 0.66f)
 
                 if (widthDp < 600f) {
-                    assertTrue("reference route fixture must expose at least three alternatives", routesPanel.childCount >= 3)
-                    val thirdRoute = routesPanel.getChildAt(2)
+                    val routeCards = (0 until routesPanel.childCount)
+                        .mapNotNull { routesPanel.getChildAt(it) as? LinearLayout }
+                        .filter { it.isClickable }
+                    assertTrue("reference route fixture must expose at least three alternatives", routeCards.size >= 3)
+
+                    val thirdRoute = routeCards[2]
                     val visible = Rect()
                     assertTrue("third route alternative has no visible rectangle", thirdRoute.getGlobalVisibleRect(visible))
                     assertTrue(
                         "third route alternative must be fully visible without an initial drag",
                         visible.height() >= thirdRoute.height - dp(activity, 2)
                     )
+
+                    routeCards.take(3).forEachIndexed { index, card ->
+                        val chain = descendantTextViews(card)
+                            .firstOrNull { it.text?.toString()?.contains('›') == true }
+                        assertNotNull("route ${index + 1} must expose its transport chain", chain)
+                        val layout = chain!!.layout
+                        assertNotNull("route ${index + 1} chain must be laid out", layout)
+                        assertTrue(
+                            "route ${index + 1} chain must not be ellipsized",
+                            (0 until chain.lineCount).all { line -> layout!!.getEllipsisCount(line) == 0 }
+                        )
+                        assertTrue(
+                            "route ${index + 1} chain must show the complete semantic text",
+                            chain.lineCount > 0 && layout!!.getLineEnd(chain.lineCount - 1) >= chain.text.length
+                        )
+                    }
                 }
             }
         }
@@ -173,6 +192,13 @@ class ReferenceProductUiSmokeTest {
                 assertNoOverlap(top!!, sheet, "active top card overlaps trip sheet")
                 assertNoOverlap(sheet, mini!!, "trip sheet overlaps bottom mini card")
             }
+        }
+    }
+
+    private fun descendantTextViews(view: View): Sequence<TextView> = sequence {
+        if (view is TextView) yield(view)
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) yieldAll(descendantTextViews(view.getChildAt(index)))
         }
     }
 
