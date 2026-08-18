@@ -47,97 +47,161 @@ class GpsRouteReplayInstrumentationTest {
             mkdirs()
         }
 
-        launchTrip().use { scenario ->
-            instrumentation.waitForIdleSync()
-            SystemClock.sleep(180L)
-            instrumentation.waitForIdleSync()
+        try {
+            launchTrip().use { scenario ->
+                instrumentation.waitForIdleSync()
+                // Screenshot evidence must represent a settled map, not only a settled Android view
+                // hierarchy. MapLibre style/tile rendering is asynchronous and the old 180 ms delay
+                // routinely captured the active-trip chrome over a transient grey map. The normal
+                // emulator screenshot harness already uses the same bounded five-second settle.
+                SystemClock.sleep(5_000L)
+                instrumentation.waitForIdleSync()
 
-            val route = checkNotNull(LastPlanStore.seed?.route) { "QA trip route was not installed" }
-            assertEquals("qa-bus-metro", route.id)
-            assertTrue("GPS replay needs a multimodal transfer route", route.legs.size >= 6)
+                val route = checkNotNull(LastPlanStore.seed?.route) { "QA trip route was not installed" }
+                assertEquals("qa-bus-metro", route.id)
+                assertTrue("GPS replay needs a multimodal transfer route", route.legs.size >= 6)
 
-            TripProgressState.clear()
-            val replay = listOf(
-                ReplayStep("gps-01-approach", 0, 0.45, midpoint(route.legs[0]), TripProgressPhase.APPROACH, "Идём к остановке"),
-                ReplayStep("gps-02-stop", 1, 0.55, midpoint(route.legs[1]), TripProgressPhase.APPROACH, "Идём к остановке"),
-                ReplayStep("gps-03-bus-wait", 2, 0.02, route.legs[2].departureEpochSec - 8L, TripProgressPhase.WAITING, "Ждём автобус"),
-                ReplayStep("gps-04-bus-onboard", 2, 0.46, midpoint(route.legs[2]), TripProgressPhase.ONBOARD, "В пути"),
-                ReplayStep("gps-05-bus-exit", 2, 0.89, route.legs[2].arrivalEpochSec - 55L, TripProgressPhase.ALIGHTING, "Скоро выход"),
-                ReplayStep("gps-06-transfer", 3, 0.50, midpoint(route.legs[3]), TripProgressPhase.TRANSFER, "Пересадка"),
-                ReplayStep("gps-07-metro-wait", 4, 0.02, route.legs[4].departureEpochSec - 8L, TripProgressPhase.WAITING, "Ждём метро"),
-                ReplayStep("gps-08-metro-onboard", 4, 0.48, midpoint(route.legs[4]), TripProgressPhase.ONBOARD, "В пути"),
-                ReplayStep("gps-09-metro-exit", 4, 0.90, route.legs[4].arrivalEpochSec - 55L, TripProgressPhase.ALIGHTING, "Скоро выход"),
-                ReplayStep("gps-10-final-walk", 5, 0.52, midpoint(route.legs[5]), TripProgressPhase.FINAL_WALK, "Идём к месту"),
-                ReplayStep("gps-11-finish", 5, 1.0, route.legs[5].arrivalEpochSec, TripProgressPhase.FINISHED, "Вы прибыли")
-            )
-
-            var previousLeg = -1
-            replay.forEach { step ->
-                val leg = route.legs[step.legIndex]
-                val point = pointAt(leg, step.fraction)
-                val snapshot = TripProgressState.publishLocation(
-                    route = route,
-                    point = point,
-                    epochSec = step.epochOffsetSec,
-                    accuracyMeters = 6f
+                TripProgressState.clear()
+                val replay = listOf(
+                    ReplayStep("gps-01-approach", 0, 0.45, midpoint(route.legs[0]), TripProgressPhase.APPROACH, "Идём к остановке"),
+                    ReplayStep("gps-02-stop", 1, 0.55, midpoint(route.legs[1]), TripProgressPhase.APPROACH, "Идём к остановке"),
+                    ReplayStep("gps-03-bus-wait", 2, 0.02, route.legs[2].departureEpochSec - 8L, TripProgressPhase.WAITING, "Ждём автобус"),
+                    ReplayStep("gps-04-bus-onboard", 2, 0.46, midpoint(route.legs[2]), TripProgressPhase.ONBOARD, "В пути"),
+                    ReplayStep("gps-05-bus-exit", 2, 0.89, route.legs[2].arrivalEpochSec - 55L, TripProgressPhase.ALIGHTING, "Скоро выход"),
+                    ReplayStep("gps-06-transfer", 3, 0.50, midpoint(route.legs[3]), TripProgressPhase.TRANSFER, "Пересадка"),
+                    ReplayStep("gps-07-metro-wait", 4, 0.02, route.legs[4].departureEpochSec - 8L, TripProgressPhase.WAITING, "Ждём метро"),
+                    ReplayStep("gps-08-metro-onboard", 4, 0.48, midpoint(route.legs[4]), TripProgressPhase.ONBOARD, "В пути"),
+                    ReplayStep("gps-09-metro-exit", 4, 0.90, route.legs[4].arrivalEpochSec - 55L, TripProgressPhase.ALIGHTING, "Скоро выход"),
+                    ReplayStep("gps-10-final-walk", 5, 0.52, midpoint(route.legs[5]), TripProgressPhase.FINAL_WALK, "Идём к месту"),
+                    ReplayStep("gps-11-finish", 5, 1.0, route.legs[5].arrivalEpochSec, TripProgressPhase.FINISHED, "Вы прибыли")
                 )
 
-                assertEquals("wrong GPS phase at ${step.name}", step.expectedPhase, snapshot.phase)
-                assertEquals("GPS attached to wrong leg at ${step.name}", step.legIndex, snapshot.legIndex)
-                assertTrue("GPS progress moved backwards at ${step.name}", snapshot.legIndex >= previousLeg)
-                previousLeg = snapshot.legIndex
-
-                instrumentation.waitForIdleSync()
-                SystemClock.sleep(130L)
-                instrumentation.waitForIdleSync()
-
-                scenario.onActivity { activity ->
-                    val root = activity.findViewById<FrameLayout>(R.id.root)
-                    assertEquals("duplicate active top card at ${step.name}", 1, countTag(root, "reference_active_trip_top"))
-                    assertEquals("duplicate active mini card at ${step.name}", 1, countTag(root, "reference_active_trip_mini"))
-
-                    val top = checkNotNull(root.findViewWithTag<View>("reference_active_trip_top")) {
-                        "active top card missing at ${step.name}"
-                    }
-                    val mini = checkNotNull(root.findViewWithTag<View>("reference_active_trip_mini")) {
-                        "active mini card missing at ${step.name}"
-                    }
-                    assertTrue("active top card hidden at ${step.name}", top.visibility == View.VISIBLE)
-                    assertTrue("active mini card hidden at ${step.name}", mini.visibility == View.VISIBLE)
-                    assertTrue(
-                        "GPS phase copy is missing at ${step.name}: ${top.contentDescription}",
-                        top.contentDescription?.toString()?.contains(step.expectedCopy, ignoreCase = true) == true
+                var previousLeg = -1
+                replay.forEach { step ->
+                    val leg = route.legs[step.legIndex]
+                    val point = pointAt(leg, step.fraction)
+                    val snapshot = TripProgressState.publishLocation(
+                        route = route,
+                        point = point,
+                        epochSec = step.epochOffsetSec,
+                        accuracyMeters = 6f
                     )
 
-                    val gps = checkNotNull(findByTag(root, "vh_unified_gps_status") as? TextView) {
-                        "GPS status card missing at ${step.name}"
-                    }
-                    assertTrue("GPS card does not describe current stage at ${step.name}", gps.text.contains("этап ${step.legIndex + 1}"))
+                    val legChanged = snapshot.legIndex != previousLeg
+                    assertEquals("wrong GPS phase at ${step.name}", step.expectedPhase, snapshot.phase)
+                    assertEquals("GPS attached to wrong leg at ${step.name}", step.legIndex, snapshot.legIndex)
+                    assertTrue("GPS progress moved backwards at ${step.name}", snapshot.legIndex >= previousLeg)
+                    previousLeg = snapshot.legIndex
 
-                    val detail = checkNotNull(findByTag(root, "vh_gps_current_stage_card") as? ViewGroup) {
-                        "detailed GPS stage card missing at ${step.name}"
+                    instrumentation.waitForIdleSync()
+                    // ActiveTripMapProgressOwner intentionally reframes the camera only when the real
+                    // route leg changes. MapLibre then needs to fetch/render a new tile viewport. The
+                    // same three-second budget used by the normal screenshot harness is applied only
+                    // to those real camera transitions; samples inside one leg remain fast.
+                    SystemClock.sleep(if (legChanged) 3_000L else 130L)
+                    instrumentation.waitForIdleSync()
+
+                    scenario.onActivity { activity ->
+                        val root = activity.findViewById<FrameLayout>(R.id.root)
+                        assertEquals("duplicate active top card at ${step.name}", 1, countTag(root, "reference_active_trip_top"))
+                        assertEquals("duplicate legacy mini card at ${step.name}", 1, countTag(root, "reference_active_trip_mini"))
+
+                        val top = checkNotNull(root.findViewWithTag<View>("reference_active_trip_top")) {
+                            "active top card missing at ${step.name}"
+                        }
+                        val mini = checkNotNull(root.findViewWithTag<View>("reference_active_trip_mini")) {
+                            "legacy active mini card missing at ${step.name}"
+                        }
+                        assertTrue("active top card hidden at ${step.name}", top.visibility == View.VISIBLE)
+                        assertEquals(
+                            "third active-trip bottom bar must stay hidden at ${step.name}",
+                            View.GONE,
+                            mini.visibility
+                        )
+                        assertEquals(
+                            "global bottom navigation must stay hidden during active trip at ${step.name}",
+                            View.GONE,
+                            activity.findViewById<View>(R.id.bottomNav).visibility
+                        )
+                        assertEquals(
+                            "current-location control must remain available during active trip at ${step.name}",
+                            View.VISIBLE,
+                            activity.findViewById<View>(R.id.locationButton).visibility
+                        )
+                        assertTrue(
+                            "GPS phase copy is missing at ${step.name}: ${top.contentDescription}",
+                            top.contentDescription?.toString()?.contains(step.expectedCopy, ignoreCase = true) == true
+                        )
+
+                        if (step.legIndex in setOf(2, 4)) {
+                            val marker = checkNotNull(
+                                findByTag(root, "vh_active_trip_passenger_marker") as? ViewGroup
+                            ) { "passenger transport marker missing at ${step.name}" }
+                            assertEquals("passenger marker hidden at ${step.name}", View.VISIBLE, marker.visibility)
+                            assertEquals("passenger marker must contain one glyph at ${step.name}", 1, marker.childCount)
+                            assertTrue(
+                                "passenger marker lost TransitGlyphView at ${step.name}",
+                                marker.getChildAt(0).javaClass.simpleName == "TransitGlyphView"
+                            )
+                            val map = activity.findViewById<View>(R.id.mapView)
+                            val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
+                            assertTrue("passenger marker is left of map at ${step.name}", marker.x + marker.width > map.x)
+                            assertTrue("passenger marker is right of map at ${step.name}", marker.x < map.x + map.width)
+                            assertTrue("passenger marker is above map at ${step.name}", marker.y + marker.height > map.y)
+                            assertTrue(
+                                "passenger marker overlaps active-trip sheet at ${step.name}",
+                                marker.y + marker.height <= sheet.y + 2f
+                            )
+                        }
+
+                        val gps = checkNotNull(findByTag(root, "vh_unified_gps_status") as? TextView) {
+                            "GPS status card missing at ${step.name}"
+                        }
+                        assertTrue("GPS card does not describe current stage at ${step.name}", gps.text.contains("этап ${step.legIndex + 1}"))
+
+                        val detail = checkNotNull(findByTag(root, "vh_gps_current_stage_card") as? ViewGroup) {
+                            "detailed GPS stage card missing at ${step.name}"
+                        }
+                        assertEquals(
+                            "detailed sheet is not GPS-owned at ${step.name}",
+                            "Текущий этап по GPS",
+                            (detail.getChildAt(0) as? TextView)?.text?.toString()
+                        )
+                        val detailTitle = (detail.getChildAt(1) as? TextView)?.text?.toString().orEmpty()
+                        if (step.expectedPhase == TripProgressPhase.TRANSFER) {
+                            assertTrue("transfer detail does not point to metro: $detailTitle", detailTitle.contains("Метро", ignoreCase = true))
+                        }
+                        if (step.legIndex == 4) {
+                            assertTrue("metro GPS stage is not shown as metro: $detailTitle", detailTitle.contains("Метро", ignoreCase = true))
+                        }
+                        if (
+                            step.legIndex in setOf(2, 4) &&
+                            step.expectedPhase in setOf(
+                                TripProgressPhase.WAITING,
+                                TripProgressPhase.ONBOARD,
+                                TripProgressPhase.ALIGHTING
+                            )
+                        ) {
+                            val stops = checkNotNull(findByTag(root, "vh_active_stop_timeline")) {
+                                "trusted stop timeline missing at ${step.name}"
+                            }
+                            assertEquals(View.VISIBLE, stops.visibility)
+                        }
                     }
-                    assertEquals(
-                        "detailed sheet is not GPS-owned at ${step.name}",
-                        "Текущий этап по GPS",
-                        (detail.getChildAt(0) as? TextView)?.text?.toString()
-                    )
-                    val detailTitle = (detail.getChildAt(1) as? TextView)?.text?.toString().orEmpty()
-                    if (step.expectedPhase == TripProgressPhase.TRANSFER) {
-                        assertTrue("transfer detail does not point to metro: $detailTitle", detailTitle.contains("Метро", ignoreCase = true))
-                    }
-                    if (step.legIndex == 4) {
-                        assertTrue("metro GPS stage is not shown as metro: $detailTitle", detailTitle.contains("Метро", ignoreCase = true))
-                    }
-                    assertNoVerticalOverlap(top, mini, "active chrome overlaps at ${step.name}")
+
+                    capture(output, "${step.name}.png")
                 }
 
-                capture(output, "${step.name}.png")
+                assertRequiredEvidence(output)
             }
-
-            assertRequiredEvidence(output)
+        } finally {
+            // This instrumentation command is followed by independent navigation/search suites in
+            // the responsive matrix. The QA trip deliberately seeds both global stores; leaving the
+            // selected route behind makes the next fresh Activity look as if it already has route
+            // options and invalidates that test's real "no route yet" precondition.
+            TripProgressState.clear()
+            LastPlanStore.seed = null
         }
-        TripProgressState.clear()
     }
 
     private fun launchTrip(): ActivityScenario<MainActivity> = ActivityScenario.launch(
@@ -206,15 +270,6 @@ class GpsRouteReplayInstrumentationTest {
             }
         }
         return null
-    }
-
-    private fun assertNoVerticalOverlap(top: View, bottom: View, message: String) {
-        val topLocation = IntArray(2)
-        val bottomLocation = IntArray(2)
-        top.getLocationOnScreen(topLocation)
-        bottom.getLocationOnScreen(bottomLocation)
-        val topBottom = topLocation[1] + top.height
-        assertTrue(message, topBottom <= bottomLocation[1])
     }
 
     private fun capture(output: File, name: String) {

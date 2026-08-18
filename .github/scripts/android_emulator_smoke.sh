@@ -175,7 +175,8 @@ capture_fixture nearby nearby 'Театральная площадь'
 capture_fixture error plan-error 'Проверьте адрес'
 capture_fixture routes route-options 'Бабушкинская'
 capture_fixture route_map selected-route-map 'Бабушкинская'
-capture_fixture trip active-trip 'В пути'
+# The QA route starts with a real walking leg. Bus/metro "В пути" states are covered by GPS replay.
+capture_fixture trip active-trip 'Пешком'
 capture_fixture settings settings 'Настройки'
 capture_fixture home dark-theme 'Куда едем?' true
 
@@ -188,7 +189,7 @@ adb exec-out screencap -p >"$output_dir/launcher-icon-app-info.png"
 test -s "$output_dir/launcher-icon-app-info.png"
 adb shell uiautomator dump /sdcard/vremyahodom-app-info.xml >/dev/null
 adb pull /sdcard/vremyahodom-app-info.xml "$output_dir/launcher-icon-app-info.xml" >/dev/null
-grep -F 'Время ходом' "$output_dir/launcher-icon-app-info.xml"
+grep -F 'ВремяХодом' "$output_dir/launcher-icon-app-info.xml"
 
 if adb logcat -d -v brief | grep -A 12 'FATAL EXCEPTION' | grep -F "$package_name"; then
   echo 'Fatal VremyaHodom exception detected in emulator logcat' >&2

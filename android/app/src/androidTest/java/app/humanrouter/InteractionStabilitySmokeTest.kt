@@ -17,6 +17,7 @@ import androidx.test.espresso.matcher.ViewMatchers.isRoot
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import app.humanrouter.routing.LastPlanStore
 import org.hamcrest.Matcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -28,6 +29,12 @@ class InteractionStabilitySmokeTest {
 
     @Test
     fun repeatedSearchSettingsAndNavigationReturnToIdle() {
+        // This class also runs inside the long all-tests instrumentation process. Explicitly clear
+        // persistent/static route state left by an earlier independent scenario so "no built route"
+        // means exactly that here. The interaction assertions below are unchanged and still exercise
+        // four complete search/settings/routes/map cycles in one Activity.
+        resetIndependentScenarioState()
+
         // Use the deterministic QA location state here. This test is about repeated app-owned
         // transitions, not the Android runtime-permission window (covered by MainActivitySmokeTest).
         // Starting from location_allowed prevents a system permission surface from stealing focus
@@ -44,6 +51,7 @@ class InteractionStabilitySmokeTest {
             repeat(4) {
                 waitForWindowFocus(scenario)
                 onView(withId(R.id.compactSearchButton)).perform(click())
+                waitForVisible(scenario, R.id.routeButton, "expanded search after compact-search click")
                 onView(withId(R.id.routeButton)).check(matches(isDisplayed()))
                 onView(withId(R.id.closeSearchButton)).perform(click())
 
@@ -56,9 +64,11 @@ class InteractionStabilitySmokeTest {
                 onView(isRoot()).perform(waitForUi(220L))
 
                 // With no built route, the Routes tab intentionally opens the expanded search and
-                // hides bottom navigation. Exercise that real state transition, close it, then
-                // return to Map through the visible navigation instead of clicking a hidden view.
+                // hides bottom navigation. Wait for that real state to settle before making the same
+                // visibility assertion; this preserves the guarantee while avoiding a frame-order
+                // race between click dispatch and the panel visibility update on tablet renderers.
                 onView(withId(R.id.routesNavButton)).perform(click())
+                waitForVisible(scenario, R.id.routeButton, "expanded search after Routes navigation")
                 onView(withId(R.id.routeButton)).check(matches(isDisplayed()))
                 onView(withId(R.id.closeSearchButton)).perform(click())
                 onView(withId(R.id.mapNavButton)).check(matches(isDisplayed())).perform(click())
@@ -92,6 +102,13 @@ class InteractionStabilitySmokeTest {
         }
     }
 
+    private fun resetIndependentScenarioState() {
+        val context = ApplicationProvider.getApplicationContext<VremyaHodomApp>()
+        LastPlanStore.seed = null
+        TripProgressState.clear()
+        ActiveTripStore.clear(context)
+    }
+
     private fun waitForWindowFocus(scenario: ActivityScenario<MainActivity>) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val deadline = SystemClock.uptimeMillis() + 15_000L
@@ -106,6 +123,26 @@ class InteractionStabilitySmokeTest {
             SystemClock.sleep(75L)
         }
         assertTrue("MainActivity window did not regain focus before stability interaction", ready)
+    }
+
+    private fun waitForVisible(
+        scenario: ActivityScenario<MainActivity>,
+        viewId: Int,
+        description: String
+    ) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val deadline = SystemClock.uptimeMillis() + 4_000L
+        var ready = false
+        while (SystemClock.uptimeMillis() < deadline) {
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                val target = activity.findViewById<View>(viewId)
+                ready = target.visibility == View.VISIBLE && target.isShown && !target.isLayoutRequested
+            }
+            if (ready) return
+            SystemClock.sleep(40L)
+        }
+        assertTrue("Timed out waiting for $description", ready)
     }
 
     private fun waitForUi(milliseconds: Long): ViewAction = object : ViewAction {

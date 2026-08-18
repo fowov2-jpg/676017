@@ -6,12 +6,14 @@ on:
     paths:
       - android/**
       - .github/scripts/android_responsive_smoke.sh
+      - .github/scripts/android_tablet_portrait_smoke.sh
       - .github/scripts/android_gps_replay_smoke.sh
       - .github/workflows/responsive-android.yml
   pull_request:
     paths:
       - android/**
       - .github/scripts/android_responsive_smoke.sh
+      - .github/scripts/android_tablet_portrait_smoke.sh
       - .github/scripts/android_gps_replay_smoke.sh
       - .github/workflows/responsive-android.yml
 
@@ -61,7 +63,14 @@ jobs:
   form-factor-smoke:
     needs: responsive-build
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        viewport:
+          - compact-phone
+          - compact-phone-large-text
+          - tablet-landscape
     steps:
       - uses: actions/checkout@v4
 
@@ -78,7 +87,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run compact-phone, large-text and tablet matrix
+      - name: Run responsive viewport ${{ matrix.viewport }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -87,13 +96,61 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash .github/scripts/android_responsive_smoke.sh android-ci 35
+          script: bash .github/scripts/android_responsive_smoke.sh android-ci 35 ${{ matrix.viewport }}
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: vremyahodom-responsive-phone-tablet
-          path: android/emulator-artifacts/responsive-api-35
+          name: vremyahodom-responsive-${{ matrix.viewport }}
+          path: android/emulator-artifacts/responsive-api-35/${{ matrix.viewport }}
+          if-no-files-found: error
+          retention-days: 90
+
+  tablet-portrait-smoke:
+    needs: responsive-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        group:
+          - core
+          - ui
+          - transit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: responsive-debug-apk
+          path: android-ci
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run tablet portrait ${{ matrix.group }} shard
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          VH_SELECTOR_TIMEOUT_SECONDS: '120'
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash .github/scripts/android_tablet_portrait_smoke.sh android-ci 35 ${{ matrix.group }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vremyahodom-responsive-tablet-portrait-${{ matrix.group }}
+          path: android/emulator-artifacts/responsive-api-35/tablet-portrait-${{ matrix.group }}
           if-no-files-found: error
           retention-days: 90
 

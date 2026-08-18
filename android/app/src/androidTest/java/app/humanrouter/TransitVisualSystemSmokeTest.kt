@@ -11,6 +11,7 @@ import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
 import androidx.test.espresso.matcher.ViewMatchers.withEffectiveVisibility
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.hamcrest.Matchers.containsString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -33,14 +34,18 @@ class TransitVisualSystemSmokeTest {
     }
 
     @Test
-    fun activeTripShowsSecondGenerationTransportStrip() {
+    fun activeTripUsesPassengerTimelineWithoutRedundantTransportStrip() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val intent = Intent(context, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             putExtra("qa_screen", "trip")
         }
         ActivityScenario.launch<MainActivity>(intent).use {
-            onView(v2Strip).check(matches(isDisplayed()))
+            // The approved active-trip reference uses the bottom passenger timeline itself, without
+            // a second horizontal mode strip consuming the initial sheet viewport.
+            onView(v2Strip).check(matches(withEffectiveVisibility(Visibility.GONE)))
+            onView(withContentDescription(containsString("Этап маршрута: Автобус м2")))
+                .check(matches(isDisplayed()))
         }
     }
 

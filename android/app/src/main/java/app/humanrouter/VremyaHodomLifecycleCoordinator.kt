@@ -21,16 +21,34 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             // addresses use the resilient resolver and the first route uses the bounded fast preview.
             FastSearchController.install(activity)
             FastRoutePlanner.install(activity)
+            // A queued showSoftInput() from the expanded-search frame must never reopen the IME after
+            // the user has already collapsed search. This guard owns that visibility/focus boundary.
+            SearchImeLifecycleGuard.install(activity)
 
-            // ResponsiveProductUi composes the screen; RouteSheetInteractionCoordinator is the
-            // final owner of the draggable route-sheet size so automatic restyling cannot fight
-            // the user's gesture. ResponsiveViewportGuard only protects the settings entrance.
+            // ResponsiveProductUi composes the generic form-factor layout. The approved phone HOME
+            // references require a denser, map-first composition, so ReferenceHomeGeometryOwner is
+            // the final geometry owner for HOME only. It never owns route/search/settings/trip layout.
             ResponsiveProductUi.install(activity)
+            ReferenceHomeGeometryOwner.install(activity)
             ResponsiveViewportGuard.install(activity)
             RouteSheetInteractionCoordinator.install(activity)
+            // Active-trip top/mini chrome must describe the same current leg as GPS/detail state;
+            // in particular, a future bus must not be presented while the passenger is still walking.
+            ActiveTripSemanticGuard.install(activity)
+            // The passenger reference keeps exactly one map control during an active trip: current
+            // location, floating above the journey sheet. This owner snapshots/restores non-trip
+            // geometry so home/search/route composition remains controlled by the existing owners.
+            ActiveTripMapControlOwner.install(activity)
+            // The active map follows stage changes rather than the entire multimodal plan. GPS samples
+            // continuously move a dedicated passenger marker, while camera ownership changes only
+            // when the route leg changes, preserving manual panning between transitions.
+            ActiveTripMapProgressOwner.install(activity)
             // Typed stop/station symbols use a separate map spatial index, so the "Рядом" card can
-            // stay short while the map shows a useful number of tappable transport points.
+            // stay short while the map shows a useful number of tappable transport points. The
+            // lifecycle guard rebinds once the asynchronous MapLibre Style actually exists; this
+            // prevents a slow first style load from permanently missing typed transport markers.
             TransitStopMapControllerV3.install(activity)
+            TransitStopMapLifecycleGuard.install(activity)
             // GPS progress binders only update content inside already-composed trip views; they do
             // not own sheet geometry or visibility. The same state receives real foreground
             // LocationManager samples and deterministic CI replay samples.
@@ -54,8 +72,14 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             PassengerGpsProgressCoordinator.destroy(activity)
             TripProgressDetailBinder.destroy(activity)
             TripProgressUiController.destroy(activity)
+            TransitStopMapLifecycleGuard.destroy(activity)
             TransitStopMapControllerV3.destroy(activity)
+            ActiveTripMapProgressOwner.destroy(activity)
+            ActiveTripMapControlOwner.destroy(activity)
+            ActiveTripSemanticGuard.destroy(activity)
             RouteSheetInteractionCoordinator.destroy(activity)
+            ReferenceHomeGeometryOwner.destroy(activity)
+            SearchImeLifecycleGuard.destroy(activity)
         }
         VremyaHodomUiCoordinator.onActivityDestroyed(activity)
     }

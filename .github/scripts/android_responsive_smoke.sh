@@ -3,6 +3,7 @@ set -euo pipefail
 
 artifact_dir=${1:?artifact directory is required}
 api_level=${2:-35}
+viewport_filter=${3:-all}
 package_name='app.humanrouter'
 activity_name='app.humanrouter/.MainActivity'
 test_runner='app.humanrouter.test/androidx.test.runner.AndroidJUnitRunner'
@@ -14,9 +15,22 @@ test -s "$app_apk"
 test -s "$test_apk"
 mkdir -p "$output_root"
 
+case "$viewport_filter" in
+  all|compact-phone|compact-phone-large-text|tablet-portrait|tablet-landscape) ;;
+  *)
+    echo "Unknown responsive viewport: $viewport_filter" >&2
+    exit 2
+    ;;
+esac
+
 adb wait-for-device
 adb shell settings put global hide_error_dialogs 1
 adb shell settings put global anr_show_background 0 >/dev/null 2>&1 || true
+# Headless Google API images can leave launcher/system dialogs or the keyguard above the tested
+# Activity after a cold boot. Mirror the stable build-smoke preparation here: close only system-owned
+# surfaces, then still require the app's own window-focus assertions to pass inside instrumentation.
+adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
+adb shell wm dismiss-keyguard >/dev/null 2>&1 || true
 adb shell settings put global window_animation_scale 0
 adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
@@ -47,9 +61,34 @@ capture_fixture() {
   local start_output
   start_output=$(adb shell am start -W -n "$activity_name" --es qa_screen "$screen")
   grep -F 'Status: ok' <<<"$start_output"
+
+  # MapLibre style/tile loading is asynchronous. A single fixed 3-second capture proved flaky:
+  # one HOME screenshot could still contain the blank map surface while the immediately following
+  # populated fixture had the fully rendered map. For the two reference HOME states, take a small
+  # bounded series and retain the most information-dense PNG (rendered vector tiles consistently
+  # compress to a larger file than the uniform placeholder surface). Other screens keep one capture.
   sleep 3
-  adb exec-out screencap -p >"$out/${name}.png"
-  test -s "$out/${name}.png"
+  local target="$out/${name}.png"
+  adb exec-out screencap -p >"$target"
+  test -s "$target"
+  if [[ "$name" == 'home' || "$name" == 'home-populated' ]]; then
+    local best_size candidate_size attempt candidate
+    best_size=$(stat -c '%s' "$target")
+    for attempt in 1 2 3; do
+      sleep 3
+      candidate="$out/.${name}-candidate-${attempt}.png"
+      adb exec-out screencap -p >"$candidate"
+      test -s "$candidate"
+      candidate_size=$(stat -c '%s' "$candidate")
+      if (( candidate_size > best_size )); then
+        mv "$candidate" "$target"
+        best_size=$candidate_size
+      else
+        rm -f "$candidate"
+      fi
+    done
+  fi
+
   adb shell uiautomator dump /sdcard/vh-responsive.xml >/dev/null
   adb pull /sdcard/vh-responsive.xml "$out/${name}.xml" >/dev/null
   grep -F "$expected" "$out/${name}.xml"
@@ -66,6 +105,11 @@ run_test_selector() {
   adb shell am force-stop "$package_name" >/dev/null 2>&1 || true
   adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
   adb shell pm clear "$package_name" >/dev/null
+  # A system/launcher dialog may appear asynchronously after boot or pm clear. Dismiss only those
+  # system-owned surfaces immediately before ActivityScenario starts; do not request focus for the
+  # app itself, so waitForWindowFocus still detects genuine app-owned focus/lifecycle regressions.
+  adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
+  adb shell wm dismiss-keyguard >/dev/null 2>&1 || true
   sleep 0.35
 
   local one_log
@@ -177,13 +221,15 @@ run_viewport() {
     fi
   done
 
-  local expected_completed=27
+  # ReferenceProductUiSmokeTest now contains five tests, so the base responsive matrix completes 28
+  # instrumentation tests per viewport. Compact phone additionally runs two offline address tests.
+  local expected_completed=28
   # The address lookup itself is viewport-independent, so run its two mandatory tests once on the
   # compact-phone pass with both Wi-Fi and cellular data explicitly disabled. This proves a normal
   # street/house lookup returns from runtime/address/address.sqlite before any online fallback.
   if [[ "$label" == 'compact-phone' ]]; then
     run_offline_address_gate "$instrumentation_output"
-    expected_completed=29
+    expected_completed=30
   fi
 
   completed=$(grep -c '^INSTRUMENTATION_STATUS_CODE: 0$' "$instrumentation_output" || true)
@@ -193,9 +239,40 @@ run_viewport() {
   fi
 
   capture_fixture "$out" home home 'Куда едем?'
+  capture_fixture "$out" nearby home-populated 'Театральная площадь'
   capture_fixture "$out" routes route-options 'Бабушкинская'
-  capture_fixture "$out" trip active-trip 'В пути'
+  # The QA trip begins on a real walking approach. Capture/validate the current stage instead of a
+  # stale generic transit title; GPS replay separately proves the later bus/metro "В пути" states.
+  capture_fixture "$out" trip active-trip 'Пешком'
   capture_fixture "$out" settings settings 'Настройки'
+
+  # Keep the approved phone references in the same artifact as the produced phone screenshots.
+  # Their integrity is reported explicitly because an artifact with a .jpg suffix is not sufficient
+  # evidence: the canonical SHA-256 values are part of the normative UI contract.
+  if [[ "$label" == 'compact-phone' ]]; then
+    cp docs/ui-reference/218231.jpg "$out/reference-218231.jpg"
+    cp docs/ui-reference/218233.jpg "$out/reference-218233.jpg"
+    test -s "$out/reference-218231.jpg"
+    test -s "$out/reference-218233.jpg"
+
+    local expected_218231='ff504b632a687365dd38fb3bd6fced3e5bc6f7a435637a1fde3ee9bbbe1c3790'
+    local expected_218233='7f66490ed62717bcd386afff56f0c9153ed68d4ab657d86025ba2a77aa824de0'
+    local actual_218231 actual_218233 integrity_status
+    actual_218231=$(sha256sum "$out/reference-218231.jpg" | awk '{print $1}')
+    actual_218233=$(sha256sum "$out/reference-218233.jpg" | awk '{print $1}')
+    integrity_status='PASS'
+    if [[ "$actual_218231" != "$expected_218231" || "$actual_218233" != "$expected_218233" ]]; then
+      integrity_status='FAIL'
+      echo '::warning::Canonical UI reference bytes do not match the SHA-256 values fixed by the UI contract; visual comparison must remain NOT RUN until canonical bytes are restored.'
+    fi
+    {
+      printf 'status=%s\n' "$integrity_status"
+      printf '218231_expected=%s\n' "$expected_218231"
+      printf '218231_actual=%s\n' "$actual_218231"
+      printf '218233_expected=%s\n' "$expected_218233"
+      printf '218233_actual=%s\n' "$actual_218233"
+    } >"$out/reference-integrity.txt"
+  fi
 
   if adb logcat -d -v brief | grep -A 12 'FATAL EXCEPTION' | grep -F "$package_name"; then
     echo "Fatal app exception detected for viewport $label" >&2
@@ -203,18 +280,26 @@ run_viewport() {
   fi
 }
 
+run_if_selected() {
+  local label=$1
+  shift
+  if [[ "$viewport_filter" == all || "$viewport_filter" == "$label" ]]; then
+    run_viewport "$label" "$@"
+  fi
+}
+
 # Narrow phone: catches wrapping, overlapping sheets and small touch targets.
 # 720/320 = 360dp, 1600/320 = 800dp.
-run_viewport compact-phone 720x1600 320 360 800 1.0
+run_if_selected compact-phone 720x1600 320 360 800 1.0
 
 # Same narrow phone with accessibility-sized text. This specifically catches labels such as
 # «Работа», «Рядом» and long transit names wrapping into neighboring controls.
-run_viewport compact-phone-large-text 720x1600 320 360 800 1.25
+run_if_selected compact-phone-large-text 720x1600 320 360 800 1.25
 
 # Tablet portrait. 1080/216 = 800dp, 1728/216 = 1280dp.
-run_viewport tablet-portrait 1080x1728 216 800 1280 1.0
+run_if_selected tablet-portrait 1080x1728 216 800 1280 1.0
 
 # Tablet landscape using the same APK and density: 1728/216 = 1280dp, 1080/216 = 800dp.
-run_viewport tablet-landscape 1728x1080 216 1280 800 1.0
+run_if_selected tablet-landscape 1728x1080 216 1280 800 1.0
 
-echo "Responsive phone/large-text/tablet smoke passed on API $api_level"
+echo "Responsive viewport $viewport_filter smoke passed on API $api_level"
