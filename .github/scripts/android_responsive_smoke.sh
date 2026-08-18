@@ -56,9 +56,34 @@ capture_fixture() {
   local start_output
   start_output=$(adb shell am start -W -n "$activity_name" --es qa_screen "$screen")
   grep -F 'Status: ok' <<<"$start_output"
+
+  # MapLibre style/tile loading is asynchronous. A single fixed 3-second capture proved flaky:
+  # one HOME screenshot could still contain the blank map surface while the immediately following
+  # populated fixture had the fully rendered map. For the two reference HOME states, take a small
+  # bounded series and retain the most information-dense PNG (rendered vector tiles consistently
+  # compress to a larger file than the uniform placeholder surface). Other screens keep one capture.
   sleep 3
-  adb exec-out screencap -p >"$out/${name}.png"
-  test -s "$out/${name}.png"
+  local target="$out/${name}.png"
+  adb exec-out screencap -p >"$target"
+  test -s "$target"
+  if [[ "$name" == 'home' || "$name" == 'home-populated' ]]; then
+    local best_size candidate_size attempt candidate
+    best_size=$(stat -c '%s' "$target")
+    for attempt in 1 2 3; do
+      sleep 3
+      candidate="$out/.${name}-candidate-${attempt}.png"
+      adb exec-out screencap -p >"$candidate"
+      test -s "$candidate"
+      candidate_size=$(stat -c '%s' "$candidate")
+      if (( candidate_size > best_size )); then
+        mv "$candidate" "$target"
+        best_size=$candidate_size
+      else
+        rm -f "$candidate"
+      fi
+    done
+  fi
+
   adb shell uiautomator dump /sdcard/vh-responsive.xml >/dev/null
   adb pull /sdcard/vh-responsive.xml "$out/${name}.xml" >/dev/null
   grep -F "$expected" "$out/${name}.xml"
@@ -210,12 +235,31 @@ run_viewport() {
   capture_fixture "$out" settings settings 'Настройки'
 
   # Keep the approved phone references in the same artifact as the produced phone screenshots.
-  # This makes the visual gate reproducible without relying on GitHub's text-only file API for JPEGs.
+  # Their integrity is reported explicitly because an artifact with a .jpg suffix is not sufficient
+  # evidence: the canonical SHA-256 values are part of the normative UI contract.
   if [[ "$label" == 'compact-phone' ]]; then
     cp docs/ui-reference/218231.jpg "$out/reference-218231.jpg"
     cp docs/ui-reference/218233.jpg "$out/reference-218233.jpg"
     test -s "$out/reference-218231.jpg"
     test -s "$out/reference-218233.jpg"
+
+    local expected_218231='ff504b632a687365dd38fb3bd6fced3e5bc6f7a435637a1fde3ee9bbbe1c3790'
+    local expected_218233='7f66490ed62717bcd386afff56f0c9153ed68d4ab657d86025ba2a77aa824de0'
+    local actual_218231 actual_218233 integrity_status
+    actual_218231=$(sha256sum "$out/reference-218231.jpg" | awk '{print $1}')
+    actual_218233=$(sha256sum "$out/reference-218233.jpg" | awk '{print $1}')
+    integrity_status='PASS'
+    if [[ "$actual_218231" != "$expected_218231" || "$actual_218233" != "$expected_218233" ]]; then
+      integrity_status='FAIL'
+      echo '::warning::Canonical UI reference bytes do not match the SHA-256 values fixed by the UI contract; visual comparison must remain NOT RUN until canonical bytes are restored.'
+    fi
+    {
+      printf 'status=%s\n' "$integrity_status"
+      printf '218231_expected=%s\n' "$expected_218231"
+      printf '218231_actual=%s\n' "$actual_218231"
+      printf '218233_expected=%s\n' "$expected_218233"
+      printf '218233_actual=%s\n' "$actual_218233"
+    } >"$out/reference-integrity.txt"
   fi
 
   if adb logcat -d -v brief | grep -A 12 'FATAL EXCEPTION' | grep -F "$package_name"; then
