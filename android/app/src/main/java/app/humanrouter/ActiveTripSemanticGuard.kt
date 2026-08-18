@@ -1,6 +1,5 @@
 package app.humanrouter
 
-import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -231,9 +230,9 @@ internal object ActiveTripSemanticGuard {
             val label = badgeLabel(leg)
             if (view.text?.toString() != label) view.text = label
             val current = view.compoundDrawablesRelative.firstOrNull()
-            if (current == null || view.getTag(BADGE_MODE_TAG_KEY) != leg.mode.name) {
+            if (current == null || view.getTag(R.id.routeFiltersPanel) != leg.mode.name) {
                 view.setCompoundDrawablesRelativeWithIntrinsicBounds(iconForMode(leg.mode), 0, 0, 0)
-                view.setTag(BADGE_MODE_TAG_KEY, leg.mode.name)
+                view.setTag(R.id.routeFiltersPanel, leg.mode.name)
             }
         }
 
@@ -284,8 +283,6 @@ internal object ActiveTripSemanticGuard {
         }
     }
 
-    // Reuse an existing id only as a private keyed-tag slot; it never changes that view's public tag.
-    private const val BADGE_MODE_TAG_KEY = R.id.routeFiltersPanel
     private const val TOP_TAG = "reference_active_trip_top"
     private const val MINI_TAG = "reference_active_trip_mini"
 }
