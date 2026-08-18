@@ -202,6 +202,7 @@ run_viewport() {
   fi
 
   capture_fixture "$out" home home 'Куда едем?'
+  capture_fixture "$out" nearby home-populated 'Театральная площадь'
   capture_fixture "$out" routes route-options 'Бабушкинская'
   capture_fixture "$out" trip active-trip 'В пути'
   capture_fixture "$out" settings settings 'Настройки'
