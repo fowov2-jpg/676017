@@ -61,13 +61,17 @@
 
 ## Android emulator / screenshot pipeline
 
-- API 26 emulator — **PASS** на последнем проверенном CI cycle.
-- API 35 emulator — **PASS** на последнем проверенном CI cycle.
-- compact / large-text / tablet portrait / tablet landscape — **PASS технически** на последнем responsive cycle.
+- Baseline head `9eac6220a995f18cb2d76515e89f870caf984ee9`: Build #549 — **PASS**, включая API 26 и API 35 emulator smoke.
+- Baseline head `9eac6220a995f18cb2d76515e89f870caf984ee9`: Responsive #152 — **PASS**, включая compact phone, large-text, tablet portrait/landscape и GPS replay.
 - screenshot artifacts — **PASS по наличию**.
-- соответствие утверждённым UI references — **FAIL** по фактической визуальной сверке 2026-08-18.
+- Обнаружена гонка screenshot capture с асинхронной загрузкой MapLibre: в одном и том же compact-phone artifact `home.png` мог содержать пустую карту, а следующий `home-populated.png` — уже прогруженную карту. На следующем head добавлен bounded recapture для HOME evidence; его CI должен быть проверен отдельно.
+- В актуальном `home-populated.png` обнаружено заметное обрезание длинного названия `Метро «Чистые пруды»`; на следующем head разрешён двухстрочный title и добавлена instrumentation-проверка отсутствия ellipsis. Его CI/screenshot evidence должен быть проверен отдельно.
+- Целостность repo-копий канонических `docs/ui-reference/218231.jpg` и `218233.jpg` — **FAIL**: фактические SHA-256 (`a201e0f7ad2a088f59e50763b6aa3eb2c72ce3e10b1b603b6e1edb0dbe6b51f3`, `c831f02e775247c9a16468f9c4a2de84ca921b219f22ac7cffe3912f8850ff55`) не совпадают с закреплёнными ТЗ (`ff504b632a687365dd38fb3bd6fced3e5bc6f7a435637a1fde3ee9bbbe1c3790`, `7f66490ed62717bcd386afff56f0c9153ed68d4ab657d86025ba2a77aa824de0`).
+- История GitHub подтверждает, что неверные binary blobs уже были добавлены commit `68553f28e7c67dad3ce8aa65562a1958d9d6aecb` (`Store canonical UI reference screenshots`); в его parent этих файлов ещё нет. Это не регрессия текущего PR.
+- Повторная точная визуальная сверка текущего head с 218231/218233 — **NOT RUN / BLOCKED**, пока канонические bytes с нормативными SHA-256 не восстановлены. Повреждённые `.jpg` нельзя использовать как замену эталона.
+- Предыдущий зафиксированный визуальный статус продукта остаётся **FAIL** до нового валидного side-by-side PASS.
 
-Важно: технический responsive PASS не перекрывает визуальный FAIL.
+Важно: технический responsive/build PASS не перекрывает визуальный FAIL/NOT RUN. Повреждённые reference bytes нельзя молча переопределять новыми изображениями или новыми SHA.
 
 ## Cloud real-device farm
 
@@ -95,4 +99,4 @@
 
 Supabase не включается в продукт без отдельной утверждённой функции.
 
-Текущий продуктовый статус: **инструментальная связка частично готова; UI gate = FAIL; APK нельзя объявлять соответствующей ТЗ до исправления UI BLOCKER-расхождений**.
+Текущий продуктовый статус: **технический baseline Build/Responsive = PASS; текущий visual gate = FAIL/NOT RUN до проверки нового screenshot head и восстановления канонических reference bytes; APK нельзя объявлять соответствующей ТЗ**.
