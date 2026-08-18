@@ -1,9 +1,14 @@
 package app.humanrouter
 
+import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.TextView
 import app.humanrouter.routing.LastPlanStore
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -12,6 +17,7 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -99,6 +105,7 @@ internal object ActiveTripMapProgressOwner {
             val route = currentRoute()?.takeIf { it.id == snapshot.routeId } ?: return
             val leg = route.legs.getOrNull(snapshot.legIndex) ?: return
             val visual = TransitVisualCatalog.forLeg(leg)
+            styleActiveBadge(leg, visual)
             mapView.getMapAsync { map ->
                 if (destroyed || !isActiveTrip()) return@getMapAsync
                 map.getStyle { style ->
@@ -111,7 +118,7 @@ internal object ActiveTripMapProgressOwner {
                     val halo = style.getLayerAs<CircleLayer>(HALO_LAYER_ID)
                         ?: CircleLayer(HALO_LAYER_ID, SOURCE_ID).also(style::addLayer)
                     halo.setProperties(
-                        PropertyFactory.circleRadius(16f),
+                        PropertyFactory.circleRadius(18f),
                         PropertyFactory.circleColor(Color.WHITE),
                         PropertyFactory.circleOpacity(0.94f),
                         PropertyFactory.circleStrokeColor(visual.color),
@@ -119,14 +126,17 @@ internal object ActiveTripMapProgressOwner {
                         PropertyFactory.visibility(Property.VISIBLE)
                     )
 
-                    val marker = style.getLayerAs<CircleLayer>(MARKER_LAYER_ID)
-                        ?: CircleLayer(MARKER_LAYER_ID, SOURCE_ID).also(style::addLayer)
+                    val markerImageId = markerImageId(leg, visual)
+                    if (style.getImage(markerImageId) == null) {
+                        style.addImage(markerImageId, markerBitmap(visual))
+                    }
+                    val marker = style.getLayerAs<SymbolLayer>(MARKER_LAYER_ID)
+                        ?: SymbolLayer(MARKER_LAYER_ID, SOURCE_ID).also(style::addLayer)
                     marker.setProperties(
-                        PropertyFactory.circleRadius(9.5f),
-                        PropertyFactory.circleColor(visual.color),
-                        PropertyFactory.circleStrokeColor(Color.WHITE),
-                        PropertyFactory.circleStrokeWidth(2.5f),
-                        PropertyFactory.circleOpacity(1f),
+                        PropertyFactory.iconImage(markerImageId),
+                        PropertyFactory.iconAllowOverlap(true),
+                        PropertyFactory.iconIgnorePlacement(true),
+                        PropertyFactory.iconSize(0.82f),
                         PropertyFactory.visibility(Property.VISIBLE)
                     )
                 }
@@ -137,6 +147,59 @@ internal object ActiveTripMapProgressOwner {
                     focusCurrentLeg(map, leg.mapPoints(), snapshot.point)
                 }
             }
+        }
+
+        /**
+         * The top active-trip badge and the map passenger marker must describe the same transport.
+         * ResponsiveProductUi creates the card, while TransitVisualCatalog is the single palette and
+         * line-semantics source used by the route map. Re-applying only these presentation properties
+         * keeps the card stable while preventing a generic red metro badge next to an orange line 6.
+         */
+        private fun styleActiveBadge(
+            leg: app.humanrouter.routing.RouteLeg,
+            visual: TransitVisualCatalog.Visual
+        ) {
+            val top = root.findViewWithTag<ViewGroup>(ACTIVE_TOP_TAG) ?: return
+            val badge = descendantTextViews(top).firstOrNull() ?: return
+            val label = if (leg.mode == app.humanrouter.routing.TransportMode.WALK) {
+                "ПЕШ"
+            } else {
+                visual.badge.ifBlank { visual.label }
+            }
+            if (badge.text?.toString() != label) badge.text = label
+            badge.backgroundTintList = ColorStateList.valueOf(visual.color)
+            badge.setTextColor(visual.foreground)
+            badge.compoundDrawableTintList = ColorStateList.valueOf(visual.foreground)
+        }
+
+        private fun descendantTextViews(view: View): Sequence<TextView> = sequence {
+            if (view is TextView) yield(view)
+            if (view is ViewGroup) {
+                for (index in 0 until view.childCount) {
+                    yieldAll(descendantTextViews(view.getChildAt(index)))
+                }
+            }
+        }
+
+        private fun markerImageId(
+            leg: app.humanrouter.routing.RouteLeg,
+            visual: TransitVisualCatalog.Visual
+        ): String = "$MARKER_IMAGE_PREFIX-${leg.mode.name.lowercase()}-${visual.color}"
+
+        private fun markerBitmap(visual: TransitVisualCatalog.Visual): Bitmap {
+            val size = dp(48)
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val marker = TransitGlyphView(
+                context = activity,
+                glyph = visual.glyph,
+                fillColor = visual.color,
+                foregroundColor = visual.foreground
+            )
+            val exact = View.MeasureSpec.makeMeasureSpec(size, View.MeasureSpec.EXACTLY)
+            marker.measure(exact, exact)
+            marker.layout(0, 0, size, size)
+            marker.draw(Canvas(bitmap))
+            return bitmap
         }
 
         private fun focusCurrentLeg(
@@ -151,7 +214,7 @@ internal object ActiveTripMapProgressOwner {
             if (points.size < 2) return
             val builder = LatLngBounds.Builder()
             points.forEach { builder.include(LatLng(it.lat, it.lon)) }
-            val top = root.findViewWithTag<View>("reference_active_trip_top")
+            val top = root.findViewWithTag<View>(ACTIVE_TOP_TAG)
             val topPadding = ((top?.bottom ?: 0) + dp(18)).coerceAtMost(root.height / 2)
             val sheetTop = (sheet.top + sheet.translationY).toInt()
             val bottomPadding = (root.height - sheetTop + dp(22)).coerceAtMost(root.height / 2)
@@ -178,7 +241,7 @@ internal object ActiveTripMapProgressOwner {
                     style.getLayerAs<CircleLayer>(HALO_LAYER_ID)?.setProperties(
                         PropertyFactory.visibility(Property.NONE)
                     )
-                    style.getLayerAs<CircleLayer>(MARKER_LAYER_ID)?.setProperties(
+                    style.getLayerAs<SymbolLayer>(MARKER_LAYER_ID)?.setProperties(
                         PropertyFactory.visibility(Property.NONE)
                     )
                 }
@@ -193,7 +256,9 @@ internal object ActiveTripMapProgressOwner {
         private fun dp(value: Int): Int = (value * density + 0.5f).toInt()
     }
 
+    private const val ACTIVE_TOP_TAG = "reference_active_trip_top"
     private const val SOURCE_ID = "vh-active-trip-position-source"
     private const val HALO_LAYER_ID = "vh-active-trip-position-halo"
     private const val MARKER_LAYER_ID = "vh-active-trip-position-marker"
+    private const val MARKER_IMAGE_PREFIX = "vh-active-trip-position-image"
 }
