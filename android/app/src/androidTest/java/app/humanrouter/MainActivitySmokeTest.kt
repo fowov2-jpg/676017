@@ -167,7 +167,9 @@ class MainActivitySmokeTest {
 
         relaunch("trip")
         onView(isRoot()).perform(waitForUi(250L))
-        onView(withText("В пути")).check(matches(isDisplayed()))
+        // The QA route starts with a real walking leg. Verify that current-stage content, not the
+        // future bus, is surfaced before continuing through the active-trip interaction flow.
+        onView(withText("Пешком 360 м")).check(matches(isDisplayed()))
         onView(withText("Пешком 0 м")).check(doesNotExist())
         onView(withText("Откуда")).check(doesNotExist())
         onView(withText("Куда")).check(doesNotExist())
