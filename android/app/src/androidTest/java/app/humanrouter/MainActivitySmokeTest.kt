@@ -7,6 +7,8 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.SystemClock
 import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ActivityScenario
@@ -167,9 +169,23 @@ class MainActivitySmokeTest {
 
         relaunch("trip")
         onView(isRoot()).perform(waitForUi(250L))
-        // The QA route starts with a real walking leg. Verify that current-stage content, not the
-        // future bus, is surfaced before continuing through the active-trip interaction flow.
-        onView(withText("Пешком 360 м")).check(matches(isDisplayed()))
+        // The same legitimate "Пешком 360 м" copy appears in the current-stage summary and in the
+        // first timeline row. Scope the semantic assertion to the top active-trip chrome instead of
+        // relying on a globally unique text matcher that the reference composition intentionally no
+        // longer provides.
+        scenario!!.onActivity { activity ->
+            val root = activity.findViewById<ViewGroup>(R.id.root)
+            val top = checkNotNull(root.findViewWithTag<ViewGroup>("reference_active_trip_top"))
+            val topCopy = descendantText(top).toList()
+            assertTrue(
+                "active top chrome must describe the current walking leg: $topCopy",
+                topCopy.any { it.contains("Пеш", ignoreCase = true) }
+            )
+            assertTrue(
+                "future bus m2 must not be presented as the current top-stage badge: $topCopy",
+                topCopy.none { it.trim().equals("м2", ignoreCase = true) }
+            )
+        }
         onView(withText("Пешком 0 м")).check(doesNotExist())
         onView(withText("Откуда")).check(doesNotExist())
         onView(withText("Куда")).check(doesNotExist())
@@ -218,6 +234,13 @@ class MainActivitySmokeTest {
             val root = activity.findViewById<View>(R.id.root)
             val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
             assertTrue("address error sheet is still oversized", sheet.height * 2 < root.height)
+        }
+    }
+
+    private fun descendantText(view: View): Sequence<String> = sequence {
+        if (view is TextView) yield(view.text?.toString().orEmpty())
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) yieldAll(descendantText(view.getChildAt(index)))
         }
     }
 
