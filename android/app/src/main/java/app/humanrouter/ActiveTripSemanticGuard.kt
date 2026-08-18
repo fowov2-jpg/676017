@@ -4,6 +4,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import app.humanrouter.routing.LastPlanStore
 import app.humanrouter.routing.RouteCandidate
@@ -32,6 +34,8 @@ internal object ActiveTripSemanticGuard {
     private class Controller(private val activity: MainActivity) {
         private val root = activity.findViewById<FrameLayout>(R.id.root)
         private val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
+        private val routeScroll = activity.findViewById<ScrollView>(R.id.routeResultsScroll)
+        private val routePanel = activity.findViewById<LinearLayout>(R.id.routeResultsPanel)
         private val primary = activity.findViewById<Button>(R.id.routePrimaryAction)
         private val bottomNav = activity.findViewById<View>(R.id.bottomNav)
         private var immediatePosted = false
@@ -121,6 +125,7 @@ internal object ActiveTripSemanticGuard {
                 if (mini.visibility != View.GONE) mini.visibility = View.GONE
             }
             enforceTripSheetBottomInset()
+            enforceTimelineFirstViewport()
         }
 
         private fun enforceTripSheetBottomInset() {
@@ -130,6 +135,37 @@ internal object ActiveTripSemanticGuard {
             if (params.bottomMargin != targetBottom) {
                 params.bottomMargin = targetBottom
                 sheet.layoutParams = params
+            }
+        }
+
+        /**
+         * The passenger reference starts the bottom sheet with the journey timeline itself. The top
+         * floating card already owns current-stage status, so repeating aggregate summary, mode chips
+         * and a second current-stage card above the timeline only pushes actionable stops below the
+         * initial viewport. Keep the legacy children in the hierarchy for binder compatibility, but
+         * collapse every direct pre-timeline child while the trip is active.
+         */
+        private fun enforceTimelineFirstViewport() {
+            var firstTimelineIndex = -1
+            for (index in 0 until routePanel.childCount) {
+                val child = routePanel.getChildAt(index)
+                if (child.contentDescription?.toString()?.startsWith(TIMELINE_PREFIX) == true) {
+                    firstTimelineIndex = index
+                    break
+                }
+            }
+            if (firstTimelineIndex <= 0) return
+
+            var changed = false
+            for (index in 0 until firstTimelineIndex) {
+                val child = routePanel.getChildAt(index)
+                if (child.visibility != View.GONE) {
+                    child.visibility = View.GONE
+                    changed = true
+                }
+            }
+            if (changed || routeScroll.scrollY != 0) {
+                routeScroll.post { routeScroll.scrollTo(0, 0) }
             }
         }
 
@@ -303,4 +339,5 @@ internal object ActiveTripSemanticGuard {
 
     private const val TOP_TAG = "reference_active_trip_top"
     private const val MINI_TAG = "reference_active_trip_mini"
+    private const val TIMELINE_PREFIX = "Этап маршрута:"
 }

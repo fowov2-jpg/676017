@@ -127,6 +127,7 @@ internal object ReferenceHomeGeometryOwner {
 
         private fun currentSignature(widthDp: Int, heightDp: Int): String = buildString {
             append(widthDp).append('x').append(heightDp)
+            append(":fs=").append(activity.resources.configuration.fontScale)
             append(':').append(nearbyState.visibility)
             append(':').append(nearbyList.childCount)
             appendFrameLayout(searchPanel)
@@ -248,7 +249,12 @@ internal object ReferenceHomeGeometryOwner {
             val navBottomPx = maxOf(dp(8), systemBottom + dp(6))
             val rowCount = nearbyList.childCount.coerceAtMost(3)
             val populated = rowCount > 0 && nearbyState.visibility != View.VISIBLE
-            val nearbyHeight = if (populated) 218 else 112
+            val largeText = activity.resources.configuration.fontScale > 1.15f
+            val nearbyHeight = when {
+                !populated -> 112
+                largeText -> 230
+                else -> 218
+            }
 
             (bottomNav.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
                 lp.leftMargin = dp(side)
@@ -303,7 +309,8 @@ internal object ReferenceHomeGeometryOwner {
 
         private fun styleNearbyRow(view: View) {
             val row = view as? LinearLayout ?: return
-            row.minimumHeight = dp(53)
+            val largeText = activity.resources.configuration.fontScale > 1.15f
+            row.minimumHeight = dp(if (largeText) 60 else 53)
             row.setPadding(0, dp(1), 0, dp(1))
 
             (row.getChildAt(0) as? TextView)?.apply {
@@ -338,22 +345,23 @@ internal object ReferenceHomeGeometryOwner {
 
             (row.getChildAt(1) as? ViewGroup)?.let { copy ->
                 (copy.getChildAt(0) as? TextView)?.apply {
-                    // Long station names are normative product data, not decoration. Keep them
-                    // readable on the 360dp reference phone instead of forcing an ellipsis.
-                    textSize = 13.5f
-                    maxLines = 2
-                    ellipsize = TextUtils.TruncateAt.END
+                    // Long stop/station names are product data. Under accessibility text scaling,
+                    // trade one extra line and a small type-size adjustment for complete readable
+                    // copy instead of truncating the name with an ellipsis.
+                    textSize = if (largeText) 12.5f else 13.5f
+                    maxLines = if (largeText) 3 else 2
+                    ellipsize = null
                     includeFontPadding = false
                 }
                 (copy.getChildAt(1) as? TextView)?.apply {
-                    textSize = 11.5f
-                    maxLines = 1
-                    ellipsize = TextUtils.TruncateAt.END
+                    textSize = if (largeText) 10.5f else 11.5f
+                    maxLines = if (largeText) 2 else 1
+                    ellipsize = if (largeText) null else TextUtils.TruncateAt.END
                     includeFontPadding = false
                 }
             }
             (row.getChildAt(2) as? TextView)?.apply {
-                textSize = 12f
+                textSize = if (largeText) 11f else 12f
                 maxLines = 2
                 includeFontPadding = false
             }

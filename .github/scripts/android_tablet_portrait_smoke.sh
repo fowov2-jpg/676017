@@ -199,7 +199,9 @@ done
 if [[ "$group" == 'ui' ]]; then
   capture_fixture home home 'Куда едем?'
   capture_fixture routes route-options 'Бабушкинская'
-  capture_fixture trip active-trip 'В пути'
+  # The QA trip starts on its walking approach. Validate the current stage instead of requiring
+  # the later generic transit title; GPS replay separately gates bus/metro "В пути" states.
+  capture_fixture trip active-trip 'Пешком'
   capture_fixture settings settings 'Настройки'
 fi
 
