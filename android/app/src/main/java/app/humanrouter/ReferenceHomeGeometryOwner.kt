@@ -241,7 +241,7 @@ internal object ReferenceHomeGeometryOwner {
                 includeFontPadding = false
             }
 
-            for (index in 0 until nearbyList.childCount.coerceAtMost(3)) {
+            for (index in 0 until nearbyList.childCount) {
                 styleNearbyRow(nearbyList.getChildAt(index))
             }
         }
