@@ -141,12 +141,16 @@ internal object RouteSheetInteractionCoordinator {
             val tablet = widthDp >= 600f
             val landscape = widthDp > heightDp
 
-            // Map-first default: roughly one third of the viewport remains occupied by route choices.
-            // Full route details are still available by dragging the handle upward.
+            // The 218235 route-options reference requires several alternatives to be visible at the
+            // same time while the map remains a meaningful background. On the 360x800 reference
+            // phone the old ~33% medium state left the third QA route at y=1598/1600: technically in
+            // the hierarchy, visually absent. Keep the sheet draggable, but expose ~43% by default
+            // on narrow phones so three alternatives are actually readable without first dragging.
             val mediumVisibleDp = when {
                 tablet && landscape -> (heightDp * 0.30f).roundToInt().coerceIn(230, 280)
                 tablet -> min(380, (heightDp * 0.30f).roundToInt()).coerceAtLeast(290)
-                widthDp < 380f || heightDp < 700f -> (heightDp * 0.32f).roundToInt().coerceIn(245, 285)
+                widthDp < 380f -> (heightDp * 0.43f).roundToInt().coerceIn(330, 350)
+                heightDp < 700f -> (heightDp * 0.40f).roundToInt().coerceIn(260, 300)
                 else -> (heightDp * 0.33f).roundToInt().coerceIn(270, 320)
             }
             val collapsedVisibleDp = if (tablet) 168 else 150
