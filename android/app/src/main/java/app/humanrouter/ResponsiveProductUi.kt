@@ -150,6 +150,8 @@ internal object ResponsiveProductUi {
             append(':').append(routeSheet.visibility)
             append(':').append(routeFilters.visibility)
             append(':').append(routePrimaryAction.visibility).append(':').append(routePrimaryAction.text)
+            append(':').append(routeSheet.layoutParams.height)
+            append(':').append((routeSheet.layoutParams as? FrameLayout.LayoutParams)?.bottomMargin ?: 0)
             append(':').append(settingsScrim.visibility)
             append(':').append(nearbyPanel.visibility).append(':').append(nearbyList.childCount)
             append(':').append(loadingPanel.visibility)
