@@ -2,7 +2,7 @@
 
 Дата проверки: 2026-08-18.
 
-Этот файл фиксирует только фактически проверенное состояние. Он не заменяет `docs/VREMYAHODOM_TOOLCHAIN_CONTRACT.md`.
+Этот файл фиксирует только фактически проверенное состояние. Он не заменяет `docs/VREMYAHODOM_TOOLCHAIN_CONTRACT.md` и `docs/VREMYAHODOM_PRODUCT_MAP.md`.
 
 ## GitHub
 
@@ -19,10 +19,13 @@
 
 - ChatGPT/Figma authentication — **PASS**.
 - Account plan: Starter, seat: View — **PASS** как факт подключения.
-- Доступ к конкретному проектному design-file ВремяХодом — **NOT RUN**: отдельный проектный Figma-файл ещё не назначен как рабочий источник.
-- Design-to-code measurements по проектному file/node — **NOT RUN**.
+- Создан отдельный design-file `ВремяХодом — UI Reference & Design System` — **PASS**.
+- File key: `ERXoCGpz16D4IxDp9qtnsv` — **PASS** как идентификатор созданного файла.
+- Локальные оригиналы `218231–218235` повторно проверены по SHA-256 и совпали с SHA-256 из ТЗ — **PASS**.
+- Загрузка этих пяти оригиналов в Figma — **NOT RUN**: текущая файловая среда не смогла разрешить `mcp.figma.com` при прямом upload POST. Нельзя считать картинки загруженными.
+- Design-to-code measurements по проектным nodes — **NOT RUN**, пока reference assets не размещены в Figma и не определены стабильные nodes.
 
-Ограничение: текущий Starter/View доступ имеет низкий лимит MCP read-вызовов, поэтому Figma должна использоваться экономно для стабильных design milestones; подтверждённые размеры и токены сохраняются в GitHub.
+Ограничение: текущий Starter/View доступ имеет низкий лимит MCP read-вызовов, поэтому Figma используется экономно для стабильных design milestones; подтверждённые размеры и токены сохраняются в GitHub.
 
 Роль: измеряемое представление утверждённых UI references. Не имеет права заменять пользовательские reference screenshots без явного согласования.
 
@@ -73,11 +76,18 @@
 
 До отдельного подключения основным реальным устройством проверки остаётся телефон пользователя, а автоматический baseline — GitHub Android Emulator.
 
+## Нормативная карта продукта
+
+- `docs/VREMYAHODOM_PRODUCT_MAP.md` создана — **PASS**.
+- Карта связывает requirement → экран/функцию → источник данных → код/API → evidence → criterion — **PASS по структуре документа**.
+- Текущие UI/branding/address-runtime blockers внесены явно — **PASS**.
+- Product-map PASS не означает готовность продукта: сами перечисленные BLOCKER остаются FAIL до исправления.
+
 ## Итог связки
 
 Рабочая основа сейчас:
 
-`Figma/references -> GitHub source -> GitHub CI/emulators/screenshots -> visual comparison -> QA APK`
+`утверждённые screenshots/Figma -> GitHub source -> GitHub CI/emulators/screenshots -> visual comparison -> QA APK`
 
 Дополнительная диагностика:
 
