@@ -25,10 +25,11 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             // the user has already collapsed search. This guard owns that visibility/focus boundary.
             SearchImeLifecycleGuard.install(activity)
 
-            // ResponsiveProductUi composes the screen; RouteSheetInteractionCoordinator is the
-            // final owner of the draggable route-sheet size so automatic restyling cannot fight
-            // the user's gesture. ResponsiveViewportGuard only protects the settings entrance.
+            // ResponsiveProductUi composes the generic form-factor layout. The approved phone HOME
+            // references require a denser, map-first composition, so ReferenceHomeGeometryOwner is
+            // the final geometry owner for HOME only. It never owns route/search/settings/trip layout.
             ResponsiveProductUi.install(activity)
+            ReferenceHomeGeometryOwner.install(activity)
             ResponsiveViewportGuard.install(activity)
             RouteSheetInteractionCoordinator.install(activity)
             // Typed stop/station symbols use a separate map spatial index, so the "Рядом" card can
@@ -63,6 +64,7 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             TransitStopMapLifecycleGuard.destroy(activity)
             TransitStopMapControllerV3.destroy(activity)
             RouteSheetInteractionCoordinator.destroy(activity)
+            ReferenceHomeGeometryOwner.destroy(activity)
             SearchImeLifecycleGuard.destroy(activity)
         }
         VremyaHodomUiCoordinator.onActivityDestroyed(activity)
