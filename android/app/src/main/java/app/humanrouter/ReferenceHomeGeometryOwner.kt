@@ -13,6 +13,8 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import java.util.WeakHashMap
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -107,29 +109,50 @@ internal object ReferenceHomeGeometryOwner {
                 return
             }
 
-            // This owner listens to layout changes because Nearby rows and map state arrive
-            // asynchronously. Reassigning LayoutParams on every callback can itself trigger another
-            // layout pass, so make the owner explicitly convergent: apply only when geometry or the
-            // actual Nearby row set changed. This also keeps waitForIdleSync() from being starved by
-            // a self-sustaining phone-only layout loop.
-            val signature = buildString {
-                append(widthDp).append('x').append(heightDp)
-                append(':').append(nearbyState.visibility)
-                append(':').append(nearbyList.childCount)
-                for (index in 0 until nearbyList.childCount) {
-                    val row = nearbyList.getChildAt(index)
-                    append('|').append(System.identityHashCode(row))
-                    val badge = (row as? LinearLayout)?.getChildAt(0) as? TextView
-                    append(':').append(badge?.tag ?: badge?.text?.toString().orEmpty())
-                }
-            }
+            // ResponsiveProductUi intentionally runs before this final phone owner and may refresh
+            // again after asynchronous state/layout changes. Track the actual output LayoutParams,
+            // not only the product state. If the generic owner overwrites a reference margin later,
+            // the signature changes and this owner restores the approved phone geometry once. Store
+            // the post-apply signature so the resulting layout is still convergent and idle-safe.
+            val signature = currentSignature(widthDp, heightDp)
             if (signature == lastAppliedSignature) return
-            lastAppliedSignature = signature
 
             styleSearch(widthDp)
             styleQuickActions(widthDp)
             styleMapControls(widthDp, heightDp)
             styleHomeDock(widthDp)
+
+            lastAppliedSignature = currentSignature(widthDp, heightDp)
+        }
+
+        private fun currentSignature(widthDp: Int, heightDp: Int): String = buildString {
+            append(widthDp).append('x').append(heightDp)
+            append(':').append(nearbyState.visibility)
+            append(':').append(nearbyList.childCount)
+            appendFrameLayout(searchPanel)
+            append(':').append(compactSearchRow.layoutParams?.height ?: 0)
+            appendFrameLayout(quickActions)
+            appendFrameLayout(locationButton)
+            appendFrameLayout(settingsButton)
+            appendFrameLayout(nearbyPanel)
+            appendFrameLayout(bottomNav)
+            for (index in 0 until nearbyList.childCount) {
+                val row = nearbyList.getChildAt(index)
+                append('|').append(System.identityHashCode(row))
+                val badge = (row as? LinearLayout)?.getChildAt(0) as? TextView
+                append(':').append(badge?.tag ?: badge?.text?.toString().orEmpty())
+            }
+        }
+
+        private fun StringBuilder.appendFrameLayout(view: View) {
+            val lp = view.layoutParams as? FrameLayout.LayoutParams
+            append('|').append(view.id)
+            append(':').append(lp?.width ?: 0).append('x').append(lp?.height ?: 0)
+            append(':').append(lp?.leftMargin ?: 0)
+            append(':').append(lp?.topMargin ?: 0)
+            append(':').append(lp?.rightMargin ?: 0)
+            append(':').append(lp?.bottomMargin ?: 0)
+            append(':').append(lp?.gravity ?: 0)
         }
 
         private fun isHome(): Boolean =
@@ -216,7 +239,13 @@ internal object ReferenceHomeGeometryOwner {
             val dockWidth = min(widthDp - 40, 340).coerceAtLeast(292)
             val side = ((widthDp - dockWidth) / 2).coerceAtLeast(18)
             val navHeight = 68
-            val navBottom = 8
+            val systemBottom = ViewCompat.getRootWindowInsets(root)
+                ?.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())
+                ?.bottom ?: 0
+            // MainActivity's base inset contract is bars.bottom + 6dp. Preserve it here instead of
+            // replacing it with a fixed 8dp margin; API 26 three-button navigation otherwise puts
+            // the nav button centres inside the system bar and Espresso/real taps leave the app.
+            val navBottomPx = maxOf(dp(8), systemBottom + dp(6))
             val rowCount = nearbyList.childCount.coerceAtMost(3)
             val populated = rowCount > 0 && nearbyState.visibility != View.VISIBLE
             val nearbyHeight = if (populated) 218 else 112
@@ -225,7 +254,7 @@ internal object ReferenceHomeGeometryOwner {
                 lp.leftMargin = dp(side)
                 lp.rightMargin = dp(side)
                 lp.height = dp(navHeight)
-                lp.bottomMargin = dp(navBottom)
+                lp.bottomMargin = navBottomPx
                 bottomNav.layoutParams = lp
             }
             bottomNav.apply {
@@ -249,7 +278,7 @@ internal object ReferenceHomeGeometryOwner {
                 lp.rightMargin = dp(side)
                 lp.height = dp(nearbyHeight)
                 // No visual gap: Nearby and the navigation bar are one floating dock, as in 218231/218233.
-                lp.bottomMargin = dp(navBottom + navHeight)
+                lp.bottomMargin = navBottomPx + dp(navHeight)
                 nearbyPanel.layoutParams = lp
             }
             nearbyPanel.apply {
