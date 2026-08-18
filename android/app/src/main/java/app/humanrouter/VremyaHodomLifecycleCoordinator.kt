@@ -35,6 +35,10 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             // Active-trip top/mini chrome must describe the same current leg as GPS/detail state;
             // in particular, a future bus must not be presented while the passenger is still walking.
             ActiveTripSemanticGuard.install(activity)
+            // The passenger reference keeps exactly one map control during an active trip: current
+            // location, floating above the journey sheet. This owner snapshots/restores non-trip
+            // geometry so home/search/route composition remains controlled by the existing owners.
+            ActiveTripMapControlOwner.install(activity)
             // Typed stop/station symbols use a separate map spatial index, so the "Рядом" card can
             // stay short while the map shows a useful number of tappable transport points. The
             // lifecycle guard rebinds once the asynchronous MapLibre Style actually exists; this
@@ -66,6 +70,7 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             TripProgressUiController.destroy(activity)
             TransitStopMapLifecycleGuard.destroy(activity)
             TransitStopMapControllerV3.destroy(activity)
+            ActiveTripMapControlOwner.destroy(activity)
             ActiveTripSemanticGuard.destroy(activity)
             RouteSheetInteractionCoordinator.destroy(activity)
             ReferenceHomeGeometryOwner.destroy(activity)

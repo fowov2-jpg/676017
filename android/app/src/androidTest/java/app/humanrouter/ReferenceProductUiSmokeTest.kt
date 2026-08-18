@@ -185,10 +185,14 @@ class ReferenceProductUiSmokeTest {
                 val top = root.findViewWithTag<View>("reference_active_trip_top")
                 val mini = root.findViewWithTag<View>("reference_active_trip_mini")
                 val sheet = activity.findViewById<View>(R.id.routeResultsContainer)
+                val location = activity.findViewById<View>(R.id.locationButton)
+                val settings = activity.findViewById<View>(R.id.settingsButton)
                 assertNotNull(top)
                 assertNotNull(mini)
                 assertEquals(View.GONE, activity.findViewById<View>(R.id.searchPanel).visibility)
                 assertEquals(View.GONE, activity.findViewById<View>(R.id.bottomNav).visibility)
+                assertEquals(View.VISIBLE, location.visibility)
+                assertEquals(View.GONE, settings.visibility)
                 assertEquals(
                     "legacy third active-trip bottom bar must never be visible",
                     View.GONE,
@@ -198,12 +202,30 @@ class ReferenceProductUiSmokeTest {
 
                 val rootRect = Rect()
                 val sheetRect = Rect()
+                val locationRect = Rect()
                 assertTrue(root.getGlobalVisibleRect(rootRect))
                 assertTrue(sheet.getGlobalVisibleRect(sheetRect))
+                assertTrue(location.getGlobalVisibleRect(locationRect))
                 assertTrue(
                     "active trip sheet still reserves space for a removed third bottom bar",
                     rootRect.bottom - sheetRect.bottom <= dp(activity, 64)
                 )
+
+                val widthDp = root.width / activity.resources.displayMetrics.density
+                if (widthDp < 600f) {
+                    assertTrue(
+                        "active-trip location control must stay on the left map edge",
+                        locationRect.centerX() < rootRect.left + rootRect.width() * 0.30f
+                    )
+                    assertTrue(
+                        "active-trip location control must float above the journey sheet",
+                        locationRect.bottom <= sheetRect.top - dp(activity, 6)
+                    )
+                    assertTrue(
+                        "active-trip location control is detached too far from the journey sheet",
+                        sheetRect.top - locationRect.bottom <= dp(activity, 36)
+                    )
+                }
 
                 val topCopy = descendantTextViews(top).map { it.text?.toString().orEmpty() }.toList()
                 assertTrue(
