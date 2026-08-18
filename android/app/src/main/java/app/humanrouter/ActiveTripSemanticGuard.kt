@@ -1,5 +1,6 @@
 package app.humanrouter
 
+import android.content.res.ColorStateList
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -7,9 +8,11 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import app.humanrouter.routing.LastPlanStore
 import app.humanrouter.routing.RouteCandidate
 import app.humanrouter.routing.RouteLeg
+import app.humanrouter.routing.RoutePresentation
 import app.humanrouter.routing.TransportMode
 import java.time.Instant
 import java.util.WeakHashMap
@@ -39,6 +42,7 @@ internal object ActiveTripSemanticGuard {
         private val primary = activity.findViewById<Button>(R.id.routePrimaryAction)
         private val bottomNav = activity.findViewById<View>(R.id.bottomNav)
         private var immediatePosted = false
+        private var lastTimelineAnchorKey: String? = null
         private val delayed = mutableListOf<Runnable>()
 
         private val layoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
@@ -95,7 +99,10 @@ internal object ActiveTripSemanticGuard {
                 primary.text?.toString()?.contains("Заверш", ignoreCase = true) == true
 
         private fun reconcile() {
-            if (!isActiveTrip()) return
+            if (!isActiveTrip()) {
+                lastTimelineAnchorKey = null
+                return
+            }
             val route = TripLiveState.current()?.route
                 ?: LastPlanStore.seed?.route
                 ?: ActiveTripStore.load(activity)?.route
@@ -125,7 +132,7 @@ internal object ActiveTripSemanticGuard {
                 if (mini.visibility != View.GONE) mini.visibility = View.GONE
             }
             enforceTripSheetBottomInset()
-            enforceTimelineFirstViewport()
+            enforceTimelineFirstViewport(route, leg)
         }
 
         private fun enforceTripSheetBottomInset() {
@@ -142,19 +149,23 @@ internal object ActiveTripSemanticGuard {
          * The passenger reference starts the bottom sheet with the journey timeline itself. The top
          * floating card already owns current-stage status, so repeating aggregate summary, mode chips
          * and a second current-stage card above the timeline only pushes actionable stops below the
-         * initial viewport. Keep the legacy children in the hierarchy for binder compatibility, but
-         * collapse every direct pre-timeline child while the trip is active.
+         * initial viewport. Keep those legacy children for binder compatibility, but hide them.
+         *
+         * GPS can advance independently from schedule time. When the active display step changes,
+         * anchor the sheet one row before it so the user sees current context plus what comes next.
+         * Do not keep forcing scroll position after that transition: manual scrolling must remain
+         * user-owned. Only the actual current row receives the soft highlight.
          */
-        private fun enforceTimelineFirstViewport() {
-            var firstTimelineIndex = -1
-            for (index in 0 until routePanel.childCount) {
-                val child = routePanel.getChildAt(index)
-                if (child.contentDescription?.toString()?.startsWith(TIMELINE_PREFIX) == true) {
-                    firstTimelineIndex = index
-                    break
+        private fun enforceTimelineFirstViewport(route: RouteCandidate, leg: RouteLeg) {
+            val timelineRows = buildList<View> {
+                for (index in 0 until routePanel.childCount) {
+                    val child = routePanel.getChildAt(index)
+                    if (child.contentDescription?.toString()?.startsWith(TIMELINE_PREFIX) == true) add(child)
                 }
             }
-            if (firstTimelineIndex <= 0) return
+            if (timelineRows.isEmpty()) return
+            val firstTimelineIndex = routePanel.indexOfChild(timelineRows.first())
+            if (firstTimelineIndex < 0) return
 
             var changed = false
             for (index in 0 until firstTimelineIndex) {
@@ -164,8 +175,37 @@ internal object ActiveTripSemanticGuard {
                     changed = true
                 }
             }
-            if (changed || routeScroll.scrollY != 0) {
-                routeScroll.post { routeScroll.scrollTo(0, 0) }
+
+            val steps = RoutePresentation.steps(route)
+            val currentStepIndex = steps.indexOfFirst { step ->
+                val modeMatches = if (leg.mode == TransportMode.WALK) step.mode == null else step.mode == leg.mode
+                modeMatches &&
+                    leg.departureEpochSec >= step.departureEpochSec &&
+                    leg.arrivalEpochSec <= step.arrivalEpochSec
+            }.takeIf { it >= 0 }
+                ?.coerceAtMost(timelineRows.lastIndex)
+                ?: 0
+
+            val activeColor = ColorStateList.valueOf(color(R.color.vh_primary_soft))
+            val idleColor = ColorStateList.valueOf(color(R.color.vh_surface_solid))
+            timelineRows.forEachIndexed { index, row ->
+                val card = (row as? ViewGroup)?.getChildAt(1)
+                val tint = if (index == currentStepIndex) activeColor else idleColor
+                if (card != null && card.backgroundTintList?.defaultColor != tint.defaultColor) {
+                    card.backgroundTintList = tint
+                }
+            }
+
+            val anchorKey = "${route.id}:$currentStepIndex"
+            if (changed || anchorKey != lastTimelineAnchorKey) {
+                lastTimelineAnchorKey = anchorKey
+                val anchorIndex = (currentStepIndex - 1).coerceAtLeast(0).coerceAtMost(timelineRows.lastIndex)
+                val anchor = timelineRows[anchorIndex]
+                routeScroll.post {
+                    if (!activity.isFinishing && !activity.isDestroyed) {
+                        routeScroll.scrollTo(0, anchor.top.coerceAtLeast(0))
+                    }
+                }
             }
         }
 
@@ -333,6 +373,7 @@ internal object ActiveTripSemanticGuard {
             }
         }
 
+        private fun color(id: Int): Int = ContextCompat.getColor(activity, id)
         private fun dp(value: Int): Int =
             (value * activity.resources.displayMetrics.density + 0.5f).toInt()
     }
