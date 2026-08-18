@@ -23,12 +23,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Ensure Android SDK 35
+      - name: Ensure Android SDK 36
         shell: bash
         run: |
           set -euo pipefail
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;35.0.0"
 
       - name: Install verified Gradle
         shell: bash
