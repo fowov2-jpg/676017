@@ -113,7 +113,7 @@ internal object ActiveTripMapProgressOwner {
             val route = currentRoute()?.takeIf { it.id == snapshot.routeId } ?: return
             val leg = route.legs.getOrNull(snapshot.legIndex) ?: return
             val visual = TransitVisualCatalog.forLeg(leg)
-            styleActiveBadge(leg, visual)
+            styleActiveChrome(leg, visual)
             passengerPoint = snapshot.point
             mapView.getMapAsync { map ->
                 if (destroyed || !isActiveTrip()) return@getMapAsync
@@ -137,12 +137,11 @@ internal object ActiveTripMapProgressOwner {
         }
 
         /**
-         * The top active-trip badge and the map passenger marker must describe the same transport.
-         * ResponsiveProductUi creates the card, while TransitVisualCatalog is the single palette and
-         * line-semantics source used by the route map. Re-applying only these presentation properties
-         * keeps the card stable while preventing a generic red metro badge next to an orange line 6.
+         * ResponsiveProductUi creates the card while TransitVisualCatalog remains the transport
+         * palette source. This pass keeps the badge semantic color in sync and replaces the generic
+         * text arrow with the approved door/exit pictogram without changing trip state or copy.
          */
-        private fun styleActiveBadge(
+        private fun styleActiveChrome(
             leg: app.humanrouter.routing.RouteLeg,
             visual: TransitVisualCatalog.Visual
         ) {
@@ -157,6 +156,20 @@ internal object ActiveTripMapProgressOwner {
             badge.backgroundTintList = ColorStateList.valueOf(visual.color)
             badge.setTextColor(visual.foreground)
             badge.compoundDrawableTintList = ColorStateList.valueOf(visual.foreground)
+            styleExitPictogram(top)
+        }
+
+        private fun styleExitPictogram(top: ViewGroup) {
+            val exitRow = top.getChildAt(top.childCount - 1) as? ViewGroup ?: return
+            val icon = exitRow.getChildAt(0) as? TextView ?: return
+            if (icon.tag?.toString() == EXIT_ICON_TAG) return
+            icon.tag = EXIT_ICON_TAG
+            icon.text = ""
+            icon.contentDescription = "Выход"
+            icon.gravity = Gravity.CENTER
+            icon.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_trip_exit, 0, 0, 0)
+            icon.compoundDrawableTintList = ColorStateList.valueOf(activity.getColor(R.color.vh_success))
+            icon.setPadding(dp(8), dp(8), dp(8), dp(8))
         }
 
         private fun descendantTextViews(view: View): Sequence<TextView> = sequence {
@@ -177,17 +190,17 @@ internal object ActiveTripMapProgressOwner {
             }
             existing?.let(root::removeView)
 
-            val size = dp(56)
+            val size = dp(MARKER_SIZE_DP)
             val marker = FrameLayout(activity).apply {
                 tag = MARKER_OVERLAY_TAG
                 isClickable = false
                 isFocusable = false
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                elevation = dp(18).toFloat()
+                elevation = dp(16).toFloat()
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
                     setColor(Color.WHITE)
-                    setStroke(dp(3), visual.color)
+                    setStroke(dp(2), visual.color)
                 }
                 addView(
                     TransitGlyphView(
@@ -196,7 +209,7 @@ internal object ActiveTripMapProgressOwner {
                         fillColor = visual.color,
                         foregroundColor = visual.foreground
                     ),
-                    FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER)
+                    FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER)
                 )
             }
             val params = FrameLayout.LayoutParams(size, size)
@@ -214,7 +227,7 @@ internal object ActiveTripMapProgressOwner {
             val rootLocation = IntArray(2)
             mapView.getLocationOnScreen(mapLocation)
             root.getLocationOnScreen(rootLocation)
-            val size = marker.layoutParams.width.takeIf { it > 0 } ?: dp(56)
+            val size = marker.layoutParams.width.takeIf { it > 0 } ?: dp(MARKER_SIZE_DP)
             val mapLeft = mapLocation[0] - rootLocation[0]
             val mapTop = mapLocation[1] - rootLocation[1]
             val mapRight = mapLeft + mapView.width
@@ -253,9 +266,9 @@ internal object ActiveTripMapProgressOwner {
             val top = root.findViewWithTag<View>(ACTIVE_TOP_TAG)
             val topPadding = ((top?.bottom ?: 0) + dp(18)).coerceAtMost(root.height / 2)
             val sheetTop = (sheet.top + sheet.translationY).toInt()
-            // The passenger pin is 56dp high. Keep enough bottom camera padding for the complete pin
-            // plus a small visual gap above the journey sheet, not merely the route center point.
-            val bottomPadding = (root.height - sheetTop + dp(72)).coerceAtMost(root.height / 2)
+            // The 40dp passenger pin plus a 16dp visual gap must remain above the journey sheet.
+            // Overlay clamping is still the final guard on short landscape/large-text viewports.
+            val bottomPadding = (root.height - sheetTop + dp(56)).coerceAtMost(root.height / 2)
             runCatching {
                 map.moveCamera(
                     CameraUpdateFactory.newLatLngBounds(
@@ -267,8 +280,6 @@ internal object ActiveTripMapProgressOwner {
                     )
                 )
             }
-            // moveCamera may synchronously emit projection changes, but a final post keeps the marker
-            // aligned even on implementations where the camera callback is deferred to the next frame.
             root.post { positionMarker(map, passengerPoint) }
         }
 
@@ -288,4 +299,6 @@ internal object ActiveTripMapProgressOwner {
 
     private const val ACTIVE_TOP_TAG = "reference_active_trip_top"
     private const val MARKER_OVERLAY_TAG = "vh_active_trip_passenger_marker"
+    private const val EXIT_ICON_TAG = "vh_active_trip_exit_icon"
+    private const val MARKER_SIZE_DP = 40
 }
