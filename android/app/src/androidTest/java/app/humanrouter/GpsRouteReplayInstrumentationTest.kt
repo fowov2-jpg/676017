@@ -87,13 +87,18 @@ class GpsRouteReplayInstrumentationTest {
                         accuracyMeters = 6f
                     )
 
+                    val legChanged = snapshot.legIndex != previousLeg
                     assertEquals("wrong GPS phase at ${step.name}", step.expectedPhase, snapshot.phase)
                     assertEquals("GPS attached to wrong leg at ${step.name}", step.legIndex, snapshot.legIndex)
                     assertTrue("GPS progress moved backwards at ${step.name}", snapshot.legIndex >= previousLeg)
                     previousLeg = snapshot.legIndex
 
                     instrumentation.waitForIdleSync()
-                    SystemClock.sleep(130L)
+                    // ActiveTripMapProgressOwner intentionally reframes the camera only when the real
+                    // route leg changes. Give MapLibre a bounded extra settle only for those camera
+                    // moves; samples inside the same leg remain fast. This prevents a valid current
+                    // state from being captured over a transient grey tile surface.
+                    SystemClock.sleep(if (legChanged) 900L else 130L)
                     instrumentation.waitForIdleSync()
 
                     scenario.onActivity { activity ->
