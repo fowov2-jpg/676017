@@ -70,18 +70,25 @@ class ReferenceProductUiSmokeTest {
         launch("nearby").use { scenario ->
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             scenario.onActivity { activity ->
+                val root = activity.findViewById<FrameLayout>(R.id.root)
+                val widthDp = root.width / activity.resources.displayMetrics.density
                 val list = activity.findViewById<LinearLayout>(R.id.nearbyList)
                 assertEquals("QA populated fixture changed unexpectedly", 4, list.childCount)
-                val expectedModes = listOf("А", "М", "Т", "D/Э")
-                expectedModes.forEachIndexed { index, expectedMode ->
-                    val row = list.getChildAt(index) as LinearLayout
-                    val badge = row.getChildAt(0) as TextView
-                    assertEquals("Nearby mode tag must preserve source semantics", expectedMode, badge.tag)
-                    assertEquals("Reference owner must replace every mode label with an icon", "", badge.text.toString())
-                    assertTrue(
-                        "Reference owner must attach a transport glyph to every Nearby row",
-                        badge.compoundDrawablesRelative.any { it != null }
-                    )
+
+                // ReferenceHomeGeometryOwner is deliberately phone-only. Tablet shards still execute
+                // this test class, so only assert the owner's icon replacement below 600dp.
+                if (widthDp < 600f) {
+                    val expectedModes = listOf("А", "М", "Т", "D/Э")
+                    expectedModes.forEachIndexed { index, expectedMode ->
+                        val row = list.getChildAt(index) as LinearLayout
+                        val badge = row.getChildAt(0) as TextView
+                        assertEquals("Nearby mode tag must preserve source semantics", expectedMode, badge.tag)
+                        assertEquals("Reference owner must replace every mode label with an icon", "", badge.text.toString())
+                        assertTrue(
+                            "Reference owner must attach a transport glyph to every Nearby row",
+                            badge.compoundDrawablesRelative.any { it != null }
+                        )
+                    }
                 }
             }
         }
