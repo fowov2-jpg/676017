@@ -5,6 +5,7 @@ import android.graphics.Rect
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -60,6 +61,28 @@ class ReferenceProductUiSmokeTest {
                 assertTrue(nav.height >= dp(activity, 60))
                 assertTrue(nav.height <= dp(activity, 82))
                 assertNoOverlap(nearby, nav, "nearby sheet overlaps bottom navigation")
+            }
+        }
+    }
+
+    @Test
+    fun populatedHomeStylesEveryScrollableNearbyRow() {
+        launch("nearby").use { scenario ->
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity { activity ->
+                val list = activity.findViewById<LinearLayout>(R.id.nearbyList)
+                assertEquals("QA populated fixture changed unexpectedly", 4, list.childCount)
+                val expectedModes = listOf("А", "М", "Т", "D/Э")
+                expectedModes.forEachIndexed { index, expectedMode ->
+                    val row = list.getChildAt(index) as LinearLayout
+                    val badge = row.getChildAt(0) as TextView
+                    assertEquals("Nearby mode tag must preserve source semantics", expectedMode, badge.tag)
+                    assertEquals("Reference owner must replace every mode label with an icon", "", badge.text.toString())
+                    assertTrue(
+                        "Reference owner must attach a transport glyph to every Nearby row",
+                        badge.compoundDrawablesRelative.any { it != null }
+                    )
+                }
             }
         }
     }
