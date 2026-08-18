@@ -186,13 +186,15 @@ run_viewport() {
     fi
   done
 
-  local expected_completed=27
+  # ReferenceProductUiSmokeTest now contains five tests, so the base responsive matrix completes 28
+  # instrumentation tests per viewport. Compact phone additionally runs two offline address tests.
+  local expected_completed=28
   # The address lookup itself is viewport-independent, so run its two mandatory tests once on the
   # compact-phone pass with both Wi-Fi and cellular data explicitly disabled. This proves a normal
   # street/house lookup returns from runtime/address/address.sqlite before any online fallback.
   if [[ "$label" == 'compact-phone' ]]; then
     run_offline_address_gate "$instrumentation_output"
-    expected_completed=29
+    expected_completed=30
   fi
 
   completed=$(grep -c '^INSTRUMENTATION_STATUS_CODE: 0$' "$instrumentation_output" || true)
