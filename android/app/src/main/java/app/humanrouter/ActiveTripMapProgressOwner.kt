@@ -234,7 +234,9 @@ internal object ActiveTripMapProgressOwner {
             val top = root.findViewWithTag<View>(ACTIVE_TOP_TAG)
             val topPadding = ((top?.bottom ?: 0) + dp(18)).coerceAtMost(root.height / 2)
             val sheetTop = (sheet.top + sheet.translationY).toInt()
-            val bottomPadding = (root.height - sheetTop + dp(22)).coerceAtMost(root.height / 2)
+            // The passenger pin is 56dp high. Keep enough bottom camera padding for the complete pin
+            // plus a small visual gap above the journey sheet, not merely the route center point.
+            val bottomPadding = (root.height - sheetTop + dp(72)).coerceAtMost(root.height / 2)
             runCatching {
                 map.moveCamera(
                     CameraUpdateFactory.newLatLngBounds(

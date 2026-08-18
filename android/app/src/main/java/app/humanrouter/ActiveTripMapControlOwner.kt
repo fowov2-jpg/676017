@@ -14,7 +14,8 @@ import kotlin.math.roundToInt
  * The approved active-trip reference keeps the current-location button on the map immediately above
  * the bottom journey sheet, while search/settings/navigation chrome is removed. ResponsiveProductUi
  * still owns every non-trip state; this owner snapshots the pre-trip LayoutParams, applies only the
- * active-trip lower-left position, and restores those params as soon as the trip mode ends.
+ * active-trip lower-left position, switches to the reference navigation-arrow glyph, and restores
+ * the normal HOME location control as soon as the trip mode ends.
  */
 internal object ActiveTripMapControlOwner {
     private val controllers = WeakHashMap<MainActivity, Controller>()
@@ -129,6 +130,8 @@ internal object ActiveTripMapControlOwner {
                 current.bottomMargin = bottomPx
                 location.layoutParams = current
             }
+            // Active-trip reference uses a directional navigation arrow, not the HOME crosshair.
+            location.setImageResource(R.drawable.ic_trip_navigation)
             if (location.translationX != 0f) location.translationX = 0f
             if (location.translationY != 0f) location.translationY = 0f
             if (location.visibility != View.VISIBLE) location.visibility = View.VISIBLE
@@ -140,6 +143,7 @@ internal object ActiveTripMapControlOwner {
             location.layoutParams = copyParams(state.params)
             location.translationX = state.translationX
             location.translationY = state.translationY
+            location.setImageResource(R.drawable.ic_my_location)
             location.visibility = state.visibility
         }
 
