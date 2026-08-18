@@ -27,8 +27,10 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
 
             // ResponsiveProductUi composes the generic form-factor layout. The approved phone HOME
             // references require a denser, map-first composition, so ReferenceHomeGeometryOwner is
-            // the final geometry owner for HOME only. It never owns route/search/settings/trip layout.
+            // the final geometry owner for HOME only. Route alternatives have their own final owner
+            // because MainActivity's late inset pass otherwise restores the legacy 300dp phone sheet.
             ResponsiveProductUi.install(activity)
+            ReferenceRouteOptionsGeometryOwner.install(activity)
             ReferenceHomeGeometryOwner.install(activity)
             ResponsiveViewportGuard.install(activity)
             RouteSheetInteractionCoordinator.install(activity)
@@ -78,6 +80,7 @@ internal object VremyaHodomLifecycleCoordinator : Application.ActivityLifecycleC
             ActiveTripMapControlOwner.destroy(activity)
             ActiveTripSemanticGuard.destroy(activity)
             RouteSheetInteractionCoordinator.destroy(activity)
+            ReferenceRouteOptionsGeometryOwner.destroy(activity)
             ReferenceHomeGeometryOwner.destroy(activity)
             SearchImeLifecycleGuard.destroy(activity)
         }
