@@ -122,20 +122,24 @@ internal object ActiveTripSemanticGuard {
                 ?: LastPlanStore.seed?.route
                 ?: ActiveTripStore.load(activity)?.route
                 ?: return
-            val now = Instant.now().epochSecond
+            val wallNow = Instant.now().epochSecond
             val snapshot = TripProgressState.current()?.takeIf { it.routeId == route.id }
             val leg = snapshot?.let { route.legs.getOrNull(it.legIndex) }
-                ?: currentLegBySchedule(route, now)
+                ?: currentLegBySchedule(route, wallNow)
                 ?: return
+            // Production GPS and deterministic replay both own progress time. Wall-clock is only the
+            // fallback before a location snapshot exists, so ETA cannot drift away from the state
+            // that selected the current stop/stage.
+            val stateNow = snapshot?.epochSec ?: wallNow
 
             val remainingMinutes = max(
                 1,
-                ceil((leg.arrivalEpochSec - now).coerceAtLeast(0L) / 60.0).toInt()
+                ceil((leg.arrivalEpochSec - stateNow).coerceAtLeast(0L) / 60.0).toInt()
             )
             val remainingMeters = snapshot?.distanceRemainingMeters?.coerceAtLeast(0)
                 ?: leg.walkMeters.coerceAtLeast(0)
             val remainingStops = snapshot?.remainingStops?.coerceAtLeast(0)
-                ?: estimatedRemainingStops(leg, now)
+                ?: estimatedRemainingStops(leg, stateNow)
 
             root.findViewWithTag<ViewGroup>(TOP_TAG)?.let { top ->
                 reconcileTop(top, leg, remainingMinutes, remainingMeters, remainingStops)
@@ -147,7 +151,7 @@ internal object ActiveTripSemanticGuard {
                 if (mini.visibility != View.GONE) mini.visibility = View.GONE
             }
             enforceTripSheetBottomInset()
-            if (!reconcileDetailedStopTimeline(route, leg, snapshot, now)) {
+            if (!reconcileDetailedStopTimeline(route, leg, snapshot, stateNow)) {
                 enforceTimelineFirstViewport(route, leg)
             }
         }
@@ -260,7 +264,8 @@ internal object ActiveTripSemanticGuard {
                             stop = stops[index],
                             index = index,
                             total = stops.size,
-                            current = index == currentIndex,
+                            currentIndex = currentIndex,
+                            leg = leg,
                             snapshot = snapshot
                         )
                     )
@@ -300,13 +305,21 @@ internal object ActiveTripSemanticGuard {
             return start.coerceAtLeast(0)
         }
 
+        /**
+         * Approved active-trip composition: progress rail on the left, stop copy in the middle and
+         * clock time aligned to the right edge. Past/current rail segments are primary; only future
+         * segments remain neutral. This is deliberately data-only styling: stop names/times still
+         * come exclusively from the trusted resolver.
+         */
         private fun detailedStopRow(
             stop: ActiveTripResolvedStop,
             index: Int,
             total: Int,
-            current: Boolean,
+            currentIndex: Int,
+            leg: RouteLeg,
             snapshot: TripProgressSnapshot?
         ): View = LinearLayout(activity).apply {
+            val current = index == currentIndex
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dp(55)
@@ -319,29 +332,27 @@ internal object ActiveTripSemanticGuard {
                 setColor(color(if (current) R.color.vh_primary_soft else R.color.vh_surface_solid))
             }
 
-            addView(TextView(activity).apply {
-                text = formatTime(if (index == 0) stop.departureEpochSec else stop.arrivalEpochSec)
-                textSize = 12f
-                includeFontPadding = false
-                gravity = Gravity.CENTER
-                setTextColor(color(if (current) R.color.vh_primary else R.color.vh_text_tertiary))
-                if (current) setTypeface(typeface, Typeface.BOLD)
-            }, LinearLayout.LayoutParams(dp(52), LinearLayout.LayoutParams.MATCH_PARENT))
-
             addView(FrameLayout(activity).apply {
                 if (index > 0) {
-                    addView(View(activity).apply { setBackgroundColor(color(R.color.vh_border)) }, FrameLayout.LayoutParams(dp(2), dp(27), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+                    val topPast = index <= currentIndex
+                    addView(View(activity).apply {
+                        setBackgroundColor(color(if (topPast) R.color.vh_primary else R.color.vh_border))
+                    }, FrameLayout.LayoutParams(dp(2), dp(28), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
                 }
                 if (index < total - 1) {
-                    addView(View(activity).apply { setBackgroundColor(color(R.color.vh_border)) }, FrameLayout.LayoutParams(dp(2), dp(30), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+                    val bottomPast = index < currentIndex
+                    addView(View(activity).apply {
+                        setBackgroundColor(color(if (bottomPast) R.color.vh_primary else R.color.vh_border))
+                    }, FrameLayout.LayoutParams(dp(2), dp(29), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
                 }
                 addView(View(activity).apply {
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL
-                        setColor(color(if (current) R.color.vh_primary else R.color.vh_border))
+                        setColor(color(if (index <= currentIndex) R.color.vh_primary else R.color.vh_border))
+                        if (current) setStroke(dp(3), color(R.color.vh_surface_solid))
                     }
-                }, FrameLayout.LayoutParams(dp(if (current) 13 else 9), dp(if (current) 13 else 9), Gravity.CENTER))
-            }, LinearLayout.LayoutParams(dp(26), dp(55)))
+                }, FrameLayout.LayoutParams(dp(if (current) 16 else 10), dp(if (current) 16 else 10), Gravity.CENTER))
+            }, LinearLayout.LayoutParams(dp(28), dp(55)))
 
             addView(LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -354,28 +365,48 @@ internal object ActiveTripSemanticGuard {
                     setTextColor(color(R.color.vh_text_primary))
                     if (current) setTypeface(typeface, Typeface.BOLD)
                 })
-                detailedInstruction(index, total, current, snapshot)?.let { copy ->
+                detailedInstruction(index, total, currentIndex, leg, snapshot)?.let { copy ->
                     addView(TextView(activity).apply {
                         text = copy
                         textSize = 11.5f
                         includeFontPadding = false
-                        setTextColor(color(if (current) R.color.vh_success else R.color.vh_text_tertiary))
+                        setTextColor(color(if (current) R.color.vh_primary else R.color.vh_text_tertiary))
                         if (current) setTypeface(typeface, Typeface.BOLD)
                         setPadding(0, dp(2), 0, 0)
                     })
                 }
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                leftMargin = dp(5)
+                leftMargin = dp(7)
+                rightMargin = dp(8)
             })
+
+            addView(TextView(activity).apply {
+                text = formatTime(if (index == 0) stop.departureEpochSec else stop.arrivalEpochSec)
+                textSize = 12f
+                includeFontPadding = false
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                setTextColor(color(if (current) R.color.vh_primary else R.color.vh_text_tertiary))
+                if (current) setTypeface(typeface, Typeface.BOLD)
+            }, LinearLayout.LayoutParams(dp(58), LinearLayout.LayoutParams.MATCH_PARENT))
         }
 
         private fun detailedInstruction(
             index: Int,
             total: Int,
-            current: Boolean,
+            currentIndex: Int,
+            leg: RouteLeg,
             snapshot: TripProgressSnapshot?
         ): String? {
-            if (!current) return if (index == total - 1) "Выход" else null
+            val current = index == currentIndex
+            if (!current) {
+                if (
+                    index == currentIndex - 1 &&
+                    snapshot?.phase in setOf(TripProgressPhase.ONBOARD, TripProgressPhase.ALIGHTING)
+                ) {
+                    return "Вы сели в ${boardingNoun(leg.mode)}"
+                }
+                return if (index == total - 1) "Выход" else null
+            }
             return when (snapshot?.phase) {
                 TripProgressPhase.WAITING -> "Посадка"
                 TripProgressPhase.ONBOARD -> if (snapshot.remainingStops > 0) {
@@ -385,6 +416,16 @@ internal object ActiveTripSemanticGuard {
                 TripProgressPhase.OFF_ROUTE -> "GPS уточняет положение"
                 else -> "Сейчас"
             }
+        }
+
+        private fun boardingNoun(mode: TransportMode): String = when (mode) {
+            TransportMode.BUS -> "автобус"
+            TransportMode.TRAM -> "трамвай"
+            TransportMode.METRO -> "метро"
+            TransportMode.MCC -> "МЦК"
+            TransportMode.MCD -> "МЦД"
+            TransportMode.TRAIN -> "поезд"
+            TransportMode.WALK -> "маршрут"
         }
 
         private fun removeDetailedTimeline() {
