@@ -14,6 +14,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.math.abs
 
 @RunWith(AndroidJUnit4::class)
 class ReferenceProductUiSmokeTest {
@@ -25,13 +26,37 @@ class ReferenceProductUiSmokeTest {
             scenario.onActivity { activity ->
                 val root = activity.findViewById<FrameLayout>(R.id.root)
                 val search = activity.findViewById<View>(R.id.searchPanel)
+                val quick = activity.findViewById<View>(R.id.quickActions)
                 val nearby = activity.findViewById<View>(R.id.nearbyPanel)
                 val nav = activity.findViewById<View>(R.id.bottomNav)
+                val location = activity.findViewById<View>(R.id.locationButton)
+                val settings = activity.findViewById<View>(R.id.settingsButton)
                 val widthDp = root.width / activity.resources.displayMetrics.density
-                assertTrue(search.width < root.width * if (widthDp >= 600f) 0.92f else 0.96f)
-                assertTrue(search.height >= dp(activity, 54))
-                assertTrue(nearby.height >= dp(activity, 120))
-                assertTrue(nearby.height <= dp(activity, if (widthDp >= 600f) 290 else 250))
+
+                assertEquals(
+                    "ВремяХодом",
+                    activity.packageManager.getApplicationLabel(activity.applicationInfo).toString()
+                )
+
+                if (widthDp < 600f) {
+                    val searchRatio = search.width.toFloat() / root.width.toFloat()
+                    val quickRatio = quick.width.toFloat() / root.width.toFloat()
+                    val nearbyRatio = nearby.width.toFloat() / root.width.toFloat()
+                    assertTrue("phone search is still stretched edge-to-edge", searchRatio in 0.72f..0.90f)
+                    assertTrue("phone quick actions are still stretched edge-to-edge", quickRatio in 0.60f..0.84f)
+                    assertTrue("phone Nearby dock is too wide/narrow for reference", nearbyRatio in 0.72f..0.90f)
+                    assertTrue("Nearby and bottom navigation must share one dock width", abs(nearby.width - nav.width) <= dp(activity, 2))
+                    assertDockSeam(nearby, nav, activity)
+                    assertTrue("map controls must stay in the upper half of the map", location.top < root.height * 0.48f)
+                    assertTrue("map controls must stay in the upper half of the map", settings.top < root.height * 0.56f)
+                    assertTrue(search.height in dp(activity, 50)..dp(activity, 66))
+                } else {
+                    assertTrue(search.width < root.width * 0.92f)
+                    assertTrue(search.height >= dp(activity, 54))
+                }
+
+                assertTrue(nearby.height >= dp(activity, 110))
+                assertTrue(nearby.height <= dp(activity, if (widthDp >= 600f) 290 else 230))
                 assertTrue(nav.height >= dp(activity, 60))
                 assertTrue(nav.height <= dp(activity, 82))
                 assertNoOverlap(nearby, nav, "nearby sheet overlaps bottom navigation")
@@ -96,6 +121,17 @@ class ReferenceProductUiSmokeTest {
                 assertNoOverlap(sheet, mini!!, "trip sheet overlaps bottom mini card")
             }
         }
+    }
+
+    private fun assertDockSeam(nearby: View, nav: View, activity: MainActivity) {
+        val nearbyRect = Rect()
+        val navRect = Rect()
+        assertTrue(nearby.getGlobalVisibleRect(nearbyRect))
+        assertTrue(nav.getGlobalVisibleRect(navRect))
+        val gap = navRect.top - nearbyRect.bottom
+        assertTrue("Nearby and navigation must visually join into one dock, gap=$gap", abs(gap) <= dp(activity, 2))
+        assertTrue("Nearby and navigation must share the same left edge", abs(nearbyRect.left - navRect.left) <= dp(activity, 2))
+        assertTrue("Nearby and navigation must share the same right edge", abs(nearbyRect.right - navRect.right) <= dp(activity, 2))
     }
 
     private fun assertNoOverlap(first: View, second: View, message: String) {
