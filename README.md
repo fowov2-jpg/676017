@@ -20,3 +20,7 @@ Installed size: ~273.7 MiB
 Recommended free space: ~383 MiB
 
 Large binary packs are intended to be published as GitHub Release assets; `manifest.json` is the machine-readable update contract.
+
+## Development workflow
+
+The required engineering stack, CI/CD rules, design workflow, animation approach, monitoring, and definition-of-done are documented in [`docs/DEVELOPMENT_STACK.md`](docs/DEVELOPMENT_STACK.md).
