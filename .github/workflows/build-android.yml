@@ -159,7 +159,7 @@ jobs:
           force-avd-creation: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
           script: |
-            set -euo pipefail
+            set -eu
             APK="$GITHUB_WORKSPACE/android/app/build/outputs/apk/debug/app-debug.apk"
             AAPT=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
             PKG=$($AAPT dump badging "$APK" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p")
@@ -169,13 +169,15 @@ jobs:
             adb install -r "$APK"
             adb logcat -c
             adb shell am start -n "$PKG/$ACTIVITY"
-            for i in $(seq 1 30); do
+            i=1
+            while [ "$i" -le 30 ]; do
               sleep 2
               if adb shell pidof "$PKG" | grep -Eq '[0-9]'; then
                 echo "APK process is running: $PKG"
                 adb shell dumpsys activity activities | grep -F "$PKG" | head -n 20 || true
                 exit 0
               fi
+              i=$((i + 1))
             done
             echo "APK did not stay running: $PKG" >&2
             adb shell dumpsys package "$PKG" >&2 || true
