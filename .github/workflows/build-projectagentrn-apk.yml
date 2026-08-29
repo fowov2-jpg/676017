@@ -32,7 +32,8 @@ jobs:
 
       - name: Install Android SDK packages
         run: |
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;26.1.10909125" "cmake;3.22.1" "emulator" "system-images;android-35;google_apis;x86_64"
+          yes | sdkmanager --licenses >/dev/null || true
 
       - name: Generate React Native Android scaffold
         run: |
@@ -59,6 +60,34 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Start Android emulator
+        run: |
+          echo "no" | avdmanager create avd -n test -k "system-images;android-35;google_apis;x86_64" --force
+          nohup emulator -avd test -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect > /tmp/emulator.log 2>&1 &
+          adb start-server
+          adb wait-for-device
+          for i in {1..60}; do
+            boot=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+            [ "$boot" = "1" ] && break
+            sleep 2
+          done
+          adb shell input keyevent 82 || true
+
+      - name: Install and launch release APK
+        run: |
+          adb install -r /tmp/ProjectAgentRNBuild/android/app/build/outputs/apk/release/app-release.apk
+          adb shell monkey -p com.projectagentrn 1
+          sleep 8
+          adb shell pidof com.projectagentrn
+
+      - name: Upload emulator logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProjectAgentRN-emulator-logs
+          path: /tmp/emulator.log
+          retention-days: 7
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
