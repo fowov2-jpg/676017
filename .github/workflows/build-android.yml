@@ -136,6 +136,46 @@ jobs:
 
           sha256sum "$APK" | tee android/app/build/outputs/apk/debug/app-debug.apk.sha256
 
+      - name: Install emulator packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+
+      - name: Run release APK in Android API 35 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
+          script: |
+            set -euo pipefail
+            APK="$GITHUB_WORKSPACE/android/app/build/outputs/apk/debug/app-debug.apk"
+            PKG=$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging "$APK" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p")
+            ACTIVITY=$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging "$APK" | sed -n "s/^launchable-activity: name='\\([^']*\\)'.*/\\1/p")
+            test -n "$PKG"
+            test -n "$ACTIVITY"
+            adb install -r "$APK"
+            adb logcat -c
+            adb shell am start -n "$PKG/$ACTIVITY"
+            for i in $(seq 1 30); do
+              sleep 2
+              if adb shell pidof "$PKG" | grep -Eq '[0-9]'; then
+                echo "APK process is running: $PKG"
+                adb shell dumpsys activity activities | grep -F "$PKG" | head -n 20 || true
+                exit 0
+              fi
+            done
+            echo "APK did not stay running: $PKG" >&2
+            adb shell dumpsys package "$PKG" >&2 || true
+            adb logcat -d -t 400 >&2 || true
+            exit 1
+
       - uses: actions/upload-artifact@v4
         with:
           name: vremyahodom-debug-apk
