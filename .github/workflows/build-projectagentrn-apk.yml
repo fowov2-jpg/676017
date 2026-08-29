@@ -1,0 +1,69 @@
+name: Build ProjectAgentRN APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ProjectAgentRN-Android/**'
+      - '.github/workflows/build-projectagentrn-apk.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
+
+      - name: Generate React Native Android scaffold
+        run: |
+          rm -rf /tmp/ProjectAgentRNBuild
+          npx @react-native-community/cli@15.0.1 init ProjectAgentRNBuild --version 0.76.5 --skip-install --directory /tmp/ProjectAgentRNBuild
+
+      - name: Overlay uploaded ProjectAgentRN source
+        run: |
+          cp -f ProjectAgentRN-Android/App.tsx /tmp/ProjectAgentRNBuild/App.tsx
+          cp -f ProjectAgentRN-Android/index.js /tmp/ProjectAgentRNBuild/index.js
+          cp -f ProjectAgentRN-Android/app.json /tmp/ProjectAgentRNBuild/app.json
+          cp -f ProjectAgentRN-Android/babel.config.js /tmp/ProjectAgentRNBuild/babel.config.js
+          cp -f ProjectAgentRN-Android/metro.config.js /tmp/ProjectAgentRNBuild/metro.config.js
+          cp -f ProjectAgentRN-Android/package.json /tmp/ProjectAgentRNBuild/package.json
+          rm -rf /tmp/ProjectAgentRNBuild/src
+          cp -R ProjectAgentRN-Android/src /tmp/ProjectAgentRNBuild/src
+
+      - name: Install JavaScript dependencies
+        working-directory: /tmp/ProjectAgentRNBuild
+        run: npm install --legacy-peer-deps
+
+      - name: Build debug APK
+        working-directory: /tmp/ProjectAgentRNBuild/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProjectAgentRN-debug-apk
+          path: /tmp/ProjectAgentRNBuild/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
