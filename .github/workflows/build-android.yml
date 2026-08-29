@@ -140,8 +140,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          sdkmanager "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER=$(find "${ANDROID_HOME}/cmdline-tools" -type f -name sdkmanager -print -quit || true)
+          fi
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
 
       - name: Run release APK in Android API 35 emulator
         uses: reactivecircus/android-emulator-runner@v2
@@ -156,8 +161,9 @@ jobs:
           script: |
             set -euo pipefail
             APK="$GITHUB_WORKSPACE/android/app/build/outputs/apk/debug/app-debug.apk"
-            PKG=$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging "$APK" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p")
-            ACTIVITY=$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging "$APK" | sed -n "s/^launchable-activity: name='\\([^']*\\)'.*/\\1/p")
+            AAPT=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
+            PKG=$($AAPT dump badging "$APK" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p")
+            ACTIVITY=$($AAPT dump badging "$APK" | sed -n "s/^launchable-activity: name='\\([^']*\\)'.*/\\1/p")
             test -n "$PKG"
             test -n "$ACTIVITY"
             adb install -r "$APK"
